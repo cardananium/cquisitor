@@ -1,0 +1,16 @@
+{
+  "files": {
+    "main.css": "/cquisitor/static/css/main.78a5bc19.css",
+    "main.js": "/cquisitor/static/js/main.60a30f6f.js",
+    "static/js/787.7caeba98.chunk.js": "/cquisitor/static/js/787.7caeba98.chunk.js",
+    "module.wasm": "/cquisitor/48eb289dd0f5a85117f1.module.wasm",
+    "index.html": "/cquisitor/index.html",
+    "main.78a5bc19.css.map": "/cquisitor/static/css/main.78a5bc19.css.map",
+    "main.60a30f6f.js.map": "/cquisitor/static/js/main.60a30f6f.js.map",
+    "787.7caeba98.chunk.js.map": "/cquisitor/static/js/787.7caeba98.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.78a5bc19.css",
+    "static/js/main.60a30f6f.js"
+  ]
+}
