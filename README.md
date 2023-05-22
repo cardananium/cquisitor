@@ -1,4 +1,4 @@
-# CQUSUTOR
+# CQUISITOR
 
 A tool to investigate your CBOR.
 
