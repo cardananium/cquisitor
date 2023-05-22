@@ -22,7 +22,7 @@ export const CborInput = ({position, onChange}) => {
                 if (start === end) {
                     return v;
                 }
-                const nodes: React.ReactElement[] = [];
+                const nodes = [];
                 const parts = splitOn(v, start, end);
                 nodes.push(<span key={0}>{parts[0]}</span>)
                 nodes.push(<span key={1} style={
