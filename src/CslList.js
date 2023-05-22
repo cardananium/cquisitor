@@ -72,7 +72,7 @@ export const CslList = ({show, onChoose}) => {
     return (
         <>
             <Typography
-                variant="h6"
+                variant="h7"
                 sx={{
                     mr: 2,
                 }}
@@ -81,6 +81,7 @@ export const CslList = ({show, onChoose}) => {
                 Select CSL type:
             </Typography>
             <Select
+                sx={{fontSize: 14}}
                 size="small"
                 value={cslType}
                 onChange={(e) => {
@@ -88,10 +89,10 @@ export const CslList = ({show, onChoose}) => {
                     onChoose(e.target.value, networkType);
                 }}
             >
-                {types.map((typeName) => <MenuItem key={typeName} value={typeName}>{typeName}</MenuItem>)}
+                {types.map((typeName) => <MenuItem sx={{fontSize: 14}} key={typeName} value={typeName}>{typeName}</MenuItem>)}
             </Select>
             <Typography
-                variant="h6"
+                variant="h7"
                 sx={{
                     mr: 2,
                 }}
@@ -100,6 +101,7 @@ export const CslList = ({show, onChoose}) => {
                 Select network type:
             </Typography>
             <Select
+                sx={{fontSize: 14}}
                 size="small"
                 value={networkType}
                 onChange={(e) => {
@@ -107,9 +109,9 @@ export const CslList = ({show, onChoose}) => {
                     onChoose(cslType, e.target.value);
                 }}
             >
-                <MenuItem key="mainnet" value="mainnet">mainnet</MenuItem>
-                <MenuItem key="preprod" value="preprod">preprod</MenuItem>
-                <MenuItem key="preview" value="preview">preview</MenuItem>
+                <MenuItem sx={{fontSize: 14}} key="mainnet" value="mainnet">mainnet</MenuItem>
+                <MenuItem sx={{fontSize: 14}} key="preprod" value="preprod">preprod</MenuItem>
+                <MenuItem sx={{fontSize: 14}} key="preview" value="preview">preview</MenuItem>
             </Select>
         </>
     )

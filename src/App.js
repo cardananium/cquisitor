@@ -39,11 +39,11 @@ const object_stub = {
 function decode(decoderType, cslType, hex) {
     try {
 
-        if (! hex.match("^[0-9A-Fa-f]+$") ){
+        if (!hex.match("^[0-9A-Fa-f]+$")) {
             return {decode_error: "String must be hex"};
         }
 
-        if(decoderType === 0) {
+        if (decoderType === 0) {
             return JSON.parse(cbor_to_json(hex));
         }
 
@@ -58,7 +58,7 @@ function decode(decoderType, cslType, hex) {
 }
 
 function mapNetworkName(networkName, dataType, data) {
-    if(networkName === "mainnet" || typeof networkName !== "string" || networkName.length === 0) {
+    if (networkName === "mainnet" || typeof networkName !== "string" || networkName.length === 0) {
         return ["https://cardanoscan.io/", dataType, '/', data].join('');
     }
     return ["https://", networkName, ".cardanoscan.io/", dataType, '/', data].join('');
@@ -92,7 +92,7 @@ function App() {
             variant="body3"
             target="_blank"
             href={mapNetworkName(networkType, "transaction", props.value)}>
-            {props.value}
+            <span style={{overflowWrap: "anywhere"}} >{props.value}</span>
         </Link>
     });
 
@@ -103,7 +103,7 @@ function App() {
             variant="body3"
             target="_blank"
             href={mapNetworkName(networkType, "address", props.value)}>
-            {props.value}
+            <span style={{overflowWrap: "anywhere"}} >{props.value}</span>
         </Link>
     });
 
@@ -118,7 +118,7 @@ function App() {
                             <Container maxWidth="xl">
                                 <Toolbar disableGutters>
                                     <Typography
-                                        variant="h6"
+                                        variant="h5"
                                         noWrap
                                         component="a"
                                         sx={{
@@ -134,7 +134,7 @@ function App() {
                                         CQUISITOR
                                     </Typography>
                                     <Typography
-                                        variant="h6"
+                                        variant="h7"
                                         sx={{
                                             mr: 2,
                                         }}
@@ -142,6 +142,7 @@ function App() {
                                         Select tool:
                                     </Typography>
                                     <Select
+                                        sx={{fontSize: 14}}
                                         size="small"
                                         value={decoderType}
                                         onChange={(e) => {
@@ -150,11 +151,11 @@ function App() {
                                             setCurrentJson(decode(e.target.value, cslType, cborHex));
                                         }}
                                     >
-                                        <MenuItem value={0}>CBOR to JSON</MenuItem>
-                                        <MenuItem value={1}>Decode by CSL</MenuItem>
+                                        <MenuItem sx={{fontSize: 14}} value={0}>CBOR to JSON</MenuItem>
+                                        <MenuItem sx={{fontSize: 14}} value={1}>Decode by CSL</MenuItem>
                                     </Select>
                                     <CslList show={decoderType === 0} onChoose={(newCslType, newNetworkType) => {
-                                        if(newCslType !== cslType || newNetworkType !== networkType) {
+                                        if (newCslType !== cslType || newNetworkType !== networkType) {
                                             setCslType(newCslType);
                                             setNetworkType(newNetworkType);
                                             setCborPosition([0, 0]);
@@ -170,17 +171,20 @@ function App() {
                     <div className="container">
                         <SplitPane split="vertical" minSize={400} defaultSize="50%">
                             <div className="left-col">
-                                    <CborInput position={cborPosition} onChange={(x) => {
-                                        if (cborHex !== x) {
-                                            setCborHex(x);
-                                            setCborPosition([0, 0]);
-                                            setCurrentJson(decode(decoderType, cslType, x));
-                                        }
-                                    }}/>
+                                <CborInput position={cborPosition} onChange={(x) => {
+                                    if (cborHex !== x) {
+                                        setCborHex(x);
+                                        setCborPosition([0, 0]);
+                                        setCurrentJson(decode(decoderType, cslType, x));
+                                    }
+                                }}/>
                             </div>
                             <div className="right-col">
                                 <div>
-                                    <JsonViewer value={currentJson} valueTypes={[positionDataType, txIdDataType, txAddressDataType]}/>
+                                    <JsonViewer
+                                        sx={{fontSize: 14}}
+                                        value={currentJson}
+                                        valueTypes={[positionDataType, txIdDataType, txAddressDataType]}/>
                                 </div>
                             </div>
                         </SplitPane>
