@@ -11,7 +11,7 @@ function getCslDecoders() {
     for (let key in CSL) {
         let item = CSL[key];
 
-        if (typeof item === 'function' && /^class\s/.test(Function.prototype.toString.call(item))) {
+        if (typeof item === 'function' && /(^|\s)class\s/.test(Function.prototype.toString.call(item))) {
             if (Object.hasOwn(item, 'from_hex')) {
                 classDictionary[key] = item["from_hex"];
             }
