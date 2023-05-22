@@ -58,7 +58,7 @@ function decode(decoderType, cslType, hex) {
 }
 
 function mapNetworkName(networkName, dataType, data) {
-    if(networkName === "mainnet" || typeof networkName !== "string" || networkName.length == 0) {
+    if(networkName === "mainnet" || typeof networkName !== "string" || networkName.length === 0) {
         return ["https://cardanoscan.io/", dataType, '/', data].join('');
     }
     return ["https://", networkName, ".cardanoscan.io/", dataType, '/', data].join('');
