@@ -25,7 +25,9 @@
     "test": "react-app-rewired test",
     "eject": "react-app-rewired eject",
     "build:wasm": "cd rust && wasm-pack build --target browser --out-dir pkg && wasm-pack pack",
-    "build": "npm run build:wasm && npx webpack && npm run build:js"
+    "build": "npm run build:wasm && npx webpack && npm run build:js",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d build"
   },
   "eslintConfig": {
     "extends": [
@@ -46,6 +48,7 @@
     ]
   },
   "devDependencies": {
+    "gh-pages": "^5.0.0",
     "react-app-rewired": "^2.2.1",
     "webpack": "^5.83.1",
     "webpack-cli": "^5.1.1"
