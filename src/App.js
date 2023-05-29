@@ -1,14 +1,13 @@
 import './App.css';
 import SplitPane from 'react-split-pane';
 import {CborInput} from "./CborInput";
-import {CslList, cslDecode} from "./CslList";
+import {CslList} from "./CslList";
 import {useState} from "react";
-import {defineDataType, JsonViewer} from "@textea/json-viewer";
+import {JsonViewer} from "@textea/json-viewer";
 import {
     AppBar,
     Container,
     Grid,
-    Link,
     MenuItem,
     Select,
     Toolbar,
@@ -17,6 +16,8 @@ import {
 import {ThemeProvider, createTheme} from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import {cbor_to_json} from 'cquisitor_wasm'
+import {cslDecode} from './tools/cls-helpers';
+import {getPositionDataType, getTxAddressDataType, getTxIdDataType} from './tools/dataTypes-helper';
 
 const darkTheme = createTheme({
     palette: {
@@ -57,14 +58,6 @@ function decode(decoderType, cslType, hex) {
     }
 }
 
-function mapNetworkName(networkName, dataType, data) {
-    if (networkName === "mainnet" || typeof networkName !== "string" || networkName.length === 0) {
-        return ["https://cardanoscan.io/", dataType, '/', data].join('');
-    }
-    return ["https://", networkName, ".cardanoscan.io/", dataType, '/', data].join('');
-}
-
-
 function App() {
     const [cborHex, setCborHex] = useState("");
     const [cborPosition, setCborPosition] = useState([0, 0]);
@@ -72,41 +65,6 @@ function App() {
     const [cslType, setCslType] = useState(null);
     const [networkType, setNetworkType] = useState(null);
     const [currentJson, setCurrentJson] = useState(object_stub);
-
-    const positionDataType = defineDataType({
-        is: (value, path) =>
-            typeof value === 'object' &&
-            (path[path.length - 1] === "position_info" || path[path.length - 1] === "struct_position_info"),
-        Component: (props) => <Link component="button"
-                                    variant="body3"
-                                    onClick={() => {
-                                        setCborPosition([props.value.offset, props.value.length])
-                                    }}>
-            offset: {props.value.offset}, length: {props.value.length} (click)</Link>
-    });
-
-    const txIdDataType = defineDataType({
-        is: (value, path) =>
-            typeof value === 'string' && (path[path.length - 1] === "transaction_id"),
-        Component: (props) => <Link
-            variant="body3"
-            target="_blank"
-            href={mapNetworkName(networkType, "transaction", props.value)}>
-            <span style={{overflowWrap: "anywhere"}} >{props.value}</span>
-        </Link>
-    });
-
-    const txAddressDataType = defineDataType({
-        is: (value, path) =>
-            typeof value === 'string' && (path[path.length - 1] === "address"),
-        Component: (props) => <Link
-            variant="body3"
-            target="_blank"
-            href={mapNetworkName(networkType, "address", props.value)}>
-            <span style={{overflowWrap: "anywhere"}} >{props.value}</span>
-        </Link>
-    });
-
 
     return (
         <ThemeProvider theme={lightTheme}>
@@ -184,7 +142,11 @@ function App() {
                                     <JsonViewer
                                         sx={{fontSize: 14}}
                                         value={currentJson}
-                                        valueTypes={[positionDataType, txIdDataType, txAddressDataType]}/>
+                                        valueTypes={[
+                                            getPositionDataType(setCborPosition),
+                                            getTxIdDataType(networkType),
+                                            getTxAddressDataType(networkType),
+                                        ]}/>
                                 </div>
                             </div>
                         </SplitPane>
