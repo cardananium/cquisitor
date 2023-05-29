@@ -1,6 +1,8 @@
 # CQUISITOR
-
 A tool to investigate your CBOR.
+
+Deployed on: https://cardananium.github.io/cquisitor/
+
 
 ## Prerequisites
 Rust 1.69.0 or later
