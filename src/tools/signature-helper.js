@@ -77,7 +77,7 @@ function getTxHash(body_bytes) {
     return CSL.TransactionHash.from_bytes(blake2b(32).update(body_bytes).digest('binary'));
 }
 
-function getCatalystWitnesses(auxiliary_data: CSL.AuxiliaryData) {
+function getCatalystWitnesses(auxiliary_data) {
     if (auxiliary_data == null) {
         return null;
     }
@@ -104,7 +104,7 @@ function getCatalystWitnesses(auxiliary_data: CSL.AuxiliaryData) {
     }
 }
 
-function getVKeyWitnesses(witnessSet: CSL.TransactionWitnessSet) {
+function getVKeyWitnesses(witnessSet) {
     const vkeys = witnessSet.vkeys();
     const vkeyWitnesses = [];
     for (let i = 0; i < vkeys.len(); i++) {
@@ -147,7 +147,7 @@ function witnessesListToSignaturesList(witnesses) {
     return signatures;
 }
 
-function getCatalystRegistrationHash(auxiliary_data: CSL.AuxiliaryData) {
+function getCatalystRegistrationHash(auxiliary_data) {
     if (auxiliary_data == null) {
         return null;
     }
