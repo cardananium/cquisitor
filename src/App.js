@@ -18,7 +18,7 @@ import CssBaseline from '@mui/material/CssBaseline';
 import {cbor_to_json} from 'cquisitor_wasm'
 import {cslDecode} from './tools/cls-helpers';
 import {getPositionDataType, getTxAddressDataType, getTxIdDataType} from './tools/dataTypes-helper';
-import {checkBlockTxsSignatures} from "./tools/signature-helper";
+import {checkBlockOrTx} from "./tools/signature-helper";
 
 const darkTheme = createTheme({
     palette: {
@@ -51,7 +51,7 @@ function decode(decoderType, cslType, hex) {
         }
 
         if (decoderType === 2) {
-            return checkBlockTxsSignatures(hex);
+            return checkBlockOrTx(hex);
         }
 
         if (cslType === null) {
