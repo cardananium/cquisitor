@@ -11,7 +11,7 @@ export const CslList = ({show, onChoose}) => {
     const [networkType, setNetworkType] = useState("");
     const availableNetworks = ['mainnet', 'preprod', 'preview'];
 
-    if (show) {
+    if (!show) {
         return null;
     }
 

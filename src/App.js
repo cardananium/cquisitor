@@ -18,6 +18,7 @@ import CssBaseline from '@mui/material/CssBaseline';
 import {cbor_to_json} from 'cquisitor_wasm'
 import {cslDecode} from './tools/cls-helpers';
 import {getPositionDataType, getTxAddressDataType, getTxIdDataType} from './tools/dataTypes-helper';
+import {checkBlockTxsSignatures} from "./tools/signature-helper";
 
 const darkTheme = createTheme({
     palette: {
@@ -33,8 +34,9 @@ const lightTheme = createTheme({
 
 const object_stub = {
     message1: "Welcome",
-    message2: "This is tool to code CBOR into JSON representation. Just put your CBOR hex on the right side",
-    message3: "You can also decode CBOR by cardano-serilization-lib. Choose that option on the top list to use it"
+    message2: "This is tool to decode CBOR into JSON representation. Just put your CBOR hex on the right side",
+    message3: "You can also decode CBOR by cardano-serialization-lib. Choose that option on the top list to use it",
+    message4: "To check signatures of transactions, choose that option on the top list and paste block hex or tx hex"
 };
 
 function decode(decoderType, cslType, hex) {
@@ -46,6 +48,10 @@ function decode(decoderType, cslType, hex) {
 
         if (decoderType === 0) {
             return JSON.parse(cbor_to_json(hex));
+        }
+
+        if (decoderType === 2) {
+            return checkBlockTxsSignatures(hex);
         }
 
         if (cslType === null) {
@@ -111,8 +117,9 @@ function App() {
                                     >
                                         <MenuItem sx={{fontSize: 14}} value={0}>CBOR to JSON</MenuItem>
                                         <MenuItem sx={{fontSize: 14}} value={1}>Decode by CSL</MenuItem>
+                                        <MenuItem sx={{fontSize: 14}} value={2}>Check tx signatures</MenuItem>
                                     </Select>
-                                    <CslList show={decoderType === 0} onChoose={(newCslType, newNetworkType) => {
+                                    <CslList show={decoderType === 1} onChoose={(newCslType, newNetworkType) => {
                                         if (newCslType !== cslType || newNetworkType !== networkType) {
                                             setCslType(newCslType);
                                             setNetworkType(newNetworkType);

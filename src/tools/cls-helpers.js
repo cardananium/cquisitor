@@ -36,7 +36,7 @@ export function getCslDecoders() {
         let item = CSL[key];
 
         if (isClass(item)) {
-            if (Object.hasOwn(item, 'from_hex')) {
+            if (Object.hasOwn(item, 'from_hex') && Object.hasOwn(item.prototype, 'to_json')) {
                 classDictionary[key] = item["from_hex"];
             }
         }
