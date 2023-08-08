@@ -39,11 +39,11 @@ const object_stub = {
     message4: "To check signatures of transactions, choose that option on the top list and paste block hex or tx hex"
 };
 
-function decode(decoderType, cslType, hex) {
+function decode(decoderType, cslType, hex, cslSchemaType = null) {
     try {
 
-        if (!hex.match("^[0-9A-Fa-f]+$")) {
-            return {decode_error: "String must be hex"};
+        if (!hex.match("^[0-9A-Fa-f]+$") && !isASCII(hex)) {
+            return {decode_error: "String must be hex or bech32"};
         }
 
         if (decoderType === 0) {
@@ -58,10 +58,15 @@ function decode(decoderType, cslType, hex) {
             return {decode_error: "You need to choose a CSL type"};
         }
 
-        return JSON.parse(cslDecode(hex, cslType));
+        return JSON.parse(cslDecode(hex, cslType, cslSchemaType));
     } catch (e) {
         return {decode_error: e.toString()};
     }
+}
+
+function isASCII(str) {
+    // eslint-disable-next-line no-control-regex
+    return /^[\x00-\x7F]*$/.test(str);
 }
 
 function App() {
@@ -71,6 +76,7 @@ function App() {
     const [cslType, setCslType] = useState(null);
     const [networkType, setNetworkType] = useState(null);
     const [currentJson, setCurrentJson] = useState(object_stub);
+    const [cslSchemaType, setCslSchemaType] = useState(null);
 
     return (
         <ThemeProvider theme={lightTheme}>
@@ -119,12 +125,13 @@ function App() {
                                         <MenuItem sx={{fontSize: 14}} value={1}>Decode by CSL</MenuItem>
                                         <MenuItem sx={{fontSize: 14}} value={2}>Check tx signatures</MenuItem>
                                     </Select>
-                                    <CslList show={decoderType === 1} onChoose={(newCslType, newNetworkType) => {
-                                        if (newCslType !== cslType || newNetworkType !== networkType) {
+                                    <CslList show={decoderType === 1} onChoose={(newCslType, newNetworkType, schemaType) => {
+                                        if (newCslType !== cslType || newNetworkType !== networkType || schemaType !== cslSchemaType) {
                                             setCslType(newCslType);
                                             setNetworkType(newNetworkType);
                                             setCborPosition([0, 0]);
-                                            setCurrentJson(decode(decoderType, newCslType, cborHex));
+                                            setCslSchemaType(schemaType);
+                                            setCurrentJson(decode(decoderType, newCslType, cborHex, schemaType));
                                         }
                                     }}/>
                                 </Toolbar>

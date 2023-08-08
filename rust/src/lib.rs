@@ -14,6 +14,7 @@ use wasm_bindgen::prelude::{JsValue, wasm_bindgen};
 
 
 mod js_error;
+pub mod csl_decoders;
 
 #[derive(Clone, Debug)]
 pub struct CborPos {
