@@ -104,9 +104,19 @@ function getCatalystWitnesses(auxiliary_data) {
     }
 }
 
-function getVKeyWitnesses(witnessSet) {
-    const vkeys = witnessSet.vkeys();
+function getVKeyWitnesses(witnessSet)
+{
     const vkeyWitnesses = [];
+    if (witnessSet == null) {
+        return vkeyWitnesses;
+    }
+
+    const vkeys = witnessSet.vkeys();
+
+    if (vkeys == null) {
+        return vkeyWitnesses;
+    }
+
     for (let i = 0; i < vkeys.len(); i++) {
         const vkeyWitness = vkeys.get(i);
         vkeyWitnesses.push({
@@ -187,6 +197,9 @@ function getTxsWithWitsAndAuxiliaryFromBlock(block_hex) {
     let aux = block.values[3].values;
     const txsWithWitsAndAuxiliary = []
     for (let i = 0; i < bodies.length; i++) {
+        if (bodies[i].type  === "Break") {
+            continue;
+        }
         const bodyLocation = bodies[i].struct_position_info;
         const witLocation = wits[i].struct_position_info;
         const aux_dataLocation = getAuxiliaryDataLocation(aux, i);
