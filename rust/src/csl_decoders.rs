@@ -6,7 +6,7 @@ use cardano_serialization_lib::address::{
     EnterpriseAddress,
     RewardAddress,
     BaseAddress,
-    StakeCredential,
+    Credential,
     PointerAddress,
     StakeCredKind,
     Pointer,
@@ -164,7 +164,7 @@ fn bytes_to_string(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join("")
 }
 
-fn stake_cred_to_json(creds: &StakeCredential) -> Value {
+fn stake_cred_to_json(creds: &Credential) -> Value {
     let mut obj = serde_json::Map::new();
     match creds.kind() {
         StakeCredKind::Key => {
