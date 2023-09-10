@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 hex = "0.4.3"
 serde_json = "1.0.94"
 minicbor = { git = "https://gitlab.com/lisicky/minicbor", features = ["std", "half", "derive"] }
-cardano-serialization-lib = "11.4.0"
+cardano-serialization-lib = "12.0.0-alpha.5"
 
 [target.'cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))'.dependencies]
 noop_proc_macro = "0.3.0"

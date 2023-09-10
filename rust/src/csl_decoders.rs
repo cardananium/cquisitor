@@ -8,10 +8,10 @@ use cardano_serialization_lib::address::{
     BaseAddress,
     Credential,
     PointerAddress,
-    StakeCredKind,
+    CredKind,
     Pointer,
 };
-use cardano_serialization_lib::plutus::{PlutusData, PlutusDatumSchema, PlutusScript};
+use cardano_serialization_lib::{PlutusData, PlutusDatumSchema, PlutusScript};
 use cardano_serialization_lib::utils::hash_plutus_data;
 
 use serde_json::{Number, Value};
@@ -167,12 +167,12 @@ fn bytes_to_string(bytes: &[u8]) -> String {
 fn stake_cred_to_json(creds: &Credential) -> Value {
     let mut obj = serde_json::Map::new();
     match creds.kind() {
-        StakeCredKind::Key => {
+        CredKind::Key => {
             if let Some(key_hash) = creds.to_keyhash() {
                 obj.insert("key_hash".to_string(),Value::String(key_hash.to_hex()));
             }
         },
-        StakeCredKind::Script => {
+        CredKind::Script => {
             if let Some(script_hash) = creds.to_scripthash() {
                 obj.insert("script_hash".to_string(),Value::String(script_hash.to_hex()));
             }
