@@ -15,7 +15,7 @@ import {
 } from "@mui/material";
 import {ThemeProvider, createTheme} from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import {cbor_to_json} from 'cquisitor_wasm'
+import {cbor_to_json, decode_plutus_program_uplc_json, decode_plutus_program_pretty_uplc} from 'cquisitor_wasm'
 import {cslDecode} from './tools/cls-helpers';
 import {getPositionDataType, getTxAddressDataType, getTxIdDataType} from './tools/dataTypes-helper';
 import {checkBlockOrTx} from "./tools/signature-helper";
@@ -54,6 +54,18 @@ function decode(decoderType, cslType, hex, cslSchemaType = null) {
             return checkBlockOrTx(hex);
         }
 
+        if (decoderType === 3) {
+            return JSON.parse(decode_plutus_program_uplc_json(hex));
+        }
+
+        if (decoderType === 4) {
+            return decode_plutus_program_pretty_uplc(hex);
+        }
+
+        // if (decoderType === 4) {
+        //     execute_tx_scripts(hex);
+        // }
+
         if (cslType === null) {
             return {decode_error: "You need to choose a CSL type"};
         }
@@ -75,8 +87,14 @@ function App() {
     const [decoderType, setDecoderType] = useState(0);
     const [cslType, setCslType] = useState(null);
     const [networkType, setNetworkType] = useState(null);
-    const [currentJson, setCurrentJson] = useState(object_stub);
+    const [currentData, setCurrentData] = useState(object_stub);
     const [cslSchemaType, setCslSchemaType] = useState(null);
+
+    let showAsJson = true;
+    if (typeof currentData === 'string' || currentData instanceof String){
+        console.log(currentData)
+        showAsJson = false
+    }
 
     return (
         <ThemeProvider theme={lightTheme}>
@@ -118,12 +136,14 @@ function App() {
                                         onChange={(e) => {
                                             setDecoderType(e.target.value);
                                             setCborPosition([0, 0]);
-                                            setCurrentJson(decode(e.target.value, cslType, cborHex));
+                                            setCurrentData(decode(e.target.value, cslType, cborHex));
                                         }}
                                     >
                                         <MenuItem sx={{fontSize: 14}} value={0}>CBOR to JSON</MenuItem>
                                         <MenuItem sx={{fontSize: 14}} value={1}>Decode by CSL</MenuItem>
                                         <MenuItem sx={{fontSize: 14}} value={2}>Check tx signatures</MenuItem>
+                                        <MenuItem sx={{fontSize: 14}} value={3}>Decode plutus CBOR (json structure) </MenuItem>
+                                        <MenuItem sx={{fontSize: 14}} value={4}>Decode plutus CBOR (plain uplc) </MenuItem>
                                     </Select>
                                     <CslList show={decoderType === 1} onChoose={(newCslType, newNetworkType, schemaType) => {
                                         if (newCslType !== cslType || newNetworkType !== networkType || schemaType !== cslSchemaType) {
@@ -131,7 +151,7 @@ function App() {
                                             setNetworkType(newNetworkType);
                                             setCborPosition([0, 0]);
                                             setCslSchemaType(schemaType);
-                                            setCurrentJson(decode(decoderType, newCslType, cborHex, schemaType));
+                                            setCurrentData(decode(decoderType, newCslType, cborHex, schemaType));
                                         }
                                     }}/>
                                 </Toolbar>
@@ -147,20 +167,23 @@ function App() {
                                     if (cborHex !== x) {
                                         setCborHex(x);
                                         setCborPosition([0, 0]);
-                                        setCurrentJson(decode(decoderType, cslType, x));
+                                        setCurrentData(decode(decoderType, cslType, x));
                                     }
                                 }}/>
                             </div>
                             <div className="right-col">
                                 <div>
-                                    <JsonViewer
-                                        sx={{fontSize: 14}}
-                                        value={currentJson}
-                                        valueTypes={[
-                                            getPositionDataType(setCborPosition),
-                                            getTxIdDataType(networkType),
-                                            getTxAddressDataType(networkType),
-                                        ]}/>
+                                    {showAsJson ? (
+                                        <JsonViewer
+                                            sx={{fontSize: 14}}
+                                            value={currentData}
+                                            valueTypes={[
+                                                getPositionDataType(setCborPosition),
+                                                getTxIdDataType(networkType),
+                                                getTxAddressDataType(networkType),
+                                            ]}/> ) : (
+                                        <Typography  variant="body2" >{currentData}</Typography>
+                                )}
                                 </div>
                             </div>
                         </SplitPane>

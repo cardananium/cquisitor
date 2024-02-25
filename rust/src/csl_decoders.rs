@@ -1,6 +1,6 @@
 use std::str::FromStr;
 use cardano_serialization_lib::*;
-use cardano_serialization_lib::address::{
+use cardano_serialization_lib::{
     Address,
     ByronAddress,
     EnterpriseAddress,
@@ -12,17 +12,12 @@ use cardano_serialization_lib::address::{
     Pointer,
 };
 use cardano_serialization_lib::{PlutusData, PlutusDatumSchema, PlutusScript};
-use cardano_serialization_lib::utils::hash_plutus_data;
+use cardano_serialization_lib::hash_plutus_data;
 
 use serde_json::{Number, Value};
+use crate::bingen::wasm_bindgen;
 
 use crate::js_error::JsError;
-
-#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
-use noop_proc_macro::wasm_bindgen;
-
-#[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
-use wasm_bindgen::prelude::{JsValue, wasm_bindgen};
 
 #[wasm_bindgen]
 pub fn decode_address_with_extended_info(hex_or_bech32: &str) -> Result<String, JsError> {
