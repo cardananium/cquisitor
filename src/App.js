@@ -5,7 +5,7 @@ import {CslList} from "./CslList";
 import {useState} from "react";
 import {JsonViewer} from "@textea/json-viewer";
 import {
-    AppBar,
+    AppBar, Box,
     Container,
     Grid,
     MenuItem,
@@ -19,6 +19,7 @@ import {cbor_to_json, decode_plutus_program_uplc_json, decode_plutus_program_pre
 import {cslDecode} from './tools/cls-helpers';
 import {getPositionDataType, getTxAddressDataType, getTxIdDataType} from './tools/dataTypes-helper';
 import {checkBlockOrTx} from "./tools/signature-helper";
+import GitHubButton from 'react-github-btn'
 
 const darkTheme = createTheme({
     palette: {
@@ -154,6 +155,8 @@ function App() {
                                             setCurrentData(decode(decoderType, newCslType, cborHex, schemaType));
                                         }
                                     }}/>
+                                    <Box sx={{ flexGrow: 1 }} />
+                                    <GitHubButton href="https://github.com/cardananium/cquisitor" data-size="large" data-show-count="true" aria-label="Star cardananium/cquisitor on GitHub">Star</GitHubButton>
                                 </Toolbar>
                             </Container>
                         </AppBar>
