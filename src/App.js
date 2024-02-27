@@ -65,6 +65,11 @@ function App() {
 
     const decode = () => {
         try {
+            if(cborHex == null || cborHex === "") {
+                setCurrentData(object_stub);
+                return;
+            }
+
             if (!cborHex.match("^[0-9A-Fa-f]+$") && !isASCII(cborHex)) {
                 setCurrentData({decode_error: "String must be hex or bech32"});
             }
