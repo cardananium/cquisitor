@@ -65,7 +65,8 @@ function App() {
 
     const decode = () => {
         try {
-            if(cborHex == null || cborHex === "") {
+
+            if((cborHex == null || cborHex === "") && decoderType === 0) {
                 setCurrentData(object_stub);
                 return;
             }
