@@ -1,18 +1,38 @@
-use reqwest::Client;
 use crate::js_error::JsError;
 use crate::koios_client::error_mapper::to_js_error;
-use crate::koios_client::models::{EpochParamResponse};
+use crate::koios_client::models::{ApiResult, EpochParamResponse};
 use crate::koios_client::network_type::NetworkType;
+use reqwest::Client;
 
-pub(crate) async fn get_epoch_protocol_params(epoch: u64, network_type: NetworkType) -> Result<EpochParamResponse, JsError> {
+pub(crate) async fn get_epoch_protocol_params(
+    epoch: u64,
+    network_type: NetworkType,
+    api_token: &str
+) -> Result<EpochParamResponse, JsError> {
     let client = Client::new();
     let url = network_type.build_url(format!("epoch_params?_epoch_no={}", epoch).as_str());
 
     let response = client
         .get(url)
-        .send().await
-        .map_err(to_js_error)?;
+        .header("Accept", "application/json")
+        .bearer_auth(api_token)
+        .send()
+        .await
+        .map_err(|err| to_js_error(err, "get_epoch_protocol_params.send"))?;
 
-    let chain_tip: EpochParamResponse = response.json().await.map_err(to_js_error)?;
-    Ok(chain_tip)
+    let api_result: ApiResult<Vec<EpochParamResponse>> = response
+        .error_for_status()
+        .map_err(|err| to_js_error(err, "get_epoch_protocol_params.status"))?
+        .json()
+        .await
+        .map_err(|err| to_js_error(err, "get_epoch_protocol_params.parse"))?;
+    let pps = api_result.map_err(|err| err.to_js_error())?;
+    let pp = pps.first().cloned().map_or_else(
+        || {
+            Err(JsError::new("No epoch protocol params found"))
+        },
+        |x| Ok(x),
+    )?;
+
+    Ok(pp)
 }

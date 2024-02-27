@@ -22,6 +22,8 @@ log = "0.4.20"
 [target.'cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))'.dependencies]
 noop_proc_macro = "0.3.0"
 reqwest = { version = "0.11.24", features = ["blocking", "json"] }
+tokio = { version = "1.36.0", features = ["full"] }
+
 
 [target.'cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))'.dependencies]
 js-sys = "0.3.51"

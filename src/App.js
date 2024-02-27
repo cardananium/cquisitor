@@ -2,7 +2,7 @@ import './App.css';
 import SplitPane from 'react-split-pane';
 import {CborInput} from "./CborInput";
 import {CslList} from "./CslList";
-import {useState} from "react";
+import {useCallback, useEffect, useState} from "react";
 import {JsonViewer} from "@textea/json-viewer";
 import {
     AppBar, Box,
@@ -20,6 +20,7 @@ import {cslDecode} from './tools/cls-helpers';
 import {getPositionDataType, getTxAddressDataType, getTxIdDataType} from './tools/dataTypes-helper';
 import {checkBlockOrTx} from "./tools/signature-helper";
 import GitHubButton from 'react-github-btn'
+import {PlutusExecutorMenu} from "./PlutusExecutorMenu";
 
 const darkTheme = createTheme({
     palette: {
@@ -40,43 +41,6 @@ const object_stub = {
     message4: "To check signatures of transactions, choose that option on the top list and paste block hex or tx hex"
 };
 
-function decode(decoderType, cslType, hex, cslSchemaType = null) {
-    try {
-
-        if (!hex.match("^[0-9A-Fa-f]+$") && !isASCII(hex)) {
-            return {decode_error: "String must be hex or bech32"};
-        }
-
-        if (decoderType === 0) {
-            return JSON.parse(cbor_to_json(hex));
-        }
-
-        if (decoderType === 2) {
-            return checkBlockOrTx(hex);
-        }
-
-        if (decoderType === 3) {
-            return JSON.parse(decode_plutus_program_uplc_json(hex));
-        }
-
-        if (decoderType === 4) {
-            return decode_plutus_program_pretty_uplc(hex);
-        }
-
-        // if (decoderType === 4) {
-        //     execute_tx_scripts(hex);
-        // }
-
-        if (cslType === null) {
-            return {decode_error: "You need to choose a CSL type"};
-        }
-
-        return JSON.parse(cslDecode(hex, cslType, cslSchemaType));
-    } catch (e) {
-        return {decode_error: e.toString()};
-    }
-}
-
 function isASCII(str) {
     // eslint-disable-next-line no-control-regex
     return /^[\x00-\x7F]*$/.test(str);
@@ -90,6 +54,49 @@ function App() {
     const [networkType, setNetworkType] = useState(null);
     const [currentData, setCurrentData] = useState(object_stub);
     const [cslSchemaType, setCslSchemaType] = useState(null);
+
+    const plutusExecutorResultHandler = useCallback((result) => {
+        setCurrentData(result);
+    }, []);
+
+    useEffect(() => {
+        decode();
+    }, [decoderType, cborHex, cslType, cslSchemaType]);
+
+    const decode = () => {
+        try {
+            if (!cborHex.match("^[0-9A-Fa-f]+$") && !isASCII(cborHex)) {
+                setCurrentData({decode_error: "String must be hex or bech32"});
+            }
+
+            if (decoderType === 0) {
+                setCurrentData(JSON.parse(cbor_to_json(cborHex)));
+            }
+
+            if (decoderType === 1) {
+                if (cslType == null) {
+                    setCurrentData( {decode_error: "You need to choose a CSL type"});
+                } else {
+                    setCurrentData(cslDecode(cborHex, cslType, cslSchemaType));
+                }
+            }
+
+            if (decoderType === 2) {
+                setCurrentData(checkBlockOrTx(cborHex));
+            }
+
+            if (decoderType === 3) {
+                setCurrentData(JSON.parse(decode_plutus_program_uplc_json(cborHex)));
+            }
+
+            if (decoderType === 4) {
+                setCurrentData(decode_plutus_program_pretty_uplc(cborHex));
+            }
+
+        } catch (e) {
+            setCurrentData({decode_error: e.toString()});
+        }
+    };
 
     let showAsJson = true;
     if (typeof currentData === 'string' || currentData instanceof String){
@@ -137,7 +144,14 @@ function App() {
                                         onChange={(e) => {
                                             setDecoderType(e.target.value);
                                             setCborPosition([0, 0]);
-                                            setCurrentData(decode(e.target.value, cslType, cborHex));
+                                            if(e.target.value === 5) {
+                                                setCurrentData(
+                                                    {
+                                                        "WARNING": "To use this feature, you need to have a valid Koios API key. Please provide it in the input field.",
+                                                        "KIOS URL" : "https://koios.rest/pricing/Pricing.html"
+                                                    }
+                                                )
+                                            }
                                         }}
                                     >
                                         <MenuItem sx={{fontSize: 14}} value={0}>CBOR to JSON</MenuItem>
@@ -145,16 +159,24 @@ function App() {
                                         <MenuItem sx={{fontSize: 14}} value={2}>Check tx signatures</MenuItem>
                                         <MenuItem sx={{fontSize: 14}} value={3}>Decode plutus CBOR (json structure) </MenuItem>
                                         <MenuItem sx={{fontSize: 14}} value={4}>Decode plutus CBOR (plain uplc) </MenuItem>
+                                        <MenuItem sx={{fontSize: 14}} value={5}>Run plutus scripts from tx </MenuItem>
                                     </Select>
                                     <CslList show={decoderType === 1} onChoose={(newCslType, newNetworkType, schemaType) => {
-                                        if (newCslType !== cslType || newNetworkType !== networkType || schemaType !== cslSchemaType) {
+                                        //split this into separate if's
+                                        if (newCslType !== cslType) {
                                             setCslType(newCslType);
+                                            setCborPosition([0, 0]);
+                                        }
+                                        if(newNetworkType !== networkType) {
                                             setNetworkType(newNetworkType);
                                             setCborPosition([0, 0]);
+                                        }
+                                        if(schemaType !== cslSchemaType) {
                                             setCslSchemaType(schemaType);
-                                            setCurrentData(decode(decoderType, newCslType, cborHex, schemaType));
+                                            setCborPosition([0, 0]);
                                         }
                                     }}/>
+                                    <PlutusExecutorMenu show={decoderType === 5} cborHex={cborHex} onResult={plutusExecutorResultHandler}/>
                                     <Box sx={{ flexGrow: 1 }} />
                                     <GitHubButton href="https://github.com/cardananium/cquisitor" data-size="large" data-show-count="true" aria-label="Star cardananium/cquisitor on GitHub">Star</GitHubButton>
                                 </Toolbar>
@@ -170,7 +192,6 @@ function App() {
                                     if (cborHex !== x) {
                                         setCborHex(x);
                                         setCborPosition([0, 0]);
-                                        setCurrentData(decode(decoderType, cslType, x));
                                     }
                                 }}/>
                             </div>

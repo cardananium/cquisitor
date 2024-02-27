@@ -1,4 +1,6 @@
+use std::fmt::format;
 use serde::{Deserialize, Serialize};
+use crate::js_error::JsError;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub (crate) struct UtxoInfoRequest {
@@ -38,7 +40,7 @@ pub(crate) struct UtxoInfoResponse {
     pub(crate) tx_hash: String,
     pub(crate) tx_index: u64,
     pub(crate) address: String,
-    pub(crate) value: u64,
+    pub(crate) value: String,
     pub(crate) stake_address: Option<String>,
     pub(crate) payment_cred: Option<String>,
     pub(crate) epoch_no: u64,
@@ -51,17 +53,17 @@ pub(crate) struct UtxoInfoResponse {
     pub(crate) is_spent: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub(crate) struct QueryChainTipResponse {
     pub(crate) hash: String,
     pub(crate) epoch_no: u64,
     pub(crate) abs_slot: u64,
     pub(crate) epoch_slot: u64,
-    pub(crate) block_no: u64,
+    pub(crate) block_no: Option<u64>,
     pub(crate) block_time: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct CostModels {
     #[serde(rename = "PlutusV1")]
     pub(crate) plutus_v1: Option<Vec<i64>>,
@@ -71,7 +73,7 @@ pub(crate) struct CostModels {
     pub(crate) plutus_v3: Option<Vec<i64>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub (crate) struct EpochParamResponse {
     pub(crate) epoch_no: u64,
     pub(crate) min_fee_a: Option<u64>,
@@ -105,4 +107,47 @@ pub (crate) struct EpochParamResponse {
     pub(crate) collateral_percent: Option<u64>,
     pub(crate) max_collateral_inputs: Option<u64>,
     pub(crate) coins_per_utxo_size: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct  ApiError {
+    pub(crate) code: Option<u64>,
+    pub(crate) message: Option<String>,
+    pub(crate) hint: Option<String>,
+    pub(crate) error: Option<String>,
+}
+
+impl ApiError {
+    pub (crate) fn to_js_error(&self) -> JsError {
+        JsError::new(&format!("ApiError: {:?}", self))
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub(crate) enum ApiResult<T>{
+    Ok(T),
+    Error(ApiError),
+}
+
+impl <T> ApiResult<T>{
+    pub(crate) fn is_ok(&self) -> bool {
+        match self {
+            ApiResult::Ok(_) => true,
+            ApiResult::Error(_) => false,
+        }
+    }
+
+    pub (crate) fn is_err(&self) -> bool {
+        !self.is_ok()
+    }
+
+    pub (crate) fn map_err<F, E>(self, f: F) -> Result<T, E>
+        where F: FnOnce(ApiError) -> E
+    {
+        match self {
+            ApiResult::Ok(t) => Ok(t),
+            ApiResult::Error(e) => Err(f(e)),
+        }
+    }
 }

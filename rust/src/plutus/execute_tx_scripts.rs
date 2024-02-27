@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use crate::bingen::wasm_bindgen;
 use crate::js_error::JsError;
 use crate::koios_client::epoch_protocol_params_request::get_epoch_protocol_params;
 use crate::koios_client::models::{EpochParamResponse, QueryChainTipResponse, UtxoInfoResponse};
@@ -18,16 +20,16 @@ use pallas::ledger::primitives::babbage::{
 use pallas::ledger::primitives::conway::DatumOption;
 use pallas::ledger::primitives::Fragment;
 use pallas::ledger::traverse::{Era, MultiEraTx};
-use serde_json::{Map, Value};
+use serde_json::{Map, Number, Value};
+use std::fmt::format;
 use uplc::machine::cost_model::ExBudget;
 use uplc::tx::error::Error;
 use uplc::tx::eval::get_script_and_datum_lookup_table;
 use uplc::tx::{eval, eval_phase_one, ResolvedInput, SlotConfig};
 use uplc::TransactionInput;
-use crate::bingen::wasm_bindgen;
 
-#[wasm_bindgen(catch)]
-pub async fn execute_tx_scripts(tx_hex: &str, network: NetworkType) -> Result<String, JsError> {
+#[wasm_bindgen]
+pub fn get_utxo_list_from_tx(tx_hex: &str) -> Result<Vec<String>, JsError> {
     let tx_bytes = hex::decode(tx_hex).map_err(|e| JsError::new(&e.to_string()))?;
     let mtx = MultiEraTx::decode_for_era(Era::Babbage, &tx_bytes)
         .map_err(|e| JsError::new(&e.to_string()))?;
@@ -51,38 +53,140 @@ pub async fn execute_tx_scripts(tx_hex: &str, network: NetworkType) -> Result<St
         }
     }
 
-    let koios_utxos = get_utxos(all_inputs, network.clone().into()).await?;
-    let utxos = response_utxo_to_pallas(koios_utxos)?;
-    let slot_config = SlotConfig::default();
+    Ok(all_inputs)
+}
 
-    let epoch_number = get_chain_tip(network.clone().into()).await?.epoch_no;
-    let kios_pp = get_epoch_protocol_params(epoch_number, network.into()).await?;
+#[wasm_bindgen]
+pub fn execute_tx_scripts(
+    tx_hex: &str,
+    utxo_json: &str,
+    protocol_params_json: &str,
+) -> Result<String, JsError> {
+    let tx_bytes = hex::decode(tx_hex).map_err(|e| JsError::new(&e.to_string()))?;
+    let mtx = MultiEraTx::decode_for_era(Era::Babbage, &tx_bytes)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let tx = match mtx {
+        MultiEraTx::Babbage(tx) => tx.into_owned(),
+        _ => return Err(JsError::new("Invalid transaction type")),
+    };
+
+    let kios_utxos: Vec<UtxoInfoResponse> =
+        serde_json::from_str(utxo_json).map_err(|e| JsError::new(&e.to_string()))?;
+    let utxos = response_utxo_to_pallas(kios_utxos)?;
+    let slot_config: SlotConfig = SlotConfig::default();
+    let kios_pp: EpochParamResponse =
+        serde_json::from_str(protocol_params_json).map_err(|e| JsError::new(&e.to_string()))?;
     let cost_models = to_pallas_cost_models(&kios_pp);
     let exec_result = eval_all_redeemers(&tx, &utxos, Some(&cost_models), &slot_config, false)?;
 
     return Ok(build_response_object(exec_result).to_string());
 }
 
+#[wasm_bindgen(catch)]
+pub async fn execute_tx_scripts_for_specific_network(
+    tx_hex: &str,
+    network: NetworkType,
+    api_token: &str,
+) -> Result<String, JsError> {
+    let tx_bytes = hex::decode(tx_hex).map_err(|e| JsError::new(&e.to_string()))?;
+    let mtx = MultiEraTx::decode_for_era(Era::Babbage, &tx_bytes)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let tx = match mtx {
+        MultiEraTx::Babbage(tx) => tx.into_owned(),
+        _ => return Err(JsError::new("Invalid transaction type")),
+    };
+
+    let mut all_inputs = Vec::new();
+    for input in tx.transaction_body.inputs.iter() {
+        all_inputs.push(input_to_request_format(input));
+    }
+    if let Some(ref_inputs) = &tx.transaction_body.reference_inputs {
+        for input in ref_inputs {
+            all_inputs.push(input_to_request_format(input));
+        }
+    }
+    if let Some(collaterals) = &tx.transaction_body.collateral {
+        for input in collaterals {
+            all_inputs.push(input_to_request_format(input));
+        }
+    }
+
+    let koios_utxos = get_utxos(&all_inputs, network.clone().into(), api_token).await?;
+
+    check_missed_utxos(&all_inputs, &koios_utxos)?;
+
+    let utxos = response_utxo_to_pallas(koios_utxos)?;
+    let slot_config = SlotConfig::default();
+
+    let epoch_number = get_chain_tip(network.clone().into(), api_token)
+        .await?
+        .epoch_no;
+    let kios_pp = get_epoch_protocol_params(epoch_number, network.into(), api_token).await?;
+    let cost_models = to_pallas_cost_models(&kios_pp);
+    let exec_result = eval_all_redeemers(&tx, &utxos, Some(&cost_models), &slot_config, false)?;
+
+    return Ok(build_response_object(exec_result).to_string());
+}
+
+fn check_missed_utxos(
+    request_utxos: &Vec<String>,
+    utxos: &Vec<UtxoInfoResponse>,
+) -> Result<(), JsError> {
+    let utxo_keys: HashSet<String> = utxos
+        .iter()
+        .map(|u| format!("{}#{}", &u.tx_hash, &u.tx_index))
+        .collect();
+    let missed_utxos: Vec<String> = request_utxos
+        .iter()
+        .filter(|u| !utxo_keys.contains(*u))
+        .cloned()
+        .collect();
+    if missed_utxos.len() > 0 {
+        return Err(JsError::new(&format!(
+            "Can't get these UTXOs from API, check the network type : {}",
+            missed_utxos.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 fn build_response_object(
     exec_result: Vec<Result<(Redeemer, Redeemer), (Redeemer, Error)>>,
 ) -> Value {
-    let response = Vec::new();
+    let mut response = Vec::new();
 
     for result in exec_result {
         match result {
             Ok((redeemer, new_redeemer)) => {
                 let mut redeemer_result = Map::new();
-                redeemer_result["redeemer_tag"] = redeemer_tag_to_string(&redeemer.tag).into();
-                redeemer_result["redeemer_index"] = redeemer.index.into();
-                redeemer_result["original_ex_units"] = exec_units_to_json(redeemer.ex_units);
-                redeemer_result["calculated_ex_units"] = exec_units_to_json(new_redeemer.ex_units);
+                redeemer_result.insert(
+                    "original_ex_units".to_string(),
+                    exec_units_to_json(redeemer.ex_units),
+                );
+                redeemer_result.insert(
+                    "calculated_ex_units".to_string(),
+                    exec_units_to_json(new_redeemer.ex_units),
+                );
+                redeemer_result.insert("redeemer_index".to_string(), redeemer.index.into());
+                redeemer_result.insert(
+                    "redeemer_tag".to_string(),
+                    redeemer_tag_to_string(&redeemer.tag).into(),
+                );
+                response.push(Value::Object(redeemer_result));
             }
             Err((redeemer, err)) => {
                 let mut redeemer_result = Map::new();
-                redeemer_result["redeemer_tag"] = redeemer_tag_to_string(&redeemer.tag).into();
-                redeemer_result["redeemer_index"] = redeemer.index.into();
-                redeemer_result["original_ex_units"] = exec_units_to_json(redeemer.ex_units);
-                redeemer_result["error"] = err.to_string().into();
+                redeemer_result.insert(
+                    "original_ex_units".to_string(),
+                    exec_units_to_json(redeemer.ex_units),
+                );
+                redeemer_result.insert("error".to_string(), err.to_string().into());
+                redeemer_result.insert("redeemer_index".to_string(), redeemer.index.into());
+                redeemer_result.insert(
+                    "redeemer_tag".to_string(),
+                    redeemer_tag_to_string(&redeemer.tag).into(),
+                );
+                response.push(Value::Object(redeemer_result));
             }
         }
     }
@@ -92,8 +196,14 @@ fn build_response_object(
 
 fn exec_units_to_json(exec_unit: ExUnits) -> Value {
     let mut obj = Map::new();
-    obj["steps"] = serde_json::to_value(exec_unit.steps).unwrap();
-    obj["mem"] = serde_json::to_value(exec_unit.mem).unwrap();
+    obj.insert(
+        "steps".to_string(),
+        Value::Number(Number::from(exec_unit.steps)),
+    );
+    obj.insert(
+        "mem".to_string(),
+        Value::Number(Number::from(exec_unit.mem)),
+    );
     Value::Object(obj)
 }
 
@@ -107,7 +217,7 @@ fn redeemer_tag_to_string(tag: &RedeemerTag) -> String {
 }
 
 fn input_to_request_format(input: &TransactionInput) -> String {
-    return format!("{}:{}", input.transaction_id, input.index);
+    return format!("{}#{}", hex::encode(input.transaction_id), input.index);
 }
 
 fn to_pallas_cost_models(pp: &EpochParamResponse) -> CostMdls {
@@ -200,7 +310,10 @@ fn to_pallas_address(utxo: &UtxoInfoResponse) -> Result<Bytes, JsError> {
 fn to_pallas_value(
     utxo: &UtxoInfoResponse,
 ) -> Result<pallas::ledger::primitives::babbage::Value, JsError> {
-    let coins = utxo.value;
+    let coins: u64 = utxo
+        .value
+        .parse()
+        .map_err(|e| JsError::new(&format!("{}", e)))?;
     match to_pallas_multi_asset(utxo) {
         Ok(Some(multi_asset)) => Ok(pallas::ledger::primitives::babbage::Value::Multiasset(
             coins,
