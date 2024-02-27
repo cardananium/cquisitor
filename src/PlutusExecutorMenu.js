@@ -17,30 +17,25 @@ function mapNetworkTypeToUrl(networkType) {
 
 export const PlutusExecutorMenu = ({show, cborHex, onResult}) => {
     const [networkType, setNetworkType] = useState("");
-    const [needToExecute, setNeedToExecute] = useState(false);
     const [apiToken, setApiToken] = useState(localStorage.getItem("apiToken") || "Kios API key");
-    let executing = useRef(false)
+    const [executing, setExecuting] = useState(false);
     const availableNetworks = ['mainnet', 'preprod', 'preview'];
 
-    useEffect(() => {
-        const executeScripts = async (executionTrigger, executionState) => {
-            if (executionTrigger && !executionState) {
+    const executeScripts = async (executionState) => {
+        if (!executionState && show) {
+            setExecuting(true);
+            try {
                 onResult("Executing...");
-                executing.current = true;
-                try {
-                    const result = await execute_tx_scripts_for_specific_network(cborHex, mapNetworkTypeToUrl(networkType), apiToken);
-                    console.log("result", result)
-                    onResult(JSON.parse(result));
-                } catch (e) {
-                    console.error("error", e)
-                    onResult({error: e.toString()});
-                }
-                setNeedToExecute(false);
-                executing.current = false;
+                const result = await execute_tx_scripts_for_specific_network(cborHex, mapNetworkTypeToUrl(networkType), apiToken);
+                console.log("result", result)
+                onResult(JSON.parse(result));
+            } catch (e) {
+                console.error("error", e)
+                onResult({error: e.toString()});
             }
-        };
-        executeScripts(needToExecute, executing.current)
-    }, [needToExecute]);
+            setExecuting(false);
+        }
+    };
 
     if (!show) {
         return null;
@@ -77,10 +72,14 @@ export const PlutusExecutorMenu = ({show, cborHex, onResult}) => {
                 }
             } />
             <Button
-                disabled={needToExecute}
+                disabled={executing}
                 variant="contained"
                 color="primary"
-                onClick={() => setNeedToExecute(true)}
+                onClick={() => {
+                    if(executing) return;
+                    executeScripts(executing);
+                }
+                }
                 style={{"marginLeft": 18}}
             >
                 Execute
