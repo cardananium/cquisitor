@@ -83,7 +83,12 @@ function App() {
                 if (cslType == null) {
                     setCurrentData( {decode_error: "You need to choose a CSL type"});
                 } else {
-                    setCurrentData(cslDecode(cborHex, cslType, cslSchemaType));
+                    const cslJson = cslDecode(cborHex, cslType, cslSchemaType);
+                    if (typeof cslJson === 'string' || cslJson instanceof String) {
+                        setCurrentData(JSON.parse(cslJson));
+                    } else {
+                        setCurrentData(cslJson);
+                    }
                 }
             }
 
