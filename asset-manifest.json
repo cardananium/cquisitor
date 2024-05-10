@@ -1,16 +1,16 @@
 {
   "files": {
-    "main.css": "/cquisitor/static/css/main.71a065f3.css",
-    "main.js": "/cquisitor/static/js/main.af9eeb14.js",
-    "static/js/787.7caeba98.chunk.js": "/cquisitor/static/js/787.7caeba98.chunk.js",
-    "module.wasm": "/cquisitor/ed636308a13efdeb6e4e.module.wasm",
+    "main.css": "/cquisitor/static/css/main.bfa388b5.css",
+    "main.js": "/cquisitor/static/js/main.89ee5e44.js",
+    "static/js/787.9043af4f.chunk.js": "/cquisitor/static/js/787.9043af4f.chunk.js",
+    "module.wasm": "/cquisitor/e051494272c426b7221e.module.wasm",
     "index.html": "/cquisitor/index.html",
-    "main.71a065f3.css.map": "/cquisitor/static/css/main.71a065f3.css.map",
-    "main.af9eeb14.js.map": "/cquisitor/static/js/main.af9eeb14.js.map",
-    "787.7caeba98.chunk.js.map": "/cquisitor/static/js/787.7caeba98.chunk.js.map"
+    "main.bfa388b5.css.map": "/cquisitor/static/css/main.bfa388b5.css.map",
+    "main.89ee5e44.js.map": "/cquisitor/static/js/main.89ee5e44.js.map",
+    "787.9043af4f.chunk.js.map": "/cquisitor/static/js/787.9043af4f.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.71a065f3.css",
-    "static/js/main.af9eeb14.js"
+    "static/css/main.bfa388b5.css",
+    "static/js/main.89ee5e44.js"
   ]
 }
