@@ -115,6 +115,7 @@ function mapSchemaType(typeStr) {
 
 export function cslDecode(dataString, typeName, schemaType) {
     if(dataString !== null && typeof dataString === "string" && getCslDecoders().hasOwnProperty(typeName)) {
+
         return getCslDecoders()[typeName](dataString, schemaType);
     } else {
         return {};

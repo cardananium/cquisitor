@@ -21,6 +21,7 @@ import {getPositionDataType, getTxAddressDataType, getTxIdDataType} from './tool
 import {checkBlockOrTx} from "./tools/signature-helper";
 import GitHubButton from 'react-github-btn'
 import {PlutusExecutorMenu} from "./PlutusExecutorMenu";
+import {normalizePlutusScript} from "@cardananium/plutus-tools.js";
 
 const darkTheme = createTheme({
     palette: {
@@ -97,11 +98,23 @@ function App() {
             }
 
             if (decoderType === 3) {
-                setCurrentData(JSON.parse(decode_plutus_program_uplc_json(cborHex)));
+                if (cborHex.length === 0) {
+                    setCurrentData(object_stub);
+                    return;
+                }
+
+                const plutusScript = normalizePlutusScript(Uint8Array.from(Buffer.from(cborHex, 'hex')), "SingleCBOR");
+                setCurrentData(plutusScript);
+                setCurrentData(JSON.parse(decode_plutus_program_uplc_json(Buffer.from(plutusScript).toString("hex"))));
             }
 
             if (decoderType === 4) {
-                setCurrentData(decode_plutus_program_pretty_uplc(cborHex));
+                if (cborHex.length === 0) {
+                    setCurrentData(object_stub);
+                    return;
+                }
+                const plutusScript = normalizePlutusScript(Uint8Array.from(Buffer.from(cborHex, 'hex')), "SingleCBOR");
+                setCurrentData(decode_plutus_program_pretty_uplc(Buffer.from(plutusScript).toString("hex")));
             }
 
         } catch (e) {

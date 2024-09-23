@@ -36,5 +36,9 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'bundle.js',
+    fallback: {
+      // make sure you `npm install path-browserify` to use this
+      buffer: require.resolve("buffer/"),
+    }
   },
 };
