@@ -10,35 +10,35 @@ module.exports = {
   },
   module: {
     rules: [
-        {
-          test: /\.(tsx|ts|js|mjs|jsx)$/,
-          exclude: /node_modules/,
-          use: {
-            loader: 'babel-loader',
-            options: {
-              presets: ['@babel/preset-env', '@babel/preset-react']
-            }
-          },
-          resolve: {
-            fullySpecified: false
+      {
+        test: /\.(tsx|ts|js|mjs|jsx)$/,
+        exclude: /node_modules/,
+        use: {
+          loader: 'babel-loader',
+          options: {
+            presets: ['@babel/preset-env', '@babel/preset-react']
           }
         },
-        {
-            test: /\.css$/,
-            use: ['style-loader', 'css-loader']
+        resolve: {
+          fullySpecified: false
         }
-      ]
+      },
+      {
+        test: /\.css$/,
+        use: ['style-loader', 'css-loader']
+      }
+    ]
   },
   resolve: {
-    extensions: ['*', '.js', '.jsx', ".ts", ".tsx", ".mjs"],
-    modules: ["node_modules"]
+    extensions: ['*', '.js', '.jsx', '.ts', '.tsx', '.mjs'],
+    modules: ['node_modules'],
+    fallback: {
+      // Ensure you have installed 'buffer' with npm
+      buffer: require.resolve('buffer/')
+    }
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
-    filename: 'bundle.js',
-    fallback: {
-      // make sure you `npm install path-browserify` to use this
-      buffer: require.resolve("buffer/"),
-    }
+    filename: 'bundle.js'
   },
 };
