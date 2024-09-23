@@ -1,8 +1,8 @@
-use pallas::ledger::primitives::babbage::{Constr, PlutusData};
+use pallas_primitives::conway::{Constr, PlutusData};
 use serde_json::json;
 use serde_json::value::Value;
 use std::ascii::escape_default;
-use pallas::ledger::primitives::babbage;
+use pallas_primitives::conway;
 use uplc::ast::{DeBruijn, NamedDeBruijn};
 use uplc::{
     ast::{Constant, Program, Term, Type},
@@ -66,11 +66,11 @@ pub fn to_json_term(term: &Term<NamedDeBruijn>) -> Value {
     }
 }
 
-fn bigint_to_json(bigint: &babbage::BigInt) -> Value {
+fn bigint_to_json(bigint: &conway::BigInt) -> Value {
     match bigint {
-        babbage::BigInt::Int(x) => json!({ "int": x }),
-        babbage::BigInt::BigUInt(x) => json!({ "big_uint": x.to_string() }),
-        babbage::BigInt::BigNInt(x) => json!({ "big_nint": x.to_string() }),
+        conway::BigInt::Int(x) => json!({ "int": x }),
+        conway::BigInt::BigUInt(x) => json!({ "big_uint": x.to_string() }),
+        conway::BigInt::BigNInt(x) => json!({ "big_nint": x.to_string() }),
     }
 }
 

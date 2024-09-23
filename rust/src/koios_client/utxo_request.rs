@@ -2,9 +2,7 @@ use crate::js_error::JsError;
 use crate::koios_client::error_mapper::to_js_error;
 use crate::koios_client::models::{ApiError, ApiResult, UtxoInfoRequest, UtxoInfoResponse};
 use crate::koios_client::network_type::NetworkType;
-use cardano_serialization_lib::TransactionInputs;
 use itertools::Itertools;
-use pallas::ledger::primitives::alonzo::TransactionInput;
 use reqwest::Client;
 
 pub(crate) async fn get_utxos(

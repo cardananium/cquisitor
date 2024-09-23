@@ -8,33 +8,32 @@ use crate::koios_client::utxo_request::get_utxos;
 use crate::netwrok_type::NetworkType;
 use cardano_serialization_lib::Address;
 use itertools::Itertools;
-use pallas::codec::minicbor::Decode;
-use pallas::codec::utils::{Bytes, CborWrap, KeyValuePairs};
-use pallas::crypto::hash::Hash;
-use pallas::ledger::primitives::alonzo::{ExUnits, NativeScript};
-use pallas::ledger::primitives::babbage::{
-    AssetName, Coin, CostMdls, MintedTx, Multiasset, PlutusData, PlutusV1Script, PlutusV2Script,
+use pallas_codec::minicbor::Decode;
+use pallas_codec::utils::{Bytes, CborWrap, KeyValuePairs, NonEmptyKeyValuePairs, PositiveCoin};
+use pallas_crypto::hash::Hash;
+use pallas_primitives::conway::{AssetName, CostMdls, ExUnits, MintedTx, Multiasset, NativeScript, PlutusData, PlutusV1Script, PlutusV2Script, PlutusV3Script};
+use pallas_primitives::conway::{
     PolicyId, PostAlonzoTransactionOutput, PseudoScript, Redeemer, RedeemerTag, ScriptRef,
     TransactionOutput,
 };
-use pallas::ledger::primitives::conway::DatumOption;
-use pallas::ledger::primitives::Fragment;
-use pallas::ledger::traverse::{Era, MultiEraTx};
+use pallas_primitives::conway::DatumOption;
+use pallas_primitives::conway::Language::PlutusV3;
+use pallas_primitives::Fragment;
+use pallas_traverse::{Era, MultiEraTx};
 use serde_json::{Map, Number, Value};
-use std::fmt::format;
 use uplc::machine::cost_model::ExBudget;
 use uplc::tx::error::Error;
-use uplc::tx::eval::get_script_and_datum_lookup_table;
+use uplc::tx::DataLookupTable;
 use uplc::tx::{eval, eval_phase_one, ResolvedInput, SlotConfig};
 use uplc::TransactionInput;
 
 #[wasm_bindgen]
 pub fn get_utxo_list_from_tx(tx_hex: &str) -> Result<Vec<String>, JsError> {
     let tx_bytes = hex::decode(tx_hex).map_err(|e| JsError::new(&e.to_string()))?;
-    let mtx = MultiEraTx::decode_for_era(Era::Babbage, &tx_bytes)
+    let mtx = MultiEraTx::decode_for_era(Era::Conway, &tx_bytes)
         .map_err(|e| JsError::new(&e.to_string()))?;
     let tx = match mtx {
-        MultiEraTx::Babbage(tx) => tx.into_owned(),
+        MultiEraTx::Conway(tx) => tx.into_owned(),
         _ => return Err(JsError::new("Invalid transaction type")),
     };
 
@@ -63,10 +62,10 @@ pub fn execute_tx_scripts(
     protocol_params_json: &str,
 ) -> Result<String, JsError> {
     let tx_bytes = hex::decode(tx_hex).map_err(|e| JsError::new(&e.to_string()))?;
-    let mtx = MultiEraTx::decode_for_era(Era::Babbage, &tx_bytes)
+    let mtx = MultiEraTx::decode_for_era(Era::Conway, &tx_bytes)
         .map_err(|e| JsError::new(&e.to_string()))?;
     let tx = match mtx {
-        MultiEraTx::Babbage(tx) => tx.into_owned(),
+        MultiEraTx::Conway(tx) => tx.into_owned(),
         _ => return Err(JsError::new("Invalid transaction type")),
     };
 
@@ -89,10 +88,10 @@ pub async fn execute_tx_scripts_for_specific_network(
     api_token: &str,
 ) -> Result<String, JsError> {
     let tx_bytes = hex::decode(tx_hex).map_err(|e| JsError::new(&e.to_string()))?;
-    let mtx = MultiEraTx::decode_for_era(Era::Babbage, &tx_bytes)
+    let mtx = MultiEraTx::decode_for_era(Era::Conway, &tx_bytes)
         .map_err(|e| JsError::new(&e.to_string()))?;
     let tx = match mtx {
-        MultiEraTx::Babbage(tx) => tx.into_owned(),
+        MultiEraTx::Conway(tx) => tx.into_owned(),
         _ => return Err(JsError::new("Invalid transaction type")),
     };
 
@@ -213,6 +212,8 @@ fn redeemer_tag_to_string(tag: &RedeemerTag) -> String {
         RedeemerTag::Mint => "Mint".to_string(),
         RedeemerTag::Cert => "Cert".to_string(),
         RedeemerTag::Reward => "Reward".to_string(),
+        RedeemerTag::Propose => "Propose".to_string(),
+        RedeemerTag::Vote => "Vote".to_string(),
     }
 }
 
@@ -232,6 +233,11 @@ fn to_pallas_cost_models(pp: &EpochParamResponse) -> CostMdls {
             .as_ref()
             .and_then(|cm| cm.plutus_v2.as_ref())
             .map(|v2| v2.clone()),
+        plutus_v3: pp
+            .cost_models
+            .as_ref()
+            .and_then(|cm| cm.plutus_v3.as_ref())
+            .map(|v3| v3.clone()),
     }
 }
 
@@ -261,7 +267,7 @@ fn response_utxo_to_pallas(utxos: Vec<UtxoInfoResponse>) -> Result<Vec<ResolvedI
 }
 
 fn to_pallas_script_ref(utxo: &UtxoInfoResponse) -> Result<Option<CborWrap<ScriptRef>>, JsError> {
-    if let (Some(script)) = &utxo.reference_script {
+    if let Some(script) = &utxo.reference_script {
         let script_bytes = hex::decode(&script.bytes).map_err(|e| JsError::new(&e.to_string()))?;
         let decoded_script = match script.script_type.as_str() {
             "nativeScript" => Ok(PseudoScript::NativeScript(
@@ -274,6 +280,9 @@ fn to_pallas_script_ref(utxo: &UtxoInfoResponse) -> Result<Option<CborWrap<Scrip
             "plutusV2" => Ok(PseudoScript::PlutusV2Script(PlutusV2Script(
                 script_bytes.into(),
             ))),
+            "plutusV3" => Ok(PseudoScript::PlutusV3Script(PlutusV3Script(
+                script_bytes.into(),
+            ))),
             _ => Err(JsError::new("Invalid script type")),
         }?;
         Ok(Some(CborWrap(decoded_script)))
@@ -283,13 +292,13 @@ fn to_pallas_script_ref(utxo: &UtxoInfoResponse) -> Result<Option<CborWrap<Scrip
 }
 
 fn to_pallas_datum(utxo: &UtxoInfoResponse) -> Result<Option<DatumOption>, JsError> {
-    if let (Some(datum)) = &utxo.inline_datum {
+    if let Some(datum) = &utxo.inline_datum {
         let datum_bytes = hex::decode(&datum.bytes).map_err(|e| JsError::new(&e.to_string()))?;
         let datum = CborWrap(
             PlutusData::decode_fragment(&datum_bytes).map_err(|e| JsError::new(&e.to_string()))?,
         );
         Ok(Some(DatumOption::Data(datum)))
-    } else if let (Some(datum_hash)) = &utxo.datum_hash {
+    } else if let Some(datum_hash) = &utxo.datum_hash {
         let datum_hash: [u8; 32] = hex::decode(datum_hash)
             .map_err(|e| JsError::new(&e.to_string()))?
             .try_into()
@@ -309,23 +318,23 @@ fn to_pallas_address(utxo: &UtxoInfoResponse) -> Result<Bytes, JsError> {
 
 fn to_pallas_value(
     utxo: &UtxoInfoResponse,
-) -> Result<pallas::ledger::primitives::babbage::Value, JsError> {
+) -> Result<pallas_primitives::conway::Value, JsError> {
     let coins: u64 = utxo
         .value
         .parse()
         .map_err(|e| JsError::new(&format!("{}", e)))?;
     match to_pallas_multi_asset(utxo) {
-        Ok(Some(multi_asset)) => Ok(pallas::ledger::primitives::babbage::Value::Multiasset(
+        Ok(Some(multi_asset)) => Ok(pallas_primitives::conway::Value::Multiasset(
             coins,
             multi_asset,
         )),
-        Ok(None) => Ok(pallas::ledger::primitives::babbage::Value::Coin(coins)),
+        Ok(None) => Ok(pallas_primitives::conway::Value::Coin(coins)),
         Err(e) => Err(e),
     }
 }
 
-fn to_pallas_multi_asset(utxo: &UtxoInfoResponse) -> Result<Option<Multiasset<Coin>>, JsError> {
-    if let (Some(assets)) = &utxo.asset_list {
+fn to_pallas_multi_asset(utxo: &UtxoInfoResponse) -> Result<Option<Multiasset<PositiveCoin>>, JsError> {
+    if let Some(assets) = &utxo.asset_list {
         let mut multi_asset = Vec::new();
         for (policy, assets) in assets.iter().into_group_map_by(|a| &a.policy_id) {
             let policy_id_bytes: [u8; 28] = hex::decode(policy)
@@ -335,20 +344,27 @@ fn to_pallas_multi_asset(utxo: &UtxoInfoResponse) -> Result<Option<Multiasset<Co
             let policy_id = PolicyId::from(policy_id_bytes);
             let mut mapped_assets = Vec::new();
             for asset in assets {
-                let asset_name = if let (Some(asset_name)) = &asset.asset_name {
+                let asset_name = if let Some(asset_name) = &asset.asset_name {
                     AssetName::from(
                         hex::decode(asset_name).map_err(|e| JsError::new(&e.to_string()))?,
                     )
                 } else {
                     AssetName::from(Vec::new())
                 };
-                mapped_assets.push((asset_name, asset.quantity));
+                if asset.quantity == 0 {
+                    continue
+                }
+                let coin = PositiveCoin::try_from(asset.quantity).map_err(
+                    |e| JsError::new(&format!("Cannot convert asset quantity: {}", e)),
+                )?;
+                mapped_assets.push((asset_name, coin));
             }
-            multi_asset.push((policy_id, KeyValuePairs::Def(mapped_assets)));
+            multi_asset.push((policy_id, NonEmptyKeyValuePairs::Def(mapped_assets)));
         }
-        return Ok(Some(KeyValuePairs::Def(multi_asset)));
+        return Ok(Some(NonEmptyKeyValuePairs::Def(multi_asset)));
     }
-    return Ok(None);
+
+    Ok(None)
 }
 
 fn eval_all_redeemers(
@@ -360,7 +376,7 @@ fn eval_all_redeemers(
 ) -> Result<Vec<Result<(Redeemer, Redeemer), (Redeemer, Error)>>, JsError> {
     let redeemers = tx.transaction_witness_set.redeemer.as_ref();
 
-    let lookup_table = get_script_and_datum_lookup_table(tx, utxos);
+    let lookup_table = DataLookupTable::from_transaction(tx, utxos);
 
     if run_phase_one {
         // subset of phase 1 check on redeemers and scripts
@@ -371,12 +387,18 @@ fn eval_all_redeemers(
         Some(rs) => {
             let mut collected_redeemers = vec![];
             let remaining_budget = ExBudget::default();
-            for redeemer in rs.iter() {
+            for (rKey, rValue) in rs.iter() {
+                let redeemer = Redeemer {
+                    tag: rKey.tag,
+                    index: rKey.index,
+                    data: rValue.data.clone(),
+                    ex_units: rValue.ex_units,
+                };
                 let result = eval::eval_redeemer(
                     tx,
                     utxos,
                     slot_config,
-                    redeemer,
+                    &redeemer,
                     &lookup_table,
                     cost_mdls,
                     &remaining_budget,
