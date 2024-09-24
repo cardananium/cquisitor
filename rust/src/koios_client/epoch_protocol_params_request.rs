@@ -15,7 +15,7 @@ pub(crate) async fn get_epoch_protocol_params(
     let response = client
         .get(url)
         .header("Accept", "application/json")
-        .header("Content-Type", "application/json")
+        // .header("Content-Type", "application/json")
         .bearer_auth(api_token)
         .send()
         .await
