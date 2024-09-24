@@ -183,7 +183,7 @@ function App() {
                                         <MenuItem sx={{fontSize: 14}} value={2}>Check tx signatures</MenuItem>
                                         <MenuItem sx={{fontSize: 14}} value={3}>Decode plutus CBOR (json structure) </MenuItem>
                                         <MenuItem sx={{fontSize: 14}} value={4}>Decode plutus CBOR (plain uplc) </MenuItem>
-                                        {/*<MenuItem sx={{fontSize: 14}} value={5}>Run plutus scripts from tx </MenuItem>*/}
+                                        <MenuItem sx={{fontSize: 14}} value={5}>Run plutus scripts from tx </MenuItem>
                                     </Select>
                                     <CslList show={decoderType === 1} onChoose={(newCslType, newNetworkType, schemaType) => {
                                         //split this into separate if's

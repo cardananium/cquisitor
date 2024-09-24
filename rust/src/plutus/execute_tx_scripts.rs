@@ -124,7 +124,7 @@ pub async fn execute_tx_scripts_for_specific_network(
     let cost_models = to_pallas_cost_models(&kios_pp);
     let exec_result = eval_all_redeemers(&tx, &utxos, Some(&cost_models), &slot_config, false)?;
 
-    return Ok(build_response_object(exec_result).to_string());
+    Ok(build_response_object(exec_result).to_string())
 }
 
 fn check_missed_utxos(
@@ -351,10 +351,15 @@ fn to_pallas_multi_asset(utxo: &UtxoInfoResponse) -> Result<Option<Multiasset<Po
                 } else {
                     AssetName::from(Vec::new())
                 };
-                if asset.quantity == 0 {
+                let asset_quantity: u64 = asset
+                    .quantity
+                    .parse()
+                    .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+                if asset_quantity == 0 {
                     continue
                 }
-                let coin = PositiveCoin::try_from(asset.quantity).map_err(
+                let coin = PositiveCoin::try_from(asset_quantity).map_err(
                     |e| JsError::new(&format!("Cannot convert asset quantity: {}", e)),
                 )?;
                 mapped_assets.push((asset_name, coin));

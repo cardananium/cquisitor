@@ -27,6 +27,7 @@ pub(crate) async fn get_utxos(
         .json(&inputs_request)
         .bearer_auth(api_token)
         .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
         .send()
         .await
         .map_err(|err| to_js_error(err, "get_utxos.send"))?;

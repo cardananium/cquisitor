@@ -23,7 +23,7 @@ pub (crate) struct ReferenceScript {
     #[serde(rename = "type")]
     pub(crate) script_type: String,
     pub(crate) bytes: String,
-    pub(crate) value: serde_json::Value,
+    pub(crate) value: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -32,7 +32,7 @@ pub (crate) struct Asset {
     pub(crate) asset_name: Option<String>,
     pub(crate) fingerprint: String,
     pub(crate) decimals: u64,
-    pub(crate) quantity: u64,
+    pub(crate) quantity: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -107,6 +107,28 @@ pub (crate) struct EpochParamResponse {
     pub(crate) collateral_percent: Option<u64>,
     pub(crate) max_collateral_inputs: Option<u64>,
     pub(crate) coins_per_utxo_size: Option<String>,
+    pub(crate) pvt_motion_no_confidence: Option<f64>,
+    pub(crate) pvt_committee_normal: Option<f64>,
+    pub(crate) pvt_committee_no_confidence: Option<f64>,
+    pub(crate) pvt_hard_fork_initiation: Option<f64>,
+    pub(crate) dvt_motion_no_confidence: Option<f64>,
+    pub(crate) dvt_committee_normal: Option<f64>,
+    pub(crate) dvt_committee_no_confidence: Option<f64>,
+    pub(crate) dvt_update_to_constitution: Option<f64>,
+    pub(crate) dvt_hard_fork_initiation: Option<f64>,
+    pub(crate) dvt_p_p_network_group: Option<f64>,
+    pub(crate) dvt_p_p_economic_group: Option<f64>,
+    pub(crate) dvt_p_p_technical_group: Option<f64>,
+    pub(crate) dvt_p_p_gov_group: Option<f64>,
+    pub(crate) dvt_treasury_withdrawal: Option<f64>,
+    pub(crate) committee_min_size: Option<u64>,
+    pub(crate) committee_max_term_length: Option<u64>,
+    pub(crate) gov_action_lifetime: Option<u64>,
+    pub(crate) gov_action_deposit: Option<String>,
+    pub(crate) drep_deposit: Option<String>,
+    pub(crate) drep_activity: Option<u64>,
+    pub(crate) pvtpp_security_group: Option<f64>,
+    pub(crate) min_fee_ref_script_cost_per_byte: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

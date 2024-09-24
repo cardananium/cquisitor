@@ -14,6 +14,7 @@ pub(crate) async fn get_chain_tip(
     let response = client
         .get(url)
         .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
         .bearer_auth(api_token)
         .send()
         .await
