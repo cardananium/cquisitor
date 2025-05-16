@@ -18,12 +18,12 @@ use pallas_primitives::conway::{
 };
 use pallas_primitives::conway::DatumOption;
 use pallas_primitives::conway::Language::PlutusV3;
-use pallas_primitives::Fragment;
+use pallas_primitives::{Fragment, PlutusScript};
 use pallas_traverse::{Era, MultiEraTx};
 use serde_json::{Map, Number, Value};
 use uplc::machine::cost_model::ExBudget;
 use uplc::tx::error::Error;
-use uplc::tx::DataLookupTable;
+use uplc::tx::{iter_redeemers, DataLookupTable};
 use uplc::tx::{eval, eval_phase_one, ResolvedInput, SlotConfig};
 use uplc::TransactionInput;
 
@@ -218,7 +218,7 @@ fn redeemer_tag_to_string(tag: &RedeemerTag) -> String {
 }
 
 fn input_to_request_format(input: &TransactionInput) -> String {
-    return format!("{}#{}", hex::encode(input.transaction_id), input.index);
+    format!("{}#{}", hex::encode(input.transaction_id), input.index)
 }
 
 fn to_pallas_cost_models(pp: &EpochParamResponse) -> CostMdls {
@@ -274,13 +274,13 @@ fn to_pallas_script_ref(utxo: &UtxoInfoResponse) -> Result<Option<CborWrap<Scrip
                 NativeScript::decode_fragment(&script_bytes)
                     .map_err(|e| JsError::new(&e.to_string()))?,
             )),
-            "plutusV1" => Ok(PseudoScript::PlutusV1Script(PlutusV1Script(
+            "plutusV1" => Ok(PseudoScript::PlutusV1Script(PlutusScript(
                 script_bytes.into(),
             ))),
-            "plutusV2" => Ok(PseudoScript::PlutusV2Script(PlutusV2Script(
+            "plutusV2" => Ok(PseudoScript::PlutusV2Script(PlutusScript(
                 script_bytes.into(),
             ))),
-            "plutusV3" => Ok(PseudoScript::PlutusV3Script(PlutusV3Script(
+            "plutusV3" => Ok(PseudoScript::PlutusV3Script(PlutusScript(
                 script_bytes.into(),
             ))),
             _ => Err(JsError::new("Invalid script type")),
@@ -392,12 +392,12 @@ fn eval_all_redeemers(
         Some(rs) => {
             let mut collected_redeemers = vec![];
             let remaining_budget = ExBudget::default();
-            for (rKey, rValue) in rs.iter() {
+            for (rKey, rData, rExUnits) in iter_redeemers(rs) {
                 let redeemer = Redeemer {
                     tag: rKey.tag,
                     index: rKey.index,
-                    data: rValue.data.clone(),
-                    ex_units: rValue.ex_units,
+                    data: rData.clone(),
+                    ex_units: rExUnits,
                 };
                 let result = eval::eval_redeemer(
                     tx,
@@ -410,7 +410,7 @@ fn eval_all_redeemers(
                 );
 
                 match result {
-                    Ok(new_redeemer) => {
+                    Ok((new_redeemer, eval_result)) => {
                         collected_redeemers.push(Ok((redeemer.clone(), new_redeemer)))
                     }
                     Err(err) => collected_redeemers.push(Err((redeemer.clone(), err))),
