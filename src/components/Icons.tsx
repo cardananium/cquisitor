@@ -151,3 +151,16 @@ export function ChevronUpDownIcon({ size = 24, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function CopyIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" {...props}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M8 3H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3M8 3v2a2 2 0 002 2h7V5a2 2 0 00-2-2h-5M8 3a2 2 0 012-2h5a2 2 0 012 2v2"
+      />
+    </svg>
+  );
+}

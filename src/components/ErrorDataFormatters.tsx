@@ -587,6 +587,12 @@ function detectAndFormat(key: string, value: unknown): FormattedStructure | null
 
 /**
  * Budget comparison formatter for Phase 2 warnings
+ * 
+ * NOTE: The library naming is confusing:
+ * - expected_budget = what was actually USED during script execution
+ * - actual_budget = what was DECLARED in the transaction (the budget you set)
+ * 
+ * We rename to clearer terms: "used" and "declared"
  */
 function BudgetComparisonFormatter({ 
   expected, 
@@ -595,9 +601,14 @@ function BudgetComparisonFormatter({
   expected: ExUnits; 
   actual: ExUnits;
 }) {
-  const memDiff = actual.mem - expected.mem;
-  const stepsDiff = actual.steps - expected.steps;
-  const isOverspending = memDiff > 0 || stepsDiff > 0;
+  // Rename for clarity: expected = used, actual = declared
+  const used = expected;
+  const declared = actual;
+  
+  // Calculate how much extra was declared vs what was used
+  const memOverhead = declared.mem - used.mem;
+  const stepsOverhead = declared.steps - used.steps;
+  const isOverspending = memOverhead > 0 || stepsOverhead > 0;
   
   return (
     <div className="smart-message-formatter">
@@ -609,27 +620,27 @@ function BudgetComparisonFormatter({
       </div>
       <div className="message-structures">
         <div className="message-structure-item">
-          <span className="structure-key">Declared vs Actual:</span>
+          <span className="structure-key">Declared → Used:</span>
         </div>
         <div className="budget-comparison-inline">
           <span className="budget-inline-label">Memory:</span>
-          <span className="budget-inline-value">{expected.mem.toLocaleString()}</span>
+          <span className="budget-inline-value">{declared.mem.toLocaleString()}</span>
           <span className="budget-inline-arrow">→</span>
-          <span className="budget-inline-value">{actual.mem.toLocaleString()}</span>
-          {memDiff !== 0 && (
-            <span className={`budget-inline-diff ${memDiff > 0 ? 'over' : 'under'}`}>
-              ({memDiff > 0 ? '+' : ''}{memDiff.toLocaleString()})
+          <span className="budget-inline-value">{used.mem.toLocaleString()}</span>
+          {memOverhead !== 0 && (
+            <span className={`budget-inline-diff ${memOverhead > 0 ? 'over' : 'under'}`}>
+              ({memOverhead > 0 ? '+' : ''}{memOverhead.toLocaleString()})
             </span>
           )}
         </div>
         <div className="budget-comparison-inline">
           <span className="budget-inline-label">CPU:</span>
-          <span className="budget-inline-value">{expected.steps.toLocaleString()}</span>
+          <span className="budget-inline-value">{declared.steps.toLocaleString()}</span>
           <span className="budget-inline-arrow">→</span>
-          <span className="budget-inline-value">{actual.steps.toLocaleString()}</span>
-          {stepsDiff !== 0 && (
-            <span className={`budget-inline-diff ${stepsDiff > 0 ? 'over' : 'under'}`}>
-              ({stepsDiff > 0 ? '+' : ''}{stepsDiff.toLocaleString()})
+          <span className="budget-inline-value">{used.steps.toLocaleString()}</span>
+          {stepsOverhead !== 0 && (
+            <span className={`budget-inline-diff ${stepsOverhead > 0 ? 'over' : 'under'}`}>
+              ({stepsOverhead > 0 ? '+' : ''}{stepsOverhead.toLocaleString()})
             </span>
           )}
         </div>

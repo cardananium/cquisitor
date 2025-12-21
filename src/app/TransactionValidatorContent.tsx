@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CompactLayout from "@/components/CompactLayout";
 import ResizablePanels from "@/components/ResizablePanels";
 import ValidationJsonViewer, { type ValidationDiagnostic } from "@/components/ValidationJsonViewer";
@@ -18,6 +18,8 @@ import {
   CheckCircleIcon,
   SpinnerIcon,
   ChevronDownIcon,
+  CopyIcon,
+  CheckIcon,
 } from "@/components/Icons";
 import { ErrorFormatter } from "@/components/ErrorDataFormatters";
 import HintBanner from "@/components/HintBanner";
@@ -183,6 +185,44 @@ function DiagnosticIcon({ severity }: { severity: DiagnosticSeverity }) {
     case "success":
       return <SuccessIcon size={16} className="text-green-500 flex-shrink-0" />;
   }
+}
+
+// Format diagnostics to markdown for copying
+function formatDiagnosticsToMarkdown(items: DiagnosticItem[]): string {
+  if (items.length === 0) return "✅ No problems detected";
+  
+  const errors = items.filter(i => i.severity === "error");
+  const warnings = items.filter(i => i.severity === "warning");
+  
+  let md = "";
+  
+  if (errors.length > 0) {
+    md += `## ❌ Errors (${errors.length})\n\n`;
+    errors.forEach((item, idx) => {
+      md += `### ${idx + 1}. [${item.phase}] ${item.message}\n`;
+      if (item.details) md += `- **Details:** ${item.details}\n`;
+      if (item.hint) md += `- **Hint:** ${item.hint}\n`;
+      if (item.locations && item.locations.length > 0) {
+        md += `- **Location:** \`${item.locations.join("`, `")}\`\n`;
+      }
+      md += "\n";
+    });
+  }
+  
+  if (warnings.length > 0) {
+    md += `## ⚠️ Warnings (${warnings.length})\n\n`;
+    warnings.forEach((item, idx) => {
+      md += `### ${idx + 1}. [${item.phase}] ${item.message}\n`;
+      if (item.details) md += `- **Details:** ${item.details}\n`;
+      if (item.hint) md += `- **Hint:** ${item.hint}\n`;
+      if (item.locations && item.locations.length > 0) {
+        md += `- **Location:** \`${item.locations.join("`, `")}\`\n`;
+      }
+      md += "\n";
+    });
+  }
+  
+  return md.trim();
 }
 
 function DiagnosticsList({ items, onLocationClick }: { 
@@ -456,6 +496,7 @@ export default function TransactionValidatorContent() {
   } = useTransactionValidator();
   
   const focusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [copiedDiagnostics, setCopiedDiagnostics] = useState(false);
 
   // Transform validation paths to actual JSON paths
   // Specific transformations for known path differences
@@ -569,6 +610,14 @@ export default function TransactionValidatorContent() {
   // Count errors and warnings for tab badges
   const errorCount = diagnostics.filter(d => d.severity === "error").length;
   const warningCount = diagnostics.filter(d => d.severity === "warning").length;
+
+  // Copy diagnostics to clipboard as markdown
+  const handleCopyDiagnostics = () => {
+    const markdown = formatDiagnosticsToMarkdown(diagnostics);
+    navigator.clipboard.writeText(markdown);
+    setCopiedDiagnostics(true);
+    setTimeout(() => setCopiedDiagnostics(false), 2000);
+  };
 
   // Build diagnostics for the JSON viewer (with locations for tree highlighting)
   // Transform paths to match actual JSON structure
@@ -761,6 +810,27 @@ export default function TransactionValidatorContent() {
               <span className="validator-tab-count">{result.eval_redeemer_results.length}</span>
             )}
           </Tabs.Trigger>
+          
+          {/* Copy button - only show when on validation tab and has diagnostics */}
+          {activeTab === "validation" && diagnostics.length > 0 && (
+            <button 
+              className={`diagnostics-copy-btn tabs-copy-btn ${copiedDiagnostics ? 'copied' : ''}`}
+              onClick={handleCopyDiagnostics}
+              title="Copy all diagnostics as Markdown"
+            >
+              {copiedDiagnostics ? (
+                <>
+                  <CheckIcon size={12} />
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <CopyIcon size={12} />
+                  Copy
+                </>
+              )}
+            </button>
+          )}
         </Tabs.List>
 
         <Tabs.Content value="validation" className="validator-tab-content">

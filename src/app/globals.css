@@ -1434,6 +1434,53 @@ input, textarea, select, button {
   overflow: hidden;
 }
 
+.diagnostics-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.diagnostics-copy-btn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+
+.diagnostics-copy-btn:active {
+  background: #e2e8f0;
+}
+
+.diagnostics-copy-btn svg {
+  flex-shrink: 0;
+}
+
+/* Copied state - green */
+.diagnostics-copy-btn.copied {
+  color: #16a34a;
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+/* Copy button in tabs row */
+.diagnostics-copy-btn.tabs-copy-btn {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 11px;
+  gap: 4px;
+  border-radius: 4px;
+  height: 24px;
+  line-height: 1;
+}
+
 .diagnostics-accordion {
   flex: 1;
   overflow-y: auto;
@@ -1909,6 +1956,7 @@ input, textarea, select, button {
 
 .validator-tabs-list {
   display: flex;
+  align-items: center;
   background: #f1f5f9;
   border-bottom: 1px solid #e2e8f0;
   padding: 0 16px;
