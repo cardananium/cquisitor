@@ -2,73 +2,40 @@
   "name": "cquisitor",
   "version": "0.1.0",
   "private": true,
-  "homepage": "http://cardananium.github.io/cquisitor",
-  "dependencies": {
-    "@cardananium/plutus-tools.js": "0.1.4",
-    "@emotion/react": "^11.11.0",
-    "@emotion/styled": "^11.11.0",
-    "@emurgo/cardano-serialization-lib-browser": "12.1.0",
-    "@mui/material": "^5.13.1",
-    "@testing-library/jest-dom": "^5.16.5",
-    "@testing-library/react": "^13.4.0",
-    "@testing-library/user-event": "^13.5.0",
-    "@textea/json-viewer": "^3.0.0",
-    "blake2b": "^2.1.4",
-    "cquisitor_wasm": "file:rust/pkg",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-github-btn": "^1.4.0",
-    "react-scripts": "5.0.1",
-    "react-split-pane": "^0.1.92",
-    "rich-textarea": "^0.21.0",
-    "web-vitals": "^2.1.4"
-  },
   "scripts": {
-    "start": "react-app-rewired start",
-    "build:js": "react-app-rewired build",
-    "test": "react-app-rewired test",
-    "eject": "react-app-rewired eject",
-    "build:wasm": "cd rust && wasm-pack build --target browser --out-dir pkg && wasm-pack pack",
-    "build": "npm run build:wasm && npx webpack && npm run build:js",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d build"
+    "dev": "next dev",
+    "build": "next build",
+    "build:gh-pages": "GITHUB_PAGES=true next build",
+    "start": "next start",
+    "lint": "eslint"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+  "dependencies": {
+    "@cardananium/cquisitor-lib": "^0.1.0-beta.33",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/material": "^7.3.6",
+    "@noble/hashes": "^2.0.1",
+    "@radix-ui/react-accordion": "^1.2.12",
+    "@radix-ui/react-progress": "^1.1.8",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@textea/json-viewer": "^4.0.1",
+    "bech32": "^2.0.0",
+    "cbor-x": "^1.6.0",
+    "next": "^16.0.10",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "safe-stable-stringify": "^2.5.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.21.8",
-    "@babel/plugin-proposal-class-properties": "^7.14.5",
-    "@babel/plugin-proposal-export-default-from": "^7.14.5",
-    "@babel/plugin-proposal-export-namespace-from": "^7.14.5",
-    "@babel/plugin-proposal-optional-chaining": "^7.14.5",
-    "@babel/plugin-transform-runtime": "^7.14.5",
-    "@babel/preset-env": "^7.21.5",
-    "@babel/preset-react": "^7.18.6",
-    "@babel/preset-typescript": "^7.18.0",
-    "babel-loader": "^8.3.0",
-    "css-loader": "^6.7.4",
-    "gh-pages": "^5.0.0",
-    "react-app-rewired": "2.2.1",
-    "style-loader": "^3.3.3",
-    "typescript": "^5.3.3",
-    "webpack": "^5.83.1",
-    "webpack-cli": "^5.1.4",
-    "buffer": "6.0.3"
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.0.7",
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }
