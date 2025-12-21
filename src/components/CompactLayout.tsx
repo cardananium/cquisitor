@@ -3,6 +3,7 @@
 import Image from "next/image";
 import TabNavigation from "./TabNavigation";
 import GitHubStarButton from "./GitHubStarButton";
+import logo32 from "../../public/logo-32.png";
 
 interface CompactLayoutProps {
   children: React.ReactNode;
@@ -15,7 +16,7 @@ export default function CompactLayout({ children }: CompactLayoutProps) {
         <div className="compact-header-content">
           <div className="compact-logo">
             <Image
-              src="/logo-32.png"
+              src={logo32}
               alt="CQuisitor Logo"
               width={24}
               height={24}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import logo64 from "../../public/logo-64.png";
 
 const STORAGE_KEY = "cquisitor_welcome_shown";
 
@@ -75,7 +76,7 @@ export default function WelcomeModal() {
           <div className="welcome-header-glow" />
           <div className="welcome-logo-container">
             <Image
-              src="/logo-64.png"
+              src={logo64}
               alt="CQuisitor Logo"
               width={56}
               height={56}

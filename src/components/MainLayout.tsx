@@ -3,6 +3,7 @@
 import Image from "next/image";
 import TabNavigation from "./TabNavigation";
 import GitHubStarButton from "./GitHubStarButton";
+import logo32 from "../../public/logo-32.png";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -15,7 +16,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Image
-              src="/logo-32.png"
+              src={logo32}
               alt="CQuisitor Logo"
               width={24}
               height={24}
