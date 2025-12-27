@@ -1,15 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import TabNavigation from "./TabNavigation";
+import TabNavigation, { TabId } from "./TabNavigation";
 import GitHubStarButton from "./GitHubStarButton";
 import logo32 from "../../public/logo-32.png";
 
 interface MainLayoutProps {
   children: React.ReactNode;
+  activeTab: TabId;
+  onTabChange: (tab: TabId) => void;
 }
 
-export default function MainLayout({ children }: MainLayoutProps) {
+export default function MainLayout({ children, activeTab, onTabChange }: MainLayoutProps) {
   return (
     <div className="min-h-screen bg-[#e8f0f7]">
       <header className="sticky top-0 z-50 py-2 px-4 bg-[#e8f0f7]/85 backdrop-blur-md border-b border-[#d1dbe6]/50">
@@ -25,7 +27,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
             <span className="text-sm font-semibold text-[#2d3748]">CQuisitor</span>
           </div>
           <div className="flex items-center gap-4">
-            <TabNavigation />
+            <TabNavigation activeTab={activeTab} onTabChange={onTabChange} />
             <GitHubStarButton />
           </div>
         </div>
