@@ -44,7 +44,6 @@ interface EditableHexViewProps {
   onHoverPath?: (path: string | null) => void;
   onKeyDown?: (e: React.KeyboardEvent) => void;
   onShowInTree?: (position: CborPosition) => void;
-  placeholder?: string;
 }
 
 // Format value for display (same logic as CborTreeView)
@@ -412,7 +411,6 @@ export default function EditableHexView({
   onHoverPath,
   onKeyDown,
   onShowInTree,
-  placeholder = "Paste CBOR hex or base64 here...",
 }: EditableHexViewProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const cursorPosRef = useRef<number>(0);
@@ -817,6 +815,22 @@ export default function EditableHexView({
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
     >
+      {isEmpty && (
+        <div className="paste-hint-overlay">
+          <svg
+            className="paste-hint-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect x="8" y="2" width="8" height="4" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+            <path d="M16 4H18C19.1046 4 20 4.89543 20 6V20C20 21.1046 19.1046 22 18 22H6C4.89543 22 4 21.1046 4 20V6C4 4.89543 4.89543 4 6 4H8" stroke="currentColor" strokeWidth="1.5"/>
+            <path d="M9 12L11 14L15 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span className="paste-hint-text">Paste here</span>
+          <span className="paste-hint-formats">HEX · Base64</span>
+        </div>
+      )}
       <div
         ref={editorRef}
         className={`editable-hex-view ${isEmpty ? "is-empty" : ""}`}
@@ -826,7 +840,7 @@ export default function EditableHexView({
         onPaste={handlePaste}
         onKeyDown={handleKeyDown}
         onContextMenu={handleContextMenu}
-        data-placeholder={placeholder}
+        data-placeholder=""
         spellCheck={false}
       />
       

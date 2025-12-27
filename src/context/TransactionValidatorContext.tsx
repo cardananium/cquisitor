@@ -1,15 +1,22 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, ReactNode, useEffect } from "react";
-import type { NetworkType, EvalRedeemerResult } from "@cardananium/cquisitor-lib";
+import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import type { NetworkType, ExtractedHashes } from "@cardananium/cquisitor-lib";
 import type { ValidationResult } from "@/utils/transactionValidation";
+import type { TransactionData } from "@/components/TransactionCardView/types";
+import type { KoiosUtxoInfo } from "@/utils/koiosTypes";
 
 const KOIOS_API_KEY_STORAGE_KEY = "cquisitor_koios_api_key";
 
-interface DecodedTransaction {
-  transaction_hash: string;
-  transaction: unknown;
+export interface DecodedTransaction {
+  transaction_hash?: string;
+  transaction?: TransactionData;
 }
+
+/**
+ * Map of UTxO reference (txHash#outputIndex) to KoiosUtxoInfo
+ */
+export type InputUtxoInfoMap = Map<string, KoiosUtxoInfo>;
 
 interface TransactionValidatorState {
   txInput: string;
@@ -22,6 +29,9 @@ interface TransactionValidatorState {
   decodeError: string | null;
   activeTab: string;
   focusedPath: string[] | null;
+  extractedHashes: ExtractedHashes | null;
+  /** Fetched UTxO info for transaction inputs */
+  inputUtxoInfoMap: InputUtxoInfoMap | null;
 }
 
 interface TransactionValidatorContextType extends TransactionValidatorState {
@@ -35,6 +45,8 @@ interface TransactionValidatorContextType extends TransactionValidatorState {
   setDecodeError: (value: string | null) => void;
   setActiveTab: (value: string) => void;
   setFocusedPath: (value: string[] | null) => void;
+  setExtractedHashes: (value: ExtractedHashes | null) => void;
+  setInputUtxoInfoMap: (value: InputUtxoInfoMap | null) => void;
   handleApiKeyChange: (value: string) => void;
   clearAll: () => void;
 }
@@ -44,7 +56,13 @@ const TransactionValidatorContext = createContext<TransactionValidatorContextTyp
 export function TransactionValidatorProvider({ children }: { children: ReactNode }) {
   const [txInput, setTxInput] = useState("");
   const [network, setNetwork] = useState<NetworkType>("mainnet");
-  const [apiKey, setApiKey] = useState("");
+  // Load API key from localStorage on initial render
+  const [apiKey, setApiKey] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(KOIOS_API_KEY_STORAGE_KEY) || "";
+    }
+    return "";
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,14 +70,8 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
   const [decodeError, setDecodeError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("validation");
   const [focusedPath, setFocusedPath] = useState<string[] | null>(null);
-
-  // Load API key from localStorage on mount
-  useEffect(() => {
-    const savedApiKey = localStorage.getItem(KOIOS_API_KEY_STORAGE_KEY);
-    if (savedApiKey) {
-      setApiKey(savedApiKey);
-    }
-  }, []);
+  const [extractedHashes, setExtractedHashes] = useState<ExtractedHashes | null>(null);
+  const [inputUtxoInfoMap, setInputUtxoInfoMap] = useState<InputUtxoInfoMap | null>(null);
 
   // Save API key to localStorage when it changes
   const handleApiKeyChange = useCallback((value: string) => {
@@ -78,6 +90,8 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
     setDecodedTx(null);
     setDecodeError(null);
     setFocusedPath(null);
+    setExtractedHashes(null);
+    setInputUtxoInfoMap(null);
   }, []);
 
   return (
@@ -93,6 +107,8 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
         decodeError,
         activeTab,
         focusedPath,
+        extractedHashes,
+        inputUtxoInfoMap,
         setTxInput,
         setNetwork,
         setApiKey,
@@ -103,6 +119,8 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
         setDecodeError,
         setActiveTab,
         setFocusedPath,
+        setExtractedHashes,
+        setInputUtxoInfoMap,
         handleApiKeyChange,
         clearAll,
       }}
@@ -120,5 +138,5 @@ export function useTransactionValidator() {
   return context;
 }
 
-export type { DecodedTransaction, TransactionValidatorState };
+export type { TransactionValidatorState };
 

@@ -4,8 +4,7 @@ import { JsonViewer as TexteaJsonViewer, defineDataType } from "@textea/json-vie
 import { useMemo } from "react";
 import { bech32 } from "bech32";
 import { blake2b } from "@noble/hashes/blake2.js";
-
-type CardanoNetwork = "mainnet" | "preview" | "preprod";
+import { getTransactionLink, getAddressLink, type CardanoNetwork } from "@/utils/cardanoscanLinks";
 
 // Decode bech32 vkey and compute blake2b-224 hash
 function computeVkeyHash(vkeyBech32: string): string | null {
@@ -31,17 +30,6 @@ interface JsonViewerProps {
   network?: CardanoNetwork;
 }
 
-// Get CardanoScan base URL for network
-function getCardanoscanUrl(network: CardanoNetwork): string {
-  switch (network) {
-    case "mainnet":
-      return "https://cardanoscan.io";
-    case "preview":
-      return "https://preview.cardanoscan.io";
-    case "preprod":
-      return "https://preprod.cardanoscan.io";
-  }
-}
 
 // Recursively convert BigInt and Uint8Array to serializable types
 // Also enriches vkeys in witness_set with vkey_hash
@@ -89,8 +77,6 @@ export default function JsonViewer({
   const valueTypes = useMemo(() => {
     if (!network) return [];
     
-    const baseUrl = getCardanoscanUrl(network);
-    
     // Custom type for transaction_id (64 hex characters with key "transaction_id")
     const transactionIdType = defineDataType({
       is: (value, path) => {
@@ -100,7 +86,7 @@ export default function JsonViewer({
       },
       Component: ({ value }) => (
         <a
-          href={`${baseUrl}/transaction/${value}`}
+          href={getTransactionLink(network, String(value))}
           target="_blank"
           rel="noopener noreferrer"
           style={{ 
@@ -125,7 +111,7 @@ export default function JsonViewer({
       },
       Component: ({ value }) => (
         <a
-          href={`${baseUrl}/address/${value}`}
+          href={getAddressLink(network, String(value))}
           target="_blank"
           rel="noopener noreferrer"
           style={{ 

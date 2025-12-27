@@ -5,8 +5,7 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import { bech32 } from "bech32";
 import { blake2b } from "@noble/hashes/blake2.js";
 import { ErrorFormatter } from "./ErrorDataFormatters";
-
-type CardanoNetwork = "mainnet" | "preview" | "preprod";
+import { getTransactionLink, getAddressLink, type CardanoNetwork } from "@/utils/cardanoscanLinks";
 
 // Diagnostic item structure (same as in TransactionValidatorContent)
 export interface ValidationDiagnostic {
@@ -99,17 +98,6 @@ function computeVkeyHash(vkeyBech32: string): string | null {
   }
 }
 
-// Get CardanoScan base URL for network
-function getCardanoscanUrl(network: CardanoNetwork): string {
-  switch (network) {
-    case "mainnet":
-      return "https://cardanoscan.io";
-    case "preview":
-      return "https://preview.cardanoscan.io";
-    case "preprod":
-      return "https://preprod.cardanoscan.io";
-  }
-}
 
 // Prepare data: convert BigInt, Uint8Array, add vkey_hash
 function prepareData(data: unknown): unknown {
@@ -267,13 +255,11 @@ function formatValue(value: unknown, key: string, network?: CardanoNetwork): Rea
   if (typeof value === "string") {
     // Check for linkable values
     if (network) {
-      const baseUrl = getCardanoscanUrl(network);
-      
       // Transaction ID
       if (key === "transaction_id" && /^[a-f0-9]{64}$/i.test(value)) {
         return (
           <a
-            href={`${baseUrl}/transaction/${value}`}
+            href={getTransactionLink(network, value)}
             target="_blank"
             rel="noopener noreferrer"
             className="vjv-link"
@@ -289,7 +275,7 @@ function formatValue(value: unknown, key: string, network?: CardanoNetwork): Rea
       if (key === "address" && value.startsWith("addr")) {
         return (
           <a
-            href={`${baseUrl}/address/${value}`}
+            href={getAddressLink(network, value)}
             target="_blank"
             rel="noopener noreferrer"
             className="vjv-link"

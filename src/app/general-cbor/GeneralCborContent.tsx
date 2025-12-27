@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import CompactLayout from "@/components/CompactLayout";
 import ResizablePanels from "@/components/ResizablePanels";
 import EditableHexView from "@/components/EditableHexView";
 import CborTreeView from "@/components/CborTreeView";
@@ -9,6 +8,7 @@ import { cbor_to_json, type CborPosition } from "@cardananium/cquisitor-lib";
 import { useGeneralCbor } from "@/context/GeneralCborContext";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
+import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 
 function isValidBase64(str: string): boolean {
@@ -203,25 +203,26 @@ export default function GeneralCborContent() {
             onClearHighlight={handleClearTreeHighlight}
           />
         ) : (
-          <div className="empty-state">
-            <p className="empty-hint">Paste CBOR hex to decode</p>
-          </div>
+          <EmptyStatePlaceholder
+            title="CBOR tree view"
+            description="Paste any CBOR hex data in the left panel. Click on tree nodes to highlight corresponding bytes, or right-click hex to navigate to decoded structure."
+            showArrow={false}
+            icon="tree"
+          />
         )}
       </div>
     </div>
   );
 
   return (
-    <CompactLayout>
-      <div className="general-cbor-layout">
-        <ResizablePanels
-          leftPanel={leftPanel}
-          rightPanel={rightPanel}
-          defaultLeftWidth={45}
-          minLeftWidth={25}
-          maxLeftWidth={75}
-        />
-      </div>
-    </CompactLayout>
+    <div className="general-cbor-layout">
+      <ResizablePanels
+        leftPanel={leftPanel}
+        rightPanel={rightPanel}
+        defaultLeftWidth={45}
+        minLeftWidth={25}
+        maxLeftWidth={75}
+      />
+    </div>
   );
 }

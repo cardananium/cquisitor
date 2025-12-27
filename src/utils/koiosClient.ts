@@ -31,6 +31,15 @@ export interface GovActionRef {
   index: number;
 }
 
+/**
+ * Predefined DRep values that should not be queried from Koios
+ * These are special built-in DRep types in the Cardano protocol
+ */
+const PREDEFINED_DREPS = new Set([
+  'AlwaysAbstain',
+  'AlwaysNoConfidence',
+]);
+
 export interface KoiosClientConfig {
   network: KoiosNetworkType;
   apiKey?: string;
@@ -119,7 +128,8 @@ export class KoiosClient {
     const body: KoiosStakeAddressesRequest = {
       _stake_addresses: stakeAddresses,
     };
-    return this.post<KoiosAccountInfo[], KoiosStakeAddressesRequest>('/account_info', body);
+    const result = await this.post<KoiosAccountInfo[], KoiosStakeAddressesRequest>('/account_info', body);
+    return result;
   }
 
   /**
@@ -139,13 +149,19 @@ export class KoiosClient {
   /**
    * Get DRep information for given DRep IDs
    * @param drepIds Array of DRep IDs in bech32 format (drep1...)
+   * Note: Filters out predefined DReps (AlwaysAbstain, AlwaysNoConfidence) and empty/invalid values before querying
    */
   async getDrepInfo(drepIds: string[]): Promise<KoiosDrepInfo[]> {
-    if (drepIds.length === 0) {
+    // Filter out predefined DReps and empty/invalid values that shouldn't be queried from Koios
+    const validDrepIds = drepIds.filter(id => 
+      id && id.trim() !== '' && !PREDEFINED_DREPS.has(id)
+    );
+    
+    if (validDrepIds.length === 0) {
       return [];
     }
     const body: KoiosDrepIdsRequest = {
-      _drep_ids: drepIds,
+      _drep_ids: validDrepIds,
     };
     return this.post<KoiosDrepInfo[], KoiosDrepIdsRequest>('/drep_info', body);
   }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import CompactLayout from "@/components/CompactLayout";
 import ResizablePanels from "@/components/ResizablePanels";
 import JsonViewer from "@/components/JsonViewer";
 import TypeSelectionModal from "@/components/TypeSelectionModal";
@@ -16,6 +15,7 @@ import {
 import { useCardanoCbor } from "@/context/CardanoCborContext";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
+import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
 
@@ -295,7 +295,7 @@ export default function CardanoCborContent() {
       <div className="panel-header-compact">
         <span className="panel-title">CBOR or Bech32 input</span>
         <HelpTooltip>
-          <strong>How to use:</strong> Select structure type from the dropdown, paste CBOR hex (or base64/bech32), and view the decoded JSON on the right panel. Type is auto-detected when possible.
+          <strong>How to use:</strong> Paste CBOR hex (or base64/bech32) data below. The structure type will be auto-detected, or you&apos;ll see a modal to choose from possible types. You can change the type later using the dropdown.
         </HelpTooltip>
         {notification && <span className="panel-badge info">{notification}</span>}
         {error && <span className="panel-badge error">{error}</span>}
@@ -369,15 +369,31 @@ export default function CardanoCborContent() {
 
       {/* Usage hint */}
       <HintBanner storageKey="cquisitor_hint_cardano_cbor">
-        <strong>How to use:</strong> Select structure type, paste CBOR hex (or base64/bech32), and view the decoded JSON on the right.
+        <strong>How to use:</strong> Paste CBOR hex (or base64/bech32) below. The type will be auto-detected or you&apos;ll choose from options. Change type later via dropdown.
       </HintBanner>
 
       {/* Input textarea */}
       <div className="cardano-cbor-input-wrapper">
+        {!input.trim() && (
+          <div className="paste-hint-overlay">
+            <svg
+              className="paste-hint-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <rect x="8" y="2" width="8" height="4" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M16 4H18C19.1046 4 20 4.89543 20 6V20C20 21.1046 19.1046 22 18 22H6C4.89543 22 4 21.1046 4 20V6C4 4.89543 4.89543 4 6 4H8" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M9 12L11 14L15 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span className="paste-hint-text">Paste here</span>
+            <span className="paste-hint-formats">HEX · Base64 · Bech32</span>
+          </div>
+        )}
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="CBOR HEX or Base64 or Base58 or bech32 input"
+          placeholder=""
           className="cardano-cbor-textarea"
           spellCheck={false}
         />
@@ -394,18 +410,23 @@ export default function CardanoCborContent() {
       </div>
       {decodedJson ? (
         <JsonViewer data={decodedJson} expanded={3} network={network} />
-      ) : (
+      ) : error ? (
         <div className="empty-state">
-          <p className="empty-hint">
-            {error || "Paste CBOR data to decode"}
-          </p>
+          <p className="empty-hint">{error}</p>
         </div>
+      ) : (
+        <EmptyStatePlaceholder
+          title="Cardano data viewer"
+          description="Paste CBOR hex, base64, or bech32 data in the left panel. The structure type will be auto-detected, or you'll be able to choose from possible options."
+          showArrow={false}
+          icon="cardano"
+        />
       )}
     </div>
   );
 
   return (
-    <CompactLayout>
+    <>
       <div className="cardano-cbor-layout">
         <ResizablePanels
           leftPanel={leftPanel}
@@ -422,6 +443,6 @@ export default function CardanoCborContent() {
         onSelect={handleTypeSelect}
         onClose={handleModalClose}
       />
-    </CompactLayout>
+    </>
   );
 }

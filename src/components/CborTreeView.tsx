@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { CborValue, CborPosition } from "@cardananium/cquisitor-lib";
+import { CopyIcon, CheckIcon } from "./Icons";
 
 interface CborTreeViewProps {
   data: CborValue;
@@ -318,9 +319,9 @@ function ExpandableValue({ value }: { value: string }) {
           <button 
             className="cbor-tree-detail-copy"
             onClick={handleCopy}
-            title="Copy value"
+            title={copied ? "Copied!" : "Copy value"}
           >
-            {copied ? "✓ Copied" : "Copy"}
+            {copied ? <><CheckIcon size={12} /> Copied</> : <><CopyIcon size={12} /> Copy</>}
           </button>
         </div>
         <div className="cbor-tree-detail-expanded-value">

@@ -47,6 +47,7 @@ import stringify from 'safe-stable-stringify';
 
 // Re-export types for external use
 export type { NecessaryInputData, ValidationInputContext, ValidationResult };
+export type { KoiosUtxoInfo } from './koiosTypes';
 
 export type NetworkType = 'mainnet' | 'preview' | 'preprod';
 
@@ -74,6 +75,17 @@ export interface FetchedValidationData {
   protocolParameters: ProtocolParameters;
   slot: bigint;
   treasuryValue: bigint;
+  /** Raw Koios UTxO info for display purposes */
+  utxoInfos: KoiosUtxoInfo[];
+}
+
+/**
+ * Extended validation result that includes both the validation result and the fetched UTxO info
+ */
+export interface ExtendedValidationResult {
+  result: ValidationResult;
+  /** Map of UTxO references (txHash#outputIndex) to KoiosUtxoInfo */
+  utxoInfoMap: Map<string, KoiosUtxoInfo>;
 }
 
 /**
@@ -226,10 +238,15 @@ async function extractMissingRefScriptBytes(
 
 /**
  * Converts Koios account info to AccountInputContext
+ * @param account - Koios account info
+ * @param originalAddress - Original address from transaction (Koios may normalize it)
  */
-function koiosAccountToAccountContext(account: KoiosAccountInfo): AccountInputContext {
+function koiosAccountToAccountContext(
+  account: KoiosAccountInfo, 
+  originalAddress: string
+): AccountInputContext {
   return {
-    bech32Address: account.stake_address,
+    bech32Address: originalAddress, // Use original address, not Koios-normalized
     isRegistered: account.status === 'registered',
     payedDeposit: account.deposit ? parseInt(account.deposit, 10) : null,
     delegatedToDrep: account.delegated_drep ?? null,
@@ -237,7 +254,6 @@ function koiosAccountToAccountContext(account: KoiosAccountInfo): AccountInputCo
     balance: account.rewards_available ? parseInt(account.rewards_available, 10) : null,
   };
 }
-
 
 /**
  * Converts Koios DRep info to DrepInputContext
@@ -524,14 +540,28 @@ export async function fetchValidationData(
     return koiosUtxoToUtxoContext(utxo, extractedBytes);
   });
 
-  // Fetch account data
-  const accountInfos = await client.getAccountInfo(necessaryData.accounts);
-  const accountContexts = accountInfos.map(koiosAccountToAccountContext);
-
-  // For accounts not found, create unregistered entries
-  const foundAccounts = new Set(accountInfos.map(a => a.stake_address));
+  // Fetch account data - query one by one to handle Koios address normalization
+  const accountContexts: AccountInputContext[] = [];
   for (const account of necessaryData.accounts) {
-    if (!foundAccounts.has(account)) {
+    try {
+      const accountInfos = await client.getAccountInfo([account]);
+      if (accountInfos.length > 0) {
+        // Use original address from transaction, not the one returned by Koios
+        accountContexts.push(koiosAccountToAccountContext(accountInfos[0], account));
+      } else {
+        // Account not found - mark as unregistered
+        accountContexts.push({
+          bech32Address: account,
+          isRegistered: false,
+          payedDeposit: null,
+          delegatedToDrep: null,
+          delegatedToPool: null,
+          balance: null,
+        });
+      }
+    } catch (error) {
+      console.warn(`Failed to fetch account info for ${account}:`, error);
+      // On error, mark as unregistered
       accountContexts.push({
         bech32Address: account,
         isRegistered: false,
@@ -586,12 +616,24 @@ export async function fetchValidationData(
   }
 
   // Fetch DRep data
+  // Predefined DReps (AlwaysAbstain, AlwaysNoConfidence) are filtered out in koiosClient
   const drepInfos = await client.getDrepInfo(necessaryData.dReps);
   const drepContexts = drepInfos.map(koiosDrepToDrepContext);
 
-  // For DReps not found, create unregistered entries
+  // Predefined DReps that should not be queried or added as unregistered
+  const PREDEFINED_DREPS = new Set(['AlwaysAbstain', 'AlwaysNoConfidence']);
+
+  // For DReps not found (excluding predefined ones and empty values), create unregistered entries
   const foundDreps = new Set(drepInfos.map(d => d.drep_id));
   for (const drepId of necessaryData.dReps) {
+    // Skip empty/invalid values
+    if (!drepId || drepId.trim() === '') {
+      continue;
+    }
+    // Skip predefined DReps - they are built-in protocol types, not actual registered DReps
+    if (PREDEFINED_DREPS.has(drepId)) {
+      continue;
+    }
     if (!foundDreps.has(drepId)) {
       drepContexts.push({
         bech32Drep: drepId,
@@ -671,6 +713,7 @@ export async function fetchValidationData(
     protocolParameters,
     slot,
     treasuryValue,
+    utxoInfos,
   };
 }
 
@@ -678,11 +721,11 @@ export async function fetchValidationData(
  * Main function to validate a transaction
  * 
  * @param config - Configuration including transaction hex, network type, and optional API key
- * @returns ValidationResult from cquisitor-lib
+ * @returns ExtendedValidationResult containing both validation result and UTxO info map
  * 
  * @example
  * ```typescript
- * const result = await validateTransaction({
+ * const { result, utxoInfoMap } = await validateTransaction({
  *   txHex: "84a400...",
  *   network: "mainnet",
  *   apiKey: "your-koios-api-key"
@@ -693,15 +736,19 @@ export async function fetchValidationData(
  * } else {
  *   console.log("Validation errors:", result.errors);
  * }
+ * 
+ * // Access UTxO info for display
+ * const inputInfo = utxoInfoMap.get("txHash#0");
  * ```
  */
 export async function validateTransaction(
   config: TransactionValidationConfig
-): Promise<ValidationResult> {
+): Promise<ExtendedValidationResult> {
   const { txHex, network, apiKey } = config;
 
   // Step 1: Get the list of necessary data from the transaction
-  const necessaryDataJson = get_necessary_data_list_js(txHex);
+  const necessaryDataJson = get_necessary_data_list_js(txHex, network);
+  console.log('[validateTransaction] necessaryDataJson:', necessaryDataJson);
   const necessaryData: NecessaryInputData = JSON.parse(necessaryDataJson);
 
   // Step 2: Fetch all required data from Koios
@@ -727,15 +774,25 @@ export async function validateTransaction(
   const validationResultJson = validate_transaction_js(txHex, stringify(validationContext) ?? '{}');
   const validationResult: ValidationResult = JSON.parse(validationResultJson);
 
-  return validationResult;
+  // Step 5: Build UTxO info map for display purposes
+  const utxoInfoMap = new Map<string, KoiosUtxoInfo>();
+  for (const utxo of fetchedData.utxoInfos) {
+    const key = `${utxo.tx_hash}#${utxo.tx_index}`;
+    utxoInfoMap.set(key, utxo);
+  }
+
+  return {
+    result: validationResult,
+    utxoInfoMap,
+  };
 }
 
 /**
  * Get the list of data that needs to be fetched for validation
  * Useful for understanding what the transaction requires
  */
-export function getNecessaryValidationData(txHex: string): NecessaryInputData {
-  const necessaryDataJson = get_necessary_data_list_js(txHex);
+export function getNecessaryValidationData(txHex: string, network: NetworkType): NecessaryInputData {
+  const necessaryDataJson = get_necessary_data_list_js(txHex, network);
   return JSON.parse(necessaryDataJson);
 }
 

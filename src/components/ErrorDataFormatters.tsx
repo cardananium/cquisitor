@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import * as Tooltip from "@radix-ui/react-tooltip";
+import { UtxoRef } from "./UtxoRef";
+import { AddressWithTooltip } from "./AddressWithTooltip";
+import { CopyIcon, CheckIcon } from "./Icons";
+import { AssetsTable, type AssetRow } from "./AssetsTable";
 
 // ============================================================================
 // Type Definitions
@@ -57,34 +60,37 @@ interface ProtocolVersion {
 // Helper Functions
 // ============================================================================
 
-function formatLovelace(lovelace: number): string {
-  const ada = lovelace / 1_000_000;
-  if (lovelace === 0) return "0 ₳";
-  if (Math.abs(lovelace) < 1_000_000) {
+function formatLovelace(lovelace: number, forceLovelace = false): string {
+  // For fee decomposition, always show in lovelace for precision
+  if (forceLovelace) {
     return `${lovelace.toLocaleString()} lovelace`;
   }
-  return `${ada.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} ₳`;
+  // Otherwise, always show in ADA
+  const ada = lovelace / 1_000_000;
+  return `₳ ${ada.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
 }
 
-function formatAssetName(hexName: string): string {
-  if (!hexName || hexName === "") return "(empty)";
-  try {
-    const bytes = hexName.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || [];
-    const decoded = String.fromCharCode(...bytes);
-    // Check if it's printable ASCII - show full name
-    if (/^[\x20-\x7E]+$/.test(decoded)) {
-      return decoded;
-    }
-    // Non-printable - show hex
-    return hexName;
-  } catch {
-    return hexName;
-  }
-}
 
 function bytesToHex(bytes: number[]): string {
   return bytes.map(b => b.toString(16).padStart(2, "0")).join("");
 }
+
+/**
+ * Human-readable messages for known error types
+ * Used when the original message is JSON or not user-friendly
+ */
+const ERROR_TYPE_MESSAGES: Record<string, (data?: Record<string, unknown>) => string> = {
+  // Phase 1 errors
+  ValueNotConservedUTxO: () => "Value not conserved — inputs don't match outputs + fee",
+  FeeTooSmallUTxO: (data) => {
+    const actualFee = data?.actual_fee ?? data?.actualFee;
+    const minFee = data?.min_fee ?? data?.minFee;
+    if (actualFee !== undefined && minFee !== undefined) {
+      return `Fee too small: ${Number(actualFee).toLocaleString()} < ${Number(minFee).toLocaleString()} lovelace required`;
+    }
+    return "Fee too small for this transaction";
+  },
+};
 
 /**
  * Error types that have custom display formatters
@@ -97,6 +103,9 @@ const ERROR_TYPE_CLEANUPS: Record<string, (msg: string) => string> = {
   ValueNotConservedUTxO: () => "Value not conserved",
   
   FeeTooSmallUTxO: (msg) => msg.replace(/\.\s*Fee decomposition:.*$/i, "").trim(),
+  
+  // Withdrawal/Reward account errors - remove the stake address from the message
+  WithdrawalsNotInRewardAccounts: (msg) => msg.replace(/:\s*"?stake(_test)?1[a-z0-9]+"?\s*$/i, "").trim(),
   
   MissingDatum: (msg) => msg.replace(/Datum\s+[0-9a-fA-F]{64}\s+/gi, "Datum ").trim(),
   
@@ -115,6 +124,12 @@ const ERROR_TYPE_CLEANUPS: Record<string, (msg: string) => string> = {
   InvalidSignature: (msg) => msg.replace(/:\s*"?[0-9a-fA-F]{56,64}"?\s*$/i, "").trim(),
   
   ExtraneousSignature: (msg) => msg.replace(/:\s*"?[0-9a-fA-F]{56,64}"?\s*$/i, "").trim(),
+  
+  ExtraneousScriptWitnesses: (msg) => msg.replace(/:\s*"?[0-9a-fA-F]{56,64}"?\s*$/i, "").trim(),
+  
+  UnnecessaryScriptWitness: (msg) => msg.replace(/:\s*"?[0-9a-fA-F]{56,64}"?\s*$/i, "").trim(),
+  
+  UnneededScriptWitness: (msg) => msg.replace(/:\s*"?[0-9a-fA-F]{56,64}"?\s*$/i, "").trim(),
   
   NativeScriptIsUnsuccessful: (msg) => msg.replace(/:\s*"?[0-9a-fA-F]{56,64}"?\s*$/i, "").trim(),
   
@@ -138,24 +153,42 @@ const ERROR_TYPE_CLEANUPS: Record<string, (msg: string) => string> = {
   // Phase 1 & 2 warnings with custom display
   FeeIsBiggerThanMinFee: (msg) => msg.replace(/\.\s*Fee decomposition:.*$/i, "").trim(),
   
-  BudgetIsBiggerThanExpected: () => "", // Hide message, show only formatted budget
+  BudgetIsBiggerThanExpected: (msg) => msg.replace(/\.\s*Expected:.*$/i, "").trim(),
 };
+
+/**
+ * Gets a human-readable message for a known error type
+ */
+export function getHumanReadableMessage(errorType: string, errorData?: Record<string, unknown>): string | null {
+  const messageGenerator = ERROR_TYPE_MESSAGES[errorType];
+  if (messageGenerator) {
+    return messageGenerator(errorData);
+  }
+  return null;
+}
 
 /**
  * Cleans up error messages by removing redundant info that's shown in formatted structures below
  * Only cleans if we have a specific cleanup for this error type
  */
 function cleanupErrorMessage(message: string, errorType: string): string {
+  let cleaned = message;
+  
   const cleanup = ERROR_TYPE_CLEANUPS[errorType];
   if (cleanup) {
-    const cleaned = cleanup(message);
-    // Final cleanup
-    return cleaned
-      .replace(/\s{2,}/g, " ")
-      .replace(/[,:\s.]+$/, "")
-      .trim();
+    cleaned = cleanup(message);
   }
-  return message;
+  
+  // Also remove stake/reward addresses from any message (they're shown formatted below)
+  cleaned = cleaned.replace(/:\s*"?stake(_test)?1[a-z0-9]+"?\s*$/i, "");
+  // Remove bech32 addresses (addr1, addr_test1)
+  cleaned = cleaned.replace(/:\s*"?addr(_test)?1[a-z0-9]+"?\s*$/i, "");
+  
+  // Final cleanup
+  return cleaned
+    .replace(/\s{2,}/g, " ")
+    .replace(/[,:\s.]+$/, "")
+    .trim();
 }
 
 // ============================================================================
@@ -169,32 +202,32 @@ export function ValueFormatter({ value }: { value: Value }) {
   const hasAssets = value.assets?.assets?.length > 0;
   const isNegative = value.coins < 0;
   
+  // Convert assets to the format expected by AssetsTable
+  const assetRows: AssetRow[] = hasAssets
+    ? value.assets.assets.map((asset) => ({
+        policyId: asset.policy_id,
+        assetName: asset.asset_name,
+        quantity: BigInt(asset.quantity),
+      }))
+    : [];
+  
   return (
-    <Tooltip.Provider delayDuration={100}>
-      <div className="error-formatter value-formatter">
-        <div className={`value-coins ${isNegative ? "negative" : ""}`}>
-          <span className="value-label">ADA:</span>
-          <span className="value-amount">{formatLovelace(value.coins)}</span>
-        </div>
-        {hasAssets && (
-          <div className="value-assets">
-            <span className="value-label">Assets:</span>
-            <div className="asset-list">
-              {value.assets.assets.map((asset, idx) => (
-                <div key={idx} className="asset-item">
-                  <span className="asset-policy">{asset.policy_id}</span>
-                  <span className="asset-separator">.</span>
-                  <span className="asset-name">{formatAssetName(asset.asset_name)}</span>
-                  <span className={`asset-quantity ${asset.quantity < 0 ? "negative" : ""}`}>
-                    {asset.quantity < 0 ? "" : "+"}{asset.quantity.toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+    <div className="error-formatter value-formatter">
+      <div className={`value-coins ${isNegative ? "negative" : ""}`}>
+        <span className="value-label">ADA:</span>
+        <span className={`value-amount ${isNegative ? "negative" : ""}`}>{formatLovelace(value.coins)}</span>
       </div>
-    </Tooltip.Provider>
+      {hasAssets && (
+        <div className="value-assets">
+          <AssetsTable 
+            assets={assetRows} 
+            showSign={true}
+            label="Assets:"
+            compact={true}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -209,28 +242,28 @@ export function FeeDecompositionFormatter({ fee }: { fee: FeeDecomposition }) {
       <div className="fee-breakdown">
         <div className="fee-row">
           <span className="fee-label">TX Size:</span>
-          <span className="fee-value">{formatLovelace(fee.txSizeFee)}</span>
+          <span className="fee-value">{formatLovelace(fee.txSizeFee, true)}</span>
           <span className="fee-percent">
             ({((fee.txSizeFee / total) * 100).toFixed(1)}%)
           </span>
         </div>
         <div className="fee-row">
           <span className="fee-label">Ref Scripts:</span>
-          <span className="fee-value">{formatLovelace(fee.referenceScriptsFee)}</span>
+          <span className="fee-value">{formatLovelace(fee.referenceScriptsFee, true)}</span>
           <span className="fee-percent">
             ({((fee.referenceScriptsFee / total) * 100).toFixed(1)}%)
           </span>
         </div>
         <div className="fee-row">
           <span className="fee-label">Execution:</span>
-          <span className="fee-value">{formatLovelace(fee.executionUnitsFee)}</span>
+          <span className="fee-value">{formatLovelace(fee.executionUnitsFee, true)}</span>
           <span className="fee-percent">
             ({((fee.executionUnitsFee / total) * 100).toFixed(1)}%)
           </span>
         </div>
         <div className="fee-row fee-total">
           <span className="fee-label">Total:</span>
-          <span className="fee-value">{formatLovelace(total)}</span>
+          <span className="fee-value">{formatLovelace(total, true)}</span>
         </div>
       </div>
     </div>
@@ -238,46 +271,15 @@ export function FeeDecompositionFormatter({ fee }: { fee: FeeDecomposition }) {
 }
 
 /**
- * Formats a Transaction Input reference (same style as HashFormatter)
+ * Formats a Transaction Input reference using the unified UtxoRef component
  */
 export function TxInputFormatter({ input }: { input: TxInput }) {
-  const [copied, setCopied] = useState(false);
-  const fullValue = `${input.txHash}#${input.outputIndex}`;
-  
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(fullValue);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
-    <Tooltip.Provider delayDuration={100}>
-      <span className="hash-formatter">
-        <code className="hash-value">{input.txHash}</code>
-        <span className="tx-separator">#</span>
-        <span className="tx-index">{input.outputIndex}</span>
-        <Tooltip.Root>
-          <Tooltip.Trigger asChild>
-            <span 
-              role="button"
-              tabIndex={0}
-              className={`hash-copy-btn ${copied ? 'copied' : ''}`}
-              onClick={handleCopy}
-              onKeyDown={(e) => e.key === 'Enter' && handleCopy(e as unknown as React.MouseEvent)}
-            >
-              {copied ? '✓' : '📋'}
-            </span>
-          </Tooltip.Trigger>
-          <Tooltip.Portal>
-            <Tooltip.Content className="hash-tooltip-content" sideOffset={5}>
-              {copied ? 'Copied!' : 'Copy input reference'}
-              <Tooltip.Arrow className="hash-tooltip-arrow" />
-            </Tooltip.Content>
-          </Tooltip.Portal>
-        </Tooltip.Root>
-      </span>
-    </Tooltip.Provider>
+    <UtxoRef 
+      txHash={input.txHash}
+      index={input.outputIndex}
+      variant="error"
+    />
   );
 }
 
@@ -404,31 +406,20 @@ export function HashFormatter({ hash, label, inline = false }: { hash: string; l
   };
 
   return (
-    <Tooltip.Provider delayDuration={100}>
-      <span className={`hash-formatter ${inline ? 'inline' : ''}`}>
-        {label && <span className="hash-label">{label}:</span>}
-        <code className="hash-value">{hash}</code>
-        <Tooltip.Root>
-          <Tooltip.Trigger asChild>
-            <span 
-              role="button"
-              tabIndex={0}
-              className={`hash-copy-btn ${copied ? 'copied' : ''}`}
-              onClick={handleCopy}
-              onKeyDown={(e) => e.key === 'Enter' && handleCopy(e as unknown as React.MouseEvent)}
-            >
-              {copied ? '✓' : '📋'}
-            </span>
-          </Tooltip.Trigger>
-          <Tooltip.Portal>
-            <Tooltip.Content className="hash-tooltip-content" sideOffset={5}>
-              {copied ? 'Copied!' : 'Copy hash'}
-              <Tooltip.Arrow className="hash-tooltip-arrow" />
-            </Tooltip.Content>
-          </Tooltip.Portal>
-        </Tooltip.Root>
+    <span className={`hash-formatter ${inline ? 'inline' : ''}`}>
+      {label && <span className="hash-label">{label}:</span>}
+      <code className="hash-value">{hash}</code>
+      <span 
+        role="button"
+        tabIndex={0}
+        className={`hash-copy-btn ${copied ? 'copied' : ''}`}
+        onClick={handleCopy}
+        onKeyDown={(e) => e.key === 'Enter' && handleCopy(e as unknown as React.MouseEvent)}
+        title={copied ? 'Copied!' : 'Copy hash'}
+      >
+        {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
       </span>
-    </Tooltip.Provider>
+    </span>
   );
 }
 
@@ -455,7 +446,7 @@ function AddressArrayFormatter({ addresses }: { addresses: string[] }) {
     <div className="error-formatter address-array-formatter">
       {addresses.map((addr, idx) => (
         <div key={idx} className="address-array-item">
-          <AddressFormatter address={addr} />
+          <AddressWithTooltip address={addr} showCopy={true} />
         </div>
       ))}
     </div>
@@ -548,11 +539,12 @@ function detectAndFormat(key: string, value: unknown): FormattedStructure | null
     };
   }
   
-  // Check for address strings
+  // Check for address strings - use AddressWithTooltip for rich display
   if (typeof value === "string" && (value.startsWith("addr") || value.startsWith("stake"))) {
+    const isRewardAddress = value.startsWith("stake");
     return {
-      type: "Address",
-      component: <AddressFormatter address={value} />
+      type: isRewardAddress ? "Reward Address" : "Address",
+      component: <AddressWithTooltip address={value} showCopy={true} />
     };
   }
   
@@ -608,16 +600,9 @@ function BudgetComparisonFormatter({
   // Calculate how much extra was declared vs what was used
   const memOverhead = declared.mem - used.mem;
   const stepsOverhead = declared.steps - used.steps;
-  const isOverspending = memOverhead > 0 || stepsOverhead > 0;
   
   return (
     <div className="smart-message-formatter">
-      <div className="message-text">
-        {isOverspending 
-          ? "Declared execution units exceed actual usage — you are overpaying transaction fees"
-          : "Actual execution units differ from declared values"
-        }
-      </div>
       <div className="message-structures">
         <div className="message-structure-item">
           <span className="structure-key">Declared → Used:</span>
@@ -729,14 +714,43 @@ export function SmartMessageFormatter({
   // Don't show the original message text if we have budget comparison (it's redundant)
   const shouldHideMessage = formattedParts?.some(p => p.key === "budget_comparison");
   
-  // Clean up message based on error type (only when we have custom display)
-  const displayMessage = formattedParts && errorType
-    ? cleanupErrorMessage(message, errorType) 
-    : message;
+  // Determine the display message:
+  // 1. If errorType is known, use human-readable message
+  // 2. Otherwise, clean up the original message
+  // 3. If message looks like JSON, try to use human-readable instead
+  const displayMessage = useMemo(() => {
+    if (shouldHideMessage) return "";
+    
+    // Check if we have a known error type with a human-readable message
+    if (errorType) {
+      const humanMessage = getHumanReadableMessage(errorType, errorData);
+      if (humanMessage !== null) {
+        return humanMessage;
+      }
+    }
+    
+    // Check if message looks like JSON (starts with { or [)
+    const trimmedMsg = message.trim();
+    if ((trimmedMsg.startsWith("{") || trimmedMsg.startsWith("[")) && errorType) {
+      const humanMessage = getHumanReadableMessage(errorType, errorData);
+      if (humanMessage !== null) {
+        return humanMessage;
+      }
+      // If we still don't have a human message but it's JSON, show a generic message
+      return errorType.replace(/([A-Z])/g, " $1").trim();
+    }
+    
+    // Clean up message when we have formatted structures below
+    if (formattedParts) {
+      return cleanupErrorMessage(message, errorType || "");
+    }
+    
+    return message;
+  }, [message, errorType, errorData, formattedParts, shouldHideMessage]);
   
   return (
     <div className="smart-message-formatter">
-      {!shouldHideMessage && <div className="message-text">{displayMessage}</div>}
+      {!shouldHideMessage && displayMessage && <div className="message-text">{displayMessage}</div>}
       {formattedParts && (
         <div className="message-structures">
           {formattedParts.map(({ key, formatted }) => (
@@ -774,5 +788,87 @@ export function ErrorFormatter({
       errorType={errorType}
     />
   );
+}
+
+/**
+ * Returns only the formatted structures (errorData) without the message text.
+ * Used for showing details under a "cut"/accordion.
+ */
+export function ErrorDataDetails({ 
+  error
+}: { 
+  error: Record<string, unknown>;
+}) {
+  const formattedParts = useMemo(() => {
+    if (!error) return null;
+    const parts = findAndFormatNested(error);
+    return parts.length > 0 ? parts : null;
+  }, [error]);
+  
+  if (!formattedParts) return null;
+  
+  return (
+    <div className="smart-message-formatter">
+      <div className="message-structures">
+        {formattedParts.map(({ key, formatted }) => (
+          <div key={key} className="message-structure-item">
+            {key !== "budget_comparison" && (
+              <span className="structure-key">{key.replace(/_/g, " ")}:</span>
+            )}
+            {formatted.component}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Returns only the cleaned/human-readable message text without structures.
+ * Used for showing in the header of diagnostics.
+ */
+export function getCleanedErrorMessage(
+  message: string,
+  errorType?: string,
+  errorData?: Record<string, unknown>
+): string {
+  // First, try to use error type cleanup if available (this handles budget_comparison, etc.)
+  if (errorType) {
+    const cleanup = ERROR_TYPE_CLEANUPS[errorType];
+    if (cleanup) {
+      return cleanup(message);
+    }
+  }
+  
+  // Check if we have a known error type with a human-readable message
+  if (errorType && errorData) {
+    const humanMessage = getHumanReadableMessage(errorType, errorData);
+    if (humanMessage !== null) {
+      return humanMessage;
+    }
+  }
+  
+  // Check if message looks like JSON (starts with { or [)
+  const trimmedMsg = message.trim();
+  if ((trimmedMsg.startsWith("{") || trimmedMsg.startsWith("[")) && errorType) {
+    if (errorData) {
+      const humanMessage = getHumanReadableMessage(errorType, errorData);
+      if (humanMessage !== null) {
+        return humanMessage;
+      }
+    }
+    // If we still don't have a human message but it's JSON, show a generic message
+    return errorType.replace(/([A-Z])/g, " $1").trim();
+  }
+  
+  // Clean up message when we have formatted structures
+  if (errorData) {
+    const parts = findAndFormatNested(errorData);
+    if (parts.length > 0) {
+      return cleanupErrorMessage(message, errorType || "");
+    }
+  }
+  
+  return message;
 }
 

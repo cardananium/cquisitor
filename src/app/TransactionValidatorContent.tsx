@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import CompactLayout from "@/components/CompactLayout";
 import ResizablePanels from "@/components/ResizablePanels";
 import ValidationJsonViewer, { type ValidationDiagnostic } from "@/components/ValidationJsonViewer";
 import * as Tooltip from "@radix-ui/react-tooltip";
@@ -21,17 +20,21 @@ import {
   CopyIcon,
   CheckIcon,
 } from "@/components/Icons";
-import { ErrorFormatter } from "@/components/ErrorDataFormatters";
+import { ErrorDataDetails, getCleanedErrorMessage } from "@/components/ErrorDataFormatters";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
+import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import {
   validateTransaction,
   type NetworkType,
 } from "@/utils/transactionValidation";
-import { decode_specific_type } from "@cardananium/cquisitor-lib";
+import { decode_specific_type, extract_hashes_from_transaction_js } from "@cardananium/cquisitor-lib";
+import type { ExtractedHashes } from "@cardananium/cquisitor-lib";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
 import { useTransactionValidator, type DecodedTransaction } from "@/context/TransactionValidatorContext";
+import TransactionCardView from "@/components/TransactionCardView";
+import ViewModeSelectionModal, { type ViewMode } from "@/components/ViewModeSelectionModal";
 import type {
   ValidationPhase1Error,
   ValidationPhase2Error,
@@ -39,6 +42,10 @@ import type {
   ValidationPhase2Warning,
   EvalRedeemerResult,
 } from "@cardananium/cquisitor-lib";
+
+// Storage keys for view mode preference
+const VIEW_MODE_STORAGE_KEY = "cquisitor_tx_validator_view_mode";
+const VIEW_MODE_SELECTED_KEY = "cquisitor_tx_validator_view_mode_selected";
 
 // Check if string is valid hex
 function isValidHex(str: string): boolean {
@@ -141,13 +148,10 @@ function formatPhase2Error(err: ValidationPhase2Error): DiagnosticItem {
 }
 
 function formatPhase1Warning(warn: ValidationPhase1Warning): DiagnosticItem {
-  const warningText = typeof warn.warning === "string" 
-    ? warn.warning 
-    : JSON.stringify(warn.warning);
   const { errorType, errorData } = extractErrorInfo(warn.warning);
   return {
     severity: "warning",
-    message: warningText,
+    message: warn.warning_message,
     hint: warn.hint,
     locations: warn.locations,
     phase: "Phase 1",
@@ -157,13 +161,10 @@ function formatPhase1Warning(warn: ValidationPhase1Warning): DiagnosticItem {
 }
 
 function formatPhase2Warning(warn: ValidationPhase2Warning): DiagnosticItem {
-  const warningText = typeof warn.warning === "object"
-    ? JSON.stringify(warn.warning)
-    : String(warn.warning);
   const { errorType, errorData } = extractErrorInfo(warn.warning);
   return {
     severity: "warning",
-    message: warningText,
+    message: warn.warning_message,
     hint: warn.hint,
     locations: warn.locations,
     phase: "Phase 2",
@@ -240,12 +241,12 @@ function DiagnosticsList({ items, onLocationClick }: {
     );
   }
 
-  // Items with details can be expanded
+  // Items with details can be expanded - expand all by default
   const expandableItems = items
     .map((item, index) => ({ item, index }))
-    .filter(({ item }) => item.details || item.hint || (item.locations && item.locations.length > 0));
+    .filter(({ item }) => item.details || item.hint || item.errorData || (item.locations && item.locations.length > 0));
   
-  const defaultExpanded = expandableItems.slice(0, 3).map(({ index }) => `diag-${index}`);
+  const defaultExpanded = expandableItems.map(({ index }) => `diag-${index}`);
 
   return (
     <div className="diagnostics-container">
@@ -255,39 +256,38 @@ function DiagnosticsList({ items, onLocationClick }: {
         className="diagnostics-accordion"
       >
         {items.map((item, index) => {
-          const hasDetails = item.details || item.hint || (item.locations && item.locations.length > 0);
+          // Get cleaned message for display in header
+          const displayMessage = item.errorData 
+            ? getCleanedErrorMessage(item.message, item.errorType, item.errorData)
+            : item.message;
+          
+          // Content under cut: errorData structures, details, hint, locations
+          const hasExpandableContent = item.errorData || item.details || item.hint || (item.locations && item.locations.length > 0);
           
           return (
             <Accordion.Item 
               key={index} 
               value={`diag-${index}`}
               className={`diagnostic-accordion-item diagnostic-${item.severity}`}
-              disabled={!hasDetails}
+              disabled={!hasExpandableContent}
             >
               <Accordion.Header className="diagnostic-accordion-header">
                 <Accordion.Trigger className="diagnostic-accordion-trigger">
                   <DiagnosticIcon severity={item.severity} />
-                  <span className="diagnostic-phase">{item.phase}</span>
-                  <span className="diagnostic-message">
-                    {item.errorData ? (
-                      <ErrorFormatter 
-                        error={item.errorData} 
-                        errorType={item.errorType}
-                        message={item.message} 
-                      />
-                    ) : (
-                      item.message
-                    )}
-                  </span>
-                  {hasDetails && (
+                  {item.phase && <span className="diagnostic-phase">{item.phase}</span>}
+                  <span className="diagnostic-message">{displayMessage || item.message}</span>
+                  {hasExpandableContent && (
                     <ChevronDownIcon size={16} className="diagnostic-chevron" />
                   )}
                 </Accordion.Trigger>
               </Accordion.Header>
               
-              {hasDetails && (
+              {hasExpandableContent && (
                 <Accordion.Content className="diagnostic-accordion-content">
                   <div className="diagnostic-details">
+                    {item.errorData && (
+                      <ErrorDataDetails error={item.errorData} />
+                    )}
                     {item.details && (
                       <div className="diagnostic-detail-row">
                         <span className="diagnostic-detail-label">Details:</span>
@@ -491,12 +491,43 @@ export default function TransactionValidatorContent() {
     setActiveTab,
     focusedPath,
     setFocusedPath,
+    extractedHashes,
+    setExtractedHashes,
+    inputUtxoInfoMap,
+    setInputUtxoInfoMap,
     handleApiKeyChange,
     clearAll,
   } = useTransactionValidator();
   
   const focusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [copiedDiagnostics, setCopiedDiagnostics] = useState(false);
+  
+  // View mode state - load from localStorage if available
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+      if (saved === "tree" || saved === "cards") {
+        return saved;
+      }
+    }
+    return "cards";
+  });
+  
+  // Track if user has ever selected a view mode
+  const [hasSelectedViewMode, setHasSelectedViewMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(VIEW_MODE_SELECTED_KEY) === "true";
+    }
+    return false;
+  });
+  
+  // Modal visibility state
+  const [showViewModeModal, setShowViewModeModal] = useState(false);
+  
+  // Track if we should show modal after first decode
+  const shouldShowModalRef = useRef(false);
+  
+  const previousTxHashRef = useRef<string | null>(null);
 
   // Transform validation paths to actual JSON paths
   // Specific transformations for known path differences
@@ -529,11 +560,31 @@ export default function TransactionValidatorContent() {
     }, 2000);
   }, [transformPathForJson, setFocusedPath]);
 
+  // Handle view mode selection from modal
+  const handleViewModeSelect = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    setHasSelectedViewMode(true);
+    setShowViewModeModal(false);
+    
+    // Save to localStorage
+    localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+    localStorage.setItem(VIEW_MODE_SELECTED_KEY, "true");
+  }, []);
+
+  // Handle modal close without selection (defaults to cards)
+  const handleViewModeModalClose = useCallback(() => {
+    setShowViewModeModal(false);
+    // Don't mark as selected - will show again on next fresh decode
+  }, []);
+
   // Decode transaction when input changes
   useEffect(() => {
     if (!txInput.trim()) {
       setDecodedTx(null);
       setDecodeError(null);
+      setExtractedHashes(null);
+      previousTxHashRef.current = null;
+      shouldShowModalRef.current = false;
       return;
     }
 
@@ -543,13 +594,53 @@ export default function TransactionValidatorContent() {
       const decoded = decode_specific_type(hex, "Transaction", {});
       let convertedResult = convertSerdeNumbers(decoded);
       convertedResult = reorderTransactionFields(convertedResult);
-      setDecodedTx(convertedResult as DecodedTransaction);
+      const newDecodedTx = convertedResult as DecodedTransaction;
+      
+      // Check if the transaction hash has changed
+      const newTxHash = newDecodedTx.transaction_hash;
+      const isNewTransaction = previousTxHashRef.current === null || previousTxHashRef.current !== newTxHash;
+      
+      if (previousTxHashRef.current !== null && previousTxHashRef.current !== newTxHash) {
+        // Transaction hash changed - reset validation results
+        setResult(null);
+        setError(null);
+        setInputUtxoInfoMap(null);
+        setFocusedPath(null);
+      }
+      
+      // Show view mode modal on first successful decode if user hasn't selected before
+      if (isNewTransaction && previousTxHashRef.current === null && !hasSelectedViewMode) {
+        shouldShowModalRef.current = true;
+      }
+      
+      previousTxHashRef.current = newTxHash ?? null;
+      
+      setDecodedTx(newDecodedTx);
       setDecodeError(null);
+      
+      // Extract hashes for datums and scripts
+      try {
+        const hashesJson = extract_hashes_from_transaction_js(hex);
+        const hashes: ExtractedHashes = JSON.parse(hashesJson);
+        setExtractedHashes(hashes);
+      } catch {
+        // Ignore hash extraction errors - not critical
+        setExtractedHashes(null);
+      }
+      
+      // Show modal after state updates
+      if (shouldShowModalRef.current) {
+        shouldShowModalRef.current = false;
+        setShowViewModeModal(true);
+      }
     } catch (e) {
       setDecodeError(e instanceof Error ? e.message : "Failed to decode transaction");
       setDecodedTx(null);
+      setExtractedHashes(null);
+      previousTxHashRef.current = null;
+      shouldShowModalRef.current = false;
     }
-  }, [txInput, setDecodedTx, setDecodeError]);
+  }, [txInput, setDecodedTx, setDecodeError, setExtractedHashes, setResult, setError, setInputUtxoInfoMap, setFocusedPath, hasSelectedViewMode]);
 
   const handleValidate = async () => {
     if (!apiKey.trim()) {
@@ -565,17 +656,19 @@ export default function TransactionValidatorContent() {
     setIsLoading(true);
     setError(null);
     setResult(null);
+    setInputUtxoInfoMap(null);
 
     try {
       // Process input - convert base64 to hex if needed
       const { hex } = processTransactionInput(txInput);
 
-      const validationResult = await validateTransaction({
+      const { result: validationResult, utxoInfoMap } = await validateTransaction({
         txHex: hex,
         network,
         apiKey: apiKey.trim(),
       });
       setResult(validationResult);
+      setInputUtxoInfoMap(utxoInfoMap);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Validation failed");
     } finally {
@@ -650,13 +743,10 @@ export default function TransactionValidatorContent() {
     });
     
     result.warnings.forEach(warn => {
-      const warningText = typeof warn.warning === "string" 
-        ? warn.warning 
-        : JSON.stringify(warn.warning);
       const { errorType, errorData } = extractErrorInfo(warn.warning);
       jsonViewerDiagnostics.push({
         severity: "warning",
-        message: warningText,
+        message: warn.warning_message,
         hint: warn.hint,
         locations: warn.locations?.map(transformPathForJson),
         phase: "Phase 1",
@@ -666,13 +756,10 @@ export default function TransactionValidatorContent() {
     });
     
     result.phase2_warnings.forEach(warn => {
-      const warningText = typeof warn.warning === "object"
-        ? JSON.stringify(warn.warning)
-        : String(warn.warning);
       const { errorType, errorData } = extractErrorInfo(warn.warning);
       jsonViewerDiagnostics.push({
         severity: "warning",
-        message: warningText,
+        message: warn.warning_message,
         hint: warn.hint,
         locations: warn.locations?.map(transformPathForJson),
         phase: "Phase 2",
@@ -756,14 +843,32 @@ export default function TransactionValidatorContent() {
 
       {/* CBOR input row with Validate button */}
       <div className="validator-input-row">
-        <textarea
-          value={txInput}
-          onChange={(e) => setTxInput(e.target.value)}
-          placeholder="CBOR HEX or Base64..."
-          className="validator-cbor-input"
-          spellCheck={false}
-          rows={3}
-        />
+        <div className="validator-textarea-wrapper">
+          {!txInput.trim() && (
+            <div className="paste-hint-overlay paste-hint-overlay-small">
+              <svg
+                className="paste-hint-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <rect x="8" y="2" width="8" height="4" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M16 4H18C19.1046 4 20 4.89543 20 6V20C20 21.1046 19.1046 22 18 22H6C4.89543 22 4 21.1046 4 20V6C4 4.89543 4.89543 4 6 4H8" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M9 12L11 14L15 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span className="paste-hint-text">Paste here</span>
+              <span className="paste-hint-formats">HEX · Base64</span>
+            </div>
+          )}
+          <textarea
+            value={txInput}
+            onChange={(e) => setTxInput(e.target.value)}
+            placeholder=""
+            className="validator-cbor-input"
+            spellCheck={false}
+            rows={3}
+          />
+        </div>
         <button
           onClick={handleValidate}
           disabled={isLoading || !txInput.trim() || !apiKey.trim()}
@@ -860,49 +965,102 @@ export default function TransactionValidatorContent() {
     </div>
   );
 
+  // View mode toggle icons
+  const TreeIcon = () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9h18M9 21V9M21 3v18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3" />
+    </svg>
+  );
+  
+  const CardsIcon = () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+
   // Right panel: Decoded JSON with validation highlights
   const rightPanel = (
     <div className="panel-content validator-right-new">
       <div className="panel-header-compact">
         <span className="panel-title">Decoded Transaction</span>
         {decodedTx && (
-          <span className="panel-badge success">Parsed</span>
+          <>
+            <span className="panel-badge success">Parsed</span>
+            <div className="tcv-view-toggle" style={{ marginLeft: 'auto' }}>
+              <button
+                className={`tcv-view-toggle-btn ${viewMode === 'cards' ? 'active' : ''}`}
+                onClick={() => handleViewModeSelect('cards')}
+                title="Card View"
+              >
+                <CardsIcon />
+                Cards
+              </button>
+              <button
+                className={`tcv-view-toggle-btn ${viewMode === 'tree' ? 'active' : ''}`}
+                onClick={() => handleViewModeSelect('tree')}
+                title="Tree View"
+              >
+                <TreeIcon />
+                Tree
+              </button>
+            </div>
+          </>
         )}
       </div>
       
       {decodedTx ? (
-        <ValidationJsonViewer 
-          data={decodedTx} 
-          expanded={3} 
-          network={network}
-          diagnostics={jsonViewerDiagnostics}
-          focusedPath={focusedPath}
-        />
-      ) : (
+        viewMode === 'cards' ? (
+          <TransactionCardView
+            data={decodedTx}
+            network={network}
+            diagnostics={jsonViewerDiagnostics}
+            focusedPath={focusedPath}
+            extractedHashes={extractedHashes}
+            inputUtxoInfoMap={inputUtxoInfoMap}
+          />
+        ) : (
+          <ValidationJsonViewer 
+            data={decodedTx} 
+            expanded={3} 
+            network={network}
+            diagnostics={jsonViewerDiagnostics}
+            focusedPath={focusedPath}
+          />
+        )
+      ) : decodeError ? (
         <div className="empty-state">
-          {decodeError ? (
-            <p className="empty-hint error-text">{decodeError}</p>
-          ) : (
-            <p className="empty-hint">
-              Paste transaction CBOR to decode
-            </p>
-          )}
+          <p className="empty-hint error-text">{decodeError}</p>
         </div>
+      ) : (
+        <EmptyStatePlaceholder
+          title="Transaction Validator"
+          description="Paste transaction CBOR (hex or base64) in the left panel, enter your Koios API key, then click Validate to check Phase 1 & 2 validation rules."
+          showArrow={false}
+          icon="validator"
+        />
       )}
     </div>
   );
 
   return (
-    <CompactLayout>
-      <div className="validator-layout-new">
-        <ResizablePanels
-          leftPanel={leftPanel}
-          rightPanel={rightPanel}
-          defaultLeftWidth={50}
-          minLeftWidth={30}
-          maxLeftWidth={70}
-        />
-      </div>
-    </CompactLayout>
+    <div className="validator-layout-new">
+      <ResizablePanels
+        leftPanel={leftPanel}
+        rightPanel={rightPanel}
+        defaultLeftWidth={50}
+        minLeftWidth={30}
+        maxLeftWidth={70}
+      />
+      
+      {/* View mode selection modal - shown on first decode */}
+      <ViewModeSelectionModal
+        isOpen={showViewModeModal}
+        onSelect={handleViewModeSelect}
+        onClose={handleViewModeModalClose}
+      />
+    </div>
   );
 }

@@ -1,15 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import TabNavigation from "./TabNavigation";
+import TabNavigation, { TabId } from "./TabNavigation";
 import GitHubStarButton from "./GitHubStarButton";
 import logo32 from "../../public/logo-32.png";
 
 interface CompactLayoutProps {
   children: React.ReactNode;
+  activeTab: TabId;
+  onTabChange: (tab: TabId) => void;
 }
 
-export default function CompactLayout({ children }: CompactLayoutProps) {
+export default function CompactLayout({ children, activeTab, onTabChange }: CompactLayoutProps) {
   return (
     <div className="compact-layout">
       <header className="compact-header">
@@ -25,7 +27,7 @@ export default function CompactLayout({ children }: CompactLayoutProps) {
             <span className="logo-text">CQuisitor</span>
           </div>
           <div className="flex items-center gap-4">
-            <TabNavigation />
+            <TabNavigation activeTab={activeTab} onTabChange={onTabChange} />
             <GitHubStarButton />
           </div>
         </div>
