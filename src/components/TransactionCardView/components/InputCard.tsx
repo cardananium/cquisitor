@@ -19,6 +19,15 @@ interface InputCardProps {
 }
 
 /**
+ * Check if a Koios script type is a native script type
+ */
+function isNativeScriptType(type: string | undefined): boolean {
+  if (!type) return false;
+  const lowerType = type.toLowerCase();
+  return lowerType === 'native' || lowerType === 'timelock' || lowerType === 'multisig';
+}
+
+/**
  * Convert KoiosUtxoInfo to TransactionOutput format for use with OutputCard
  */
 function koiosUtxoToTransactionOutput(utxoInfo: KoiosUtxoInfo): TransactionOutput {
@@ -47,10 +56,22 @@ function koiosUtxoToTransactionOutput(utxoInfo: KoiosUtxoInfo): TransactionOutpu
   }
 
   // Build script_ref if present
+  // Only set script_ref if we have actual script content (not just hash)
+  // Hash/type/size are shown separately via inlineScriptInfo
   let script_ref: TransactionOutput['script_ref'] = undefined;
   if (utxoInfo.reference_script) {
-    // Use PlutusScript format with the script bytes or hash
-    script_ref = { PlutusScript: utxoInfo.reference_script.bytes || utxoInfo.reference_script.hash };
+    const scriptType = utxoInfo.reference_script.type;
+    
+    if (isNativeScriptType(scriptType) && utxoInfo.reference_script.value) {
+      // For native scripts with parsed value from Koios
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      script_ref = { NativeScript: utxoInfo.reference_script.value as any };
+    } else if (!isNativeScriptType(scriptType) && utxoInfo.reference_script.bytes) {
+      // For Plutus scripts with actual bytes (not just hash)
+      script_ref = { PlutusScript: utxoInfo.reference_script.bytes };
+    }
+    // If we only have hash - don't set script_ref
+    // The hash/type/size will be shown via inlineScriptInfo
   }
 
   return {

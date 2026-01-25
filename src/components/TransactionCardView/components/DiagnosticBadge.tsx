@@ -41,7 +41,8 @@ export function DiagnosticBadge({ diagnostics }: DiagnosticBadgeProps) {
                           <ErrorFormatter 
                             error={err.errorData} 
                             errorType={err.errorType}
-                            message={err.message} 
+                            message={err.message}
+                            hint={err.hint}
                           />
                         ) : (
                           err.message
@@ -67,7 +68,8 @@ export function DiagnosticBadge({ diagnostics }: DiagnosticBadgeProps) {
                           <ErrorFormatter 
                             error={warn.errorData} 
                             errorType={warn.errorType}
-                            message={warn.message} 
+                            message={warn.message}
+                            hint={warn.hint}
                           />
                         ) : (
                           warn.message

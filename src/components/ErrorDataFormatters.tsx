@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, createContext, useContext, useCallback, ReactNode } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { UtxoRef } from "./UtxoRef";
 import { AddressWithTooltip } from "./AddressWithTooltip";
-import { CopyIcon, CheckIcon } from "./Icons";
+import { CopyIcon, CheckIcon, XCircleIcon } from "./Icons";
 import { AssetsTable, type AssetRow } from "./AssetsTable";
 
 // ============================================================================
@@ -54,6 +55,78 @@ interface LocalCredential {
 interface ProtocolVersion {
   major: number;
   minor: number;
+}
+
+/**
+ * Script Data Hash Decomposition - shows the components used to compute script_data_hash
+ */
+interface ScriptDataHashDecomposition {
+  costModelsCbor?: string | null;
+  datumsCbor?: string | null;
+  datumsCount?: number | null;
+  encodingFormat: string;
+  hashInputDescription: string;
+  plutusVersionsUsed: string[];
+  redeemersCbor?: string | null;
+  redeemersCount: number;
+}
+
+// ============================================================================
+// ScriptDataHashDecomposition Modal Context
+// ============================================================================
+
+interface DecompositionModalData {
+  decomposition: ScriptDataHashDecomposition;
+  hint?: string | null;
+}
+
+interface DecompositionModalContextType {
+  openModal: (data: DecompositionModalData) => void;
+  closeModal: () => void;
+}
+
+const DecompositionModalContext = createContext<DecompositionModalContextType | null>(null);
+
+/**
+ * Provider that renders the modal at a high level in the component tree.
+ * Wrap your app or the component containing accordions with this provider.
+ */
+export function DecompositionModalProvider({ children }: { children: ReactNode }) {
+  const [modalData, setModalData] = useState<DecompositionModalData | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+
+  const openModal = useCallback((data: DecompositionModalData) => {
+    setModalData(data);
+    setIsOpen(true);
+  }, []);
+
+  const closeModal = useCallback(() => {
+    setIsOpen(false);
+    // Delay clearing data to allow close animation
+    setTimeout(() => setModalData(null), 200);
+  }, []);
+
+  return (
+    <DecompositionModalContext.Provider value={{ openModal, closeModal }}>
+      {children}
+      {modalData && (
+        <ScriptDataHashDecompositionModal
+          decomposition={modalData.decomposition}
+          hint={modalData.hint}
+          isOpen={isOpen}
+          onClose={closeModal}
+        />
+      )}
+    </DecompositionModalContext.Provider>
+  );
+}
+
+/**
+ * Hook to access the decomposition modal context
+ */
+function useDecompositionModal() {
+  const context = useContext(DecompositionModalContext);
+  return context;
 }
 
 // ============================================================================
@@ -348,6 +421,218 @@ export function ProtocolVersionFormatter({ version }: { version: ProtocolVersion
 }
 
 /**
+ * Helper component for rendering CBOR fields with copy button
+ * Must be defined outside of render to avoid re-creation
+ */
+function DecompositionCborField({ 
+  label, 
+  value, 
+  fieldName,
+  copiedField,
+  onCopy
+}: { 
+  label: string; 
+  value?: string | null; 
+  fieldName: string;
+  copiedField: string | null;
+  onCopy: (value: string, fieldName: string) => void;
+}) {
+  if (!value) return null;
+  const isCopied = copiedField === fieldName;
+  return (
+    <div className="decomposition-field">
+      <div className="decomposition-field-header">
+        <span className="decomposition-field-label">{label}</span>
+        <button
+          className={`hash-copy-btn ${isCopied ? 'copied' : ''}`}
+          onClick={() => onCopy(value, fieldName)}
+          title={isCopied ? 'Copied!' : 'Copy CBOR hex'}
+        >
+          {isCopied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+        </button>
+      </div>
+      <code className="decomposition-cbor-value">{value}</code>
+    </div>
+  );
+}
+
+/**
+ * Modal component for displaying ScriptDataHashDecomposition details
+ */
+export function ScriptDataHashDecompositionModal({ 
+  decomposition, 
+  hint,
+  isOpen, 
+  onClose 
+}: { 
+  decomposition: ScriptDataHashDecomposition;
+  hint?: string | null;
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const handleCopy = (value: string, fieldName: string) => {
+    navigator.clipboard.writeText(value);
+    setCopiedField(fieldName);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  // Build counts text
+  const countsText = decomposition.datumsCount !== null && decomposition.datumsCount !== undefined
+    ? `${decomposition.redeemersCount} redeemer${decomposition.redeemersCount !== 1 ? 's' : ''}, ${decomposition.datumsCount} datum${decomposition.datumsCount !== 1 ? 's' : ''}`
+    : `${decomposition.redeemersCount} redeemer${decomposition.redeemersCount !== 1 ? 's' : ''}`;
+
+  return (
+    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Content className={`dialog-content decomposition-modal ${hint ? 'with-hint' : ''}`}>
+          <Dialog.Title className="dialog-title">
+            Decomposition of Expected Hash
+          </Dialog.Title>
+          <Dialog.Description className="dialog-description">
+            Components used to compute the expected script_data_hash
+          </Dialog.Description>
+          
+          <button 
+            className="dialog-close-btn"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <XCircleIcon size={20} />
+          </button>
+          
+          <div className={`decomposition-content ${hint ? 'with-hint' : ''}`}>
+            {/* Left column - main content */}
+            <div className="decomposition-main">
+              {/* Hash formula */}
+              <div className="decomposition-section">
+                <div className="decomposition-info-row">
+                  <span className="decomposition-info-label">Hash Formula:</span>
+                  <code className="decomposition-info-value decomposition-formula">
+                    {`blake2b_256(${decomposition.hashInputDescription})`}
+                  </code>
+                </div>
+              </div>
+
+              {/* Plutus versions */}
+              {decomposition.plutusVersionsUsed.length > 0 && (
+                <div className="decomposition-section">
+                  <div className="decomposition-info-row">
+                    <span className="decomposition-info-label">Plutus Versions:</span>
+                    <span className="decomposition-info-value">
+                      {decomposition.plutusVersionsUsed.map((v) => (
+                        <span key={v} className="decomposition-version-badge">
+                          {v}
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Counts - single line text */}
+              <div className="decomposition-section">
+                <div className="decomposition-info-row">
+                  <span className="decomposition-info-label">Contains:</span>
+                  <span className="decomposition-info-value">{countsText}</span>
+                </div>
+              </div>
+
+              {/* CBOR fields */}
+              <div className="decomposition-section decomposition-cbor-section">
+                <DecompositionCborField 
+                  label="Redeemers CBOR" 
+                  value={decomposition.redeemersCbor} 
+                  fieldName="redeemers"
+                  copiedField={copiedField}
+                  onCopy={handleCopy}
+                />
+                <DecompositionCborField 
+                  label="Datums CBOR" 
+                  value={decomposition.datumsCbor} 
+                  fieldName="datums"
+                  copiedField={copiedField}
+                  onCopy={handleCopy}
+                />
+                <DecompositionCborField 
+                  label="Cost Models CBOR" 
+                  value={decomposition.costModelsCbor} 
+                  fieldName="costModels"
+                  copiedField={copiedField}
+                  onCopy={handleCopy}
+                />
+              </div>
+            </div>
+
+            {/* Right column - Hint */}
+            {hint && (
+              <div className="decomposition-hint-column">
+                <div className="decomposition-hint">
+                  <div className="decomposition-hint-header">
+                    <span className="decomposition-hint-title">Hint</span>
+                  </div>
+                  <div className="decomposition-hint-text">
+                    {hint.replace(/\s*Check the expected_decomposition field for component details\.?\s*$/i, '').trim()}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+/**
+ * Button to open ScriptDataHashDecomposition modal
+ * Uses context if available, otherwise falls back to local state
+ */
+export function ScriptDataHashDecompositionButton({ 
+  decomposition,
+  hint
+}: { 
+  decomposition: ScriptDataHashDecomposition;
+  hint?: string | null;
+}) {
+  const modalContext = useDecompositionModal();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent accordion/collapsible from toggling
+    if (modalContext) {
+      modalContext.openModal({ decomposition, hint });
+    } else {
+      setIsModalOpen(true);
+    }
+  };
+
+  return (
+    <>
+      <button 
+        className="decomposition-view-btn"
+        onClick={handleClick}
+        title="View script data hash decomposition"
+      >
+        <span className="decomposition-view-btn-icon">🔍</span>
+        View Hash Decomposition
+      </button>
+      {/* Fallback modal when no context provider is available */}
+      {!modalContext && (
+        <ScriptDataHashDecompositionModal
+          decomposition={decomposition}
+          hint={hint}
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/**
  * Formats a Slot number with epoch calculation
  */
 export function SlotFormatter({ slot, currentSlot }: { slot: number; currentSlot?: number }) {
@@ -635,9 +920,23 @@ function BudgetComparisonFormatter({
 }
 
 /**
+ * Check if an object is a valid ScriptDataHashDecomposition
+ */
+function isScriptDataHashDecomposition(value: unknown): value is ScriptDataHashDecomposition {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.encodingFormat === "string" &&
+    typeof v.hashInputDescription === "string" &&
+    Array.isArray(v.plutusVersionsUsed) &&
+    typeof v.redeemersCount === "number"
+  );
+}
+
+/**
  * Recursively find and format known structures in nested objects
  */
-function findAndFormatNested(data: Record<string, unknown>): Array<{ key: string; formatted: FormattedStructure }> {
+function findAndFormatNested(data: Record<string, unknown>, hint?: string | null): Array<{ key: string; formatted: FormattedStructure }> {
   const parts: Array<{ key: string; formatted: FormattedStructure }> = [];
   
   // Special case: BudgetIsBiggerThanExpected with expected_budget/expectedBudget and actual_budget/actualBudget
@@ -659,7 +958,27 @@ function findAndFormatNested(data: Record<string, unknown>): Array<{ key: string
     return parts;
   }
   
+  // Special case: ScriptDataHashMismatch with expected_decomposition
+  const expectedDecompositionKey = "expected_decomposition" in data ? "expected_decomposition" : 
+                                   "expectedDecomposition" in data ? "expectedDecomposition" : null;
+  
+  if (expectedDecompositionKey && isScriptDataHashDecomposition(data[expectedDecompositionKey])) {
+    const decomposition = data[expectedDecompositionKey] as ScriptDataHashDecomposition;
+    parts.push({
+      key: "expected_decomposition",
+      formatted: {
+        type: "ScriptDataHashDecomposition",
+        component: <ScriptDataHashDecompositionButton decomposition={decomposition} hint={hint} />
+      }
+    });
+  }
+  
   for (const [key, value] of Object.entries(data)) {
+    // Skip expected_decomposition as we already handled it above
+    if (key === "expected_decomposition" || key === "expectedDecomposition") {
+      continue;
+    }
+    
     const formatted = detectAndFormat(key, value);
     if (formatted) {
       parts.push({ key, formatted });
@@ -696,20 +1015,22 @@ export function parseErrorMessage(message: string): {
 export function SmartMessageFormatter({ 
   message, 
   errorData,
-  errorType
+  errorType,
+  hint
 }: { 
   message: string; 
   errorData?: Record<string, unknown>;
   errorType?: string;
+  hint?: string | null;
 }) {
   const formattedParts = useMemo(() => {
     if (!errorData) return null;
     
     // Use the recursive finder to detect nested structures
-    const parts = findAndFormatNested(errorData);
+    const parts = findAndFormatNested(errorData, hint);
     
     return parts.length > 0 ? parts : null;
-  }, [errorData]);
+  }, [errorData, hint]);
   
   // Don't show the original message text if we have budget comparison (it's redundant)
   const shouldHideMessage = formattedParts?.some(p => p.key === "budget_comparison");
@@ -755,7 +1076,7 @@ export function SmartMessageFormatter({
         <div className="message-structures">
           {formattedParts.map(({ key, formatted }) => (
             <div key={key} className="message-structure-item">
-              {key !== "budget_comparison" && (
+              {key !== "budget_comparison" && key !== "expected_decomposition" && (
                 <span className="structure-key">{key.replace(/_/g, " ")}:</span>
               )}
               {formatted.component}
@@ -773,11 +1094,13 @@ export function SmartMessageFormatter({
 export function ErrorFormatter({ 
   error,
   errorType,
-  message 
+  message,
+  hint
 }: { 
   error: Record<string, unknown>;
   errorType?: string;
   message: string;
+  hint?: string | null;
 }) {
   // The error data is already extracted by extractErrorInfo in TransactionValidatorContent
   // Just pass it directly to SmartMessageFormatter
@@ -786,6 +1109,7 @@ export function ErrorFormatter({
       message={message} 
       errorData={error}
       errorType={errorType}
+      hint={hint}
     />
   );
 }
@@ -795,15 +1119,17 @@ export function ErrorFormatter({
  * Used for showing details under a "cut"/accordion.
  */
 export function ErrorDataDetails({ 
-  error
+  error,
+  hint
 }: { 
   error: Record<string, unknown>;
+  hint?: string | null;
 }) {
   const formattedParts = useMemo(() => {
     if (!error) return null;
-    const parts = findAndFormatNested(error);
+    const parts = findAndFormatNested(error, hint);
     return parts.length > 0 ? parts : null;
-  }, [error]);
+  }, [error, hint]);
   
   if (!formattedParts) return null;
   
@@ -812,7 +1138,7 @@ export function ErrorDataDetails({
       <div className="message-structures">
         {formattedParts.map(({ key, formatted }) => (
           <div key={key} className="message-structure-item">
-            {key !== "budget_comparison" && (
+            {key !== "budget_comparison" && key !== "expected_decomposition" && (
               <span className="structure-key">{key.replace(/_/g, " ")}:</span>
             )}
             {formatted.component}

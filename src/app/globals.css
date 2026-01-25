@@ -7027,8 +7027,25 @@ a.tcv-hash-truncate:hover {
   line-height: 1.5;
   flex: 1;
   min-width: 0;
-  padding-right: 30px;
+  padding: 10px;
   position: relative;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.tcv-data-value .tcv-copy-btn,
+.tcv-datum-value .tcv-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 /* JSON formatted data */
@@ -9502,6 +9519,477 @@ a.tcv-hash-truncate:hover {
 
 :root.dark .tcv-info-desc {
   color: #38bdf8;
+}
+
+/* ===== Radix UI Dialog (Generic) ===== */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+  animation: dialog-overlay-show 0.15s ease-out;
+}
+
+@keyframes dialog-overlay-show {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.dialog-content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 1001;
+  animation: dialog-content-show 0.2s ease-out;
+}
+
+@keyframes dialog-content-show {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.dialog-title {
+  margin: 0;
+  padding: 20px 24px 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a202c;
+}
+
+.dialog-description {
+  margin: 0;
+  padding: 0 24px 16px;
+  font-size: 14px;
+  color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.dialog-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.dialog-close-btn:hover {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+/* ===== Script Data Hash Decomposition Modal ===== */
+.decomposition-modal {
+  width: 600px;
+  transition: width 0.2s ease;
+}
+
+.decomposition-modal.with-hint {
+  width: 1000px;
+}
+
+.decomposition-content {
+  padding: 16px 24px 24px;
+  overflow-y: auto;
+  max-height: calc(85vh - 120px);
+}
+
+.decomposition-content.with-hint {
+  position: relative;
+  padding-right: calc(380px + 24px + 24px);
+  overflow-y: auto;
+}
+
+.decomposition-main {
+  /* Main content determines the height */
+}
+
+.decomposition-hint-column {
+  position: absolute;
+  top: 16px;
+  right: 24px;
+  bottom: 24px;
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+}
+
+.decomposition-section {
+  padding: 12px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.decomposition-section:last-child {
+  border-bottom: none;
+}
+
+.decomposition-info-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.decomposition-info-row:last-child {
+  margin-bottom: 0;
+}
+
+.decomposition-info-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.decomposition-info-value {
+  font-size: 13px;
+  color: #1a202c;
+  flex: 1;
+}
+
+.decomposition-format-badge {
+  display: inline-block;
+  background: #e0e7ff;
+  color: #4338ca;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+}
+
+.decomposition-description {
+  background: #f8fafc;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.decomposition-formula {
+  display: inline-block;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+  font-weight: 500;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.decomposition-version-badge {
+  display: inline-block;
+  background: #dcfce7;
+  color: #166534;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-right: 6px;
+}
+
+.decomposition-counts {
+  display: flex;
+  gap: 24px;
+  padding: 16px 0;
+}
+
+.decomposition-count-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.decomposition-count-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1a202c;
+}
+
+.decomposition-count-label {
+  font-size: 12px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.decomposition-cbor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.decomposition-field {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.decomposition-field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.decomposition-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.decomposition-cbor-value {
+  display: block;
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: #334155;
+  word-break: break-all;
+  max-height: 150px;
+  overflow-y: auto;
+  background: transparent;
+}
+
+/* Decomposition Hint Column */
+.decomposition-hint-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.decomposition-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.decomposition-hint-header {
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+
+.decomposition-hint-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.decomposition-hint-text {
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+  flex: 1;
+  padding-right: 8px;
+}
+
+.decomposition-hint-text::-webkit-scrollbar {
+  width: 6px;
+}
+
+.decomposition-hint-text::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.decomposition-hint-text::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.decomposition-hint-text::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Decomposition View Button */
+.decomposition-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.decomposition-view-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4);
+}
+
+.decomposition-view-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.decomposition-view-btn-icon {
+  font-size: 14px;
+}
+
+/* Dark mode support for dialog/decomposition */
+:root.dark .dialog-content {
+  background: #1e293b;
+}
+
+:root.dark .dialog-title {
+  color: #f1f5f9;
+}
+
+:root.dark .dialog-description {
+  color: #94a3b8;
+  border-bottom-color: #334155;
+}
+
+:root.dark .dialog-close-btn {
+  color: #64748b;
+}
+
+:root.dark .dialog-close-btn:hover {
+  background: #334155;
+  color: #94a3b8;
+}
+
+:root.dark .decomposition-section {
+  border-bottom-color: #334155;
+}
+
+:root.dark .decomposition-info-label {
+  color: #94a3b8;
+}
+
+:root.dark .decomposition-info-value {
+  color: #f1f5f9;
+}
+
+:root.dark .decomposition-format-badge {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+}
+
+:root.dark .decomposition-description {
+  background: #0f172a;
+  color: #94a3b8;
+}
+
+:root.dark .decomposition-formula {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.15) 0%, rgba(3, 105, 161, 0.1) 100%);
+  color: #7dd3fc;
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+:root.dark .decomposition-version-badge {
+  background: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+}
+
+:root.dark .decomposition-count-value {
+  color: #f1f5f9;
+}
+
+:root.dark .decomposition-count-label {
+  color: #64748b;
+}
+
+:root.dark .decomposition-field {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+:root.dark .decomposition-field-header {
+  background: #1e293b;
+  border-bottom-color: #334155;
+}
+
+:root.dark .decomposition-field-label {
+  color: #94a3b8;
+}
+
+:root.dark .decomposition-cbor-value {
+  color: #cbd5e1;
+}
+
+:root.dark .decomposition-hint {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+:root.dark .decomposition-hint-header {
+  border-bottom-color: #334155;
+}
+
+:root.dark .decomposition-hint-title {
+  color: #64748b;
+}
+
+:root.dark .decomposition-hint-text {
+  color: #cbd5e1;
+}
+
+:root.dark .decomposition-hint-text::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+:root.dark .decomposition-hint-text::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+:root.dark .decomposition-hint-text::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
 }
 
 

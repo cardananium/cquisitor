@@ -149,8 +149,13 @@ function formatScriptType(info: InlineScriptInfo | ExtendedScriptInfo | null | u
   if (!info || !info.script_type) return null;
   if (info.script_type === "Native") return "Native";
   if (typeof info.script_type === "string") {
-    // Handle Koios type strings like "plutusV1", "plutusV2", etc.
-    if (info.script_type.toLowerCase().startsWith("plutus")) {
+    const lowerType = info.script_type.toLowerCase();
+    // All native script subtypes (timelock, multisig, native) -> just "Native"
+    if (lowerType === 'native' || lowerType === 'timelock' || lowerType === 'multisig') {
+      return "Native";
+    }
+    // Plutus scripts - show version
+    if (lowerType.startsWith("plutus")) {
       return info.script_type;
     }
     return info.script_type;
@@ -203,7 +208,25 @@ export function OutputCard({
     });
   }
 
-  const scriptRefFormatted = hasScriptRef ? formatValue(output.script_ref) : { text: '', isJson: false };
+  // Format script_ref for display
+  const scriptRefFormatted = (() => {
+    if (!hasScriptRef) return { text: '', isJson: false };
+    
+    const scriptRef = output.script_ref!;
+    
+    // Properly decoded NativeScript - show the full structure
+    if ('NativeScript' in scriptRef) {
+      return formatValue(scriptRef);
+    }
+    
+    // PlutusScript - show hex bytes directly (not as JSON)
+    if ('PlutusScript' in scriptRef) {
+      return { text: scriptRef.PlutusScript, isJson: false };
+    }
+    
+    // Fallback
+    return formatValue(scriptRef);
+  })();
 
   // Get script size if available from extended info
   const scriptSize = inlineScriptInfo && 'size' in inlineScriptInfo ? inlineScriptInfo.size : null;
@@ -221,7 +244,7 @@ export function OutputCard({
             {hasMultiasset && <span className="tcv-tag tokens">Tokens</span>}
             {isDatumHash && <span className="tcv-tag datum-hash">Datum Hash</span>}
             {isInlineDatum && <span className="tcv-tag datum">Inline Datum</span>}
-            {hasScriptRef && <span className="tcv-tag script">Script</span>}
+            {(hasScriptRef || inlineScriptInfo) && <span className="tcv-tag script">Script</span>}
           </div>
           <DiagnosticBadge diagnostics={diagnostics} />
         </div>
@@ -275,8 +298,8 @@ export function OutputCard({
         </div>
       )}
 
-      {/* Script Reference Section - before balance */}
-      {hasScriptRef && (
+      {/* Script Reference Section - show if we have script_ref or script info from Koios */}
+      {(hasScriptRef || inlineScriptInfo) && (
         <div className="tcv-inline-collapsible-wrapper">
           <Collapsible.Root className="tcv-inline-collapsible">
             <Collapsible.Trigger className="tcv-inline-collapsible-trigger">
@@ -303,10 +326,13 @@ export function OutputCard({
                   <span className="tcv-inline-hash-value">{scriptSize.toLocaleString()} bytes</span>
                 </div>
               )}
-              <div className={scriptRefFormatted.isJson ? "tcv-data-value-json" : "tcv-data-value"}>
-                {scriptRefFormatted.text}
-                <CopyButton text={scriptRefFormatted.text} />
-              </div>
+              {/* Show script content only if available */}
+              {scriptRefFormatted.text && (
+                <div className={scriptRefFormatted.isJson ? "tcv-data-value-json" : "tcv-data-value"}>
+                  {scriptRefFormatted.text}
+                  <CopyButton text={scriptRefFormatted.text} />
+                </div>
+              )}
             </Collapsible.Content>
           </Collapsible.Root>
         </div>

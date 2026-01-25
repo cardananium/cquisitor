@@ -157,7 +157,7 @@ function DiagnosticIndicator({ diagnostics }: { diagnostics: ValidationDiagnosti
                   <div className="validation-tooltip-title error">
                     Errors ({errors.length})
                   </div>
-                  {errors.map((err, i) => (
+                    {errors.map((err, i) => (
                     <div key={i} className="validation-tooltip-item">
                       <span className="validation-tooltip-phase">[{err.phase}]</span>
                       <span className="validation-tooltip-message">
@@ -165,7 +165,8 @@ function DiagnosticIndicator({ diagnostics }: { diagnostics: ValidationDiagnosti
                           <ErrorFormatter 
                             error={err.errorData} 
                             errorType={err.errorType}
-                            message={err.message} 
+                            message={err.message}
+                            hint={err.hint}
                           />
                         ) : (
                           err.message
@@ -191,7 +192,8 @@ function DiagnosticIndicator({ diagnostics }: { diagnostics: ValidationDiagnosti
                           <ErrorFormatter 
                             error={warn.errorData} 
                             errorType={warn.errorType}
-                            message={warn.message} 
+                            message={warn.message}
+                            hint={warn.hint}
                           />
                         ) : (
                           warn.message

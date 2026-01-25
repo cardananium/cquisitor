@@ -20,7 +20,7 @@ import {
   CopyIcon,
   CheckIcon,
 } from "@/components/Icons";
-import { ErrorDataDetails, getCleanedErrorMessage } from "@/components/ErrorDataFormatters";
+import { ErrorDataDetails, getCleanedErrorMessage, DecompositionModalProvider } from "@/components/ErrorDataFormatters";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
@@ -286,7 +286,7 @@ function DiagnosticsList({ items, onLocationClick }: {
                 <Accordion.Content className="diagnostic-accordion-content">
                   <div className="diagnostic-details">
                     {item.errorData && (
-                      <ErrorDataDetails error={item.errorData} />
+                      <ErrorDataDetails error={item.errorData} hint={item.hint} />
                     )}
                     {item.details && (
                       <div className="diagnostic-detail-row">
@@ -1046,21 +1046,23 @@ export default function TransactionValidatorContent() {
   );
 
   return (
-    <div className="validator-layout-new">
-      <ResizablePanels
-        leftPanel={leftPanel}
-        rightPanel={rightPanel}
-        defaultLeftWidth={50}
-        minLeftWidth={30}
-        maxLeftWidth={70}
-      />
-      
-      {/* View mode selection modal - shown on first decode */}
-      <ViewModeSelectionModal
-        isOpen={showViewModeModal}
-        onSelect={handleViewModeSelect}
-        onClose={handleViewModeModalClose}
-      />
-    </div>
+    <DecompositionModalProvider>
+      <div className="validator-layout-new">
+        <ResizablePanels
+          leftPanel={leftPanel}
+          rightPanel={rightPanel}
+          defaultLeftWidth={50}
+          minLeftWidth={30}
+          maxLeftWidth={70}
+        />
+        
+        {/* View mode selection modal - shown on first decode */}
+        <ViewModeSelectionModal
+          isOpen={showViewModeModal}
+          onSelect={handleViewModeSelect}
+          onClose={handleViewModeModalClose}
+        />
+      </div>
+    </DecompositionModalProvider>
   );
 }
