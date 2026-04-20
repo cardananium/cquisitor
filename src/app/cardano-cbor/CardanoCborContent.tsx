@@ -16,6 +16,7 @@ import { useCardanoCbor } from "@/context/CardanoCborContext";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
+import ShareButton from "@/components/ShareButton";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
 
@@ -299,6 +300,19 @@ export default function CardanoCborContent() {
         </HelpTooltip>
         {notification && <span className="panel-badge info">{notification}</span>}
         {error && <span className="panel-badge error">{error}</span>}
+        <ShareButton
+          disabled={!input.trim()}
+          getTarget={() => ({
+            kind: "cardano-cbor",
+            input: {
+              cbor: input.trim(),
+              net: network,
+              type: selectedType,
+              psv: plutusScriptVersion,
+              pds: plutusDataSchema,
+            },
+          })}
+        />
         <button onClick={handleClear} className="btn-icon" title="Clear">
           ✕
         </button>

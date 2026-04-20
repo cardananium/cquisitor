@@ -12,20 +12,25 @@ const tabs: { name: string; id: TabId }[] = [
 
 const VALID_TABS: TabId[] = ["general-cbor", "cardano-cbor", "transaction-validator"];
 
+function stripQuery(hashPart: string): string {
+  const qIdx = hashPart.indexOf("?");
+  return qIdx >= 0 ? hashPart.slice(0, qIdx) : hashPart;
+}
+
 export function isValidHash(hash: string): hash is TabId {
-  return VALID_TABS.includes(hash as TabId);
+  return VALID_TABS.includes(stripQuery(hash) as TabId);
 }
 
 export function getTabFromHash(): TabId | null {
   if (typeof window === "undefined") return "transaction-validator";
-  const hash = window.location.hash.slice(1);
-  
+  const hash = stripQuery(window.location.hash.slice(1));
+
   // Empty hash - default to transaction-validator
   if (!hash) return "transaction-validator";
-  
+
   // Valid hash
-  if (isValidHash(hash)) return hash;
-  
+  if (VALID_TABS.includes(hash as TabId)) return hash as TabId;
+
   // Invalid hash
   return null;
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
 import { type CborValue, type CborPosition } from "@cardananium/cquisitor-lib";
+import { parseHash, parseGeneralCborShare } from "@/utils/shareLink";
 
 interface GeneralCborState {
   input: string;
@@ -31,8 +32,15 @@ interface GeneralCborContextType extends GeneralCborState {
 
 const GeneralCborContext = createContext<GeneralCborContextType | null>(null);
 
+function readInitialInput(): string {
+  if (typeof window === "undefined") return "";
+  const { tab, params } = parseHash(window.location.hash);
+  if (tab !== "general-cbor") return "";
+  return params.get("cbor") ?? "";
+}
+
 export function GeneralCborProvider({ children }: { children: ReactNode }) {
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(readInitialInput);
   const [hexValue, setHexValue] = useState("");
   const [decodedJson, setDecodedJson] = useState<CborValue | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +60,22 @@ export function GeneralCborProvider({ children }: { children: ReactNode }) {
     setHoverPosition(null);
     setHoverPath(null);
     setHighlightedTreePosition(null);
+  }, []);
+
+  // Rich payload (v=1&e=b|j) hydration — runs once on mount.
+  useEffect(() => {
+    const { tab, params } = parseHash(window.location.hash);
+    if (tab !== "general-cbor" || !params.get("v")) return;
+    let cancelled = false;
+    parseGeneralCborShare(params)
+      .then((parsed) => {
+        if (cancelled) return;
+        if (parsed.cbor && !params.get("cbor")) setInput(parsed.cbor);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

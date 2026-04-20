@@ -86,6 +86,8 @@ export interface ExtendedValidationResult {
   result: ValidationResult;
   /** Map of UTxO references (txHash#outputIndex) to KoiosUtxoInfo */
   utxoInfoMap: Map<string, KoiosUtxoInfo>;
+  /** Full fetched context (useful for sharing the validated state via URL) */
+  fetchedContext: FetchedValidationData;
 }
 
 /**
@@ -784,6 +786,7 @@ export async function validateTransaction(
   return {
     result: validationResult,
     utxoInfoMap,
+    fetchedContext: fetchedData,
   };
 }
 

@@ -122,20 +122,22 @@ function InvalidHashError({ invalidHash }: { invalidHash: string }) {
 
 function parseHash(hash: string): { activeTab: TabId | null; invalidHash: string | null } {
   const hashValue = hash.slice(1); // Remove #
-  
+
   // Empty hash - default to transaction-validator
   if (!hashValue) {
     return { activeTab: "transaction-validator", invalidHash: null };
   }
-  
-  // Valid hash
+
+  // Valid hash (share link query part is stripped inside getTabFromHash)
   const tab = getTabFromHash();
   if (tab !== null) {
     return { activeTab: tab, invalidHash: null };
   }
-  
-  // Invalid hash
-  return { activeTab: null, invalidHash: hashValue };
+
+  // Invalid hash — report only the tab portion, not the share query
+  const qIdx = hashValue.indexOf("?");
+  const displayed = qIdx >= 0 ? hashValue.slice(0, qIdx) : hashValue;
+  return { activeTab: null, invalidHash: displayed };
 }
 
 export default function UnifiedContent() {

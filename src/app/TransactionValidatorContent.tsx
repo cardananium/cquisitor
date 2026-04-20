@@ -24,15 +24,22 @@ import { ErrorDataDetails, getCleanedErrorMessage, DecompositionModalProvider } 
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
+import ShareButton from "@/components/ShareButton";
 import {
   validateTransaction,
+  validateTransactionWithContext,
+  buildValidationContext,
   type NetworkType,
 } from "@/utils/transactionValidation";
 import { decode_specific_type, extract_hashes_from_transaction_js } from "@cardananium/cquisitor-lib";
 import type { ExtractedHashes } from "@cardananium/cquisitor-lib";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
-import { useTransactionValidator, type DecodedTransaction } from "@/context/TransactionValidatorContext";
+import {
+  useTransactionValidator,
+  type DecodedTransaction,
+  type InputUtxoInfoMap,
+} from "@/context/TransactionValidatorContext";
 import TransactionCardView from "@/components/TransactionCardView";
 import ViewModeSelectionModal, { type ViewMode } from "@/components/ViewModeSelectionModal";
 import type {
@@ -73,6 +80,18 @@ function isValidBase64(str: string): boolean {
 // Convert base64 to hex
 function base64ToHex(base64: string): string {
   return Buffer.from(base64.trim(), "base64").toString("hex");
+}
+
+function formatRelativeAge(epochMs: number): string {
+  const diff = Math.max(0, Date.now() - epochMs);
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
 }
 
 // Process input: convert base64 to hex if needed
@@ -495,6 +514,18 @@ export default function TransactionValidatorContent() {
     setExtractedHashes,
     inputUtxoInfoMap,
     setInputUtxoInfoMap,
+    fetchedContext,
+    setFetchedContext,
+    contextSource,
+    setContextSource,
+    contextCapturedAt,
+    setContextCapturedAt,
+    useUrlContext,
+    setUseUrlContext,
+    ctxIncompatibleWarning,
+    setCtxIncompatibleWarning,
+    futureVersionWarning,
+    setFutureVersionWarning,
     handleApiKeyChange,
     clearAll,
   } = useTransactionValidator();
@@ -601,11 +632,15 @@ export default function TransactionValidatorContent() {
       const isNewTransaction = previousTxHashRef.current === null || previousTxHashRef.current !== newTxHash;
       
       if (previousTxHashRef.current !== null && previousTxHashRef.current !== newTxHash) {
-        // Transaction hash changed - reset validation results
+        // Transaction hash changed - reset validation results and any URL-provided context
         setResult(null);
         setError(null);
         setInputUtxoInfoMap(null);
         setFocusedPath(null);
+        setFetchedContext(null);
+        setContextSource(null);
+        setContextCapturedAt(null);
+        setCtxIncompatibleWarning(false);
       }
       
       // Show view mode modal on first successful decode if user hasn't selected before
@@ -640,41 +675,79 @@ export default function TransactionValidatorContent() {
       previousTxHashRef.current = null;
       shouldShowModalRef.current = false;
     }
-  }, [txInput, setDecodedTx, setDecodeError, setExtractedHashes, setResult, setError, setInputUtxoInfoMap, setFocusedPath, hasSelectedViewMode]);
+  }, [txInput, setDecodedTx, setDecodeError, setExtractedHashes, setResult, setError, setInputUtxoInfoMap, setFocusedPath, setFetchedContext, setContextSource, setContextCapturedAt, setCtxIncompatibleWarning, hasSelectedViewMode]);
 
-  const handleValidate = async () => {
-    if (!apiKey.trim()) {
-      setError("Koios API Key is required. Get one at koios.rest/pricing/Pricing.html");
-      return;
-    }
+  const runValidation = useCallback(
+    async (forceRefetch: boolean) => {
+      if (!txInput.trim()) {
+        setError("Please enter a transaction CBOR hex or base64");
+        return;
+      }
 
-    if (!txInput.trim()) {
-      setError("Please enter a transaction CBOR hex or base64");
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-    setResult(null);
-    setInputUtxoInfoMap(null);
-
-    try {
-      // Process input - convert base64 to hex if needed
       const { hex } = processTransactionInput(txInput);
+      const canUseUrlContext =
+        !forceRefetch && contextSource === "url" && !!fetchedContext && useUrlContext;
 
-      const { result: validationResult, utxoInfoMap } = await validateTransaction({
-        txHex: hex,
-        network,
-        apiKey: apiKey.trim(),
-      });
-      setResult(validationResult);
-      setInputUtxoInfoMap(utxoInfoMap);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Validation failed");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      if (!canUseUrlContext && !apiKey.trim()) {
+        setError("Koios API Key is required. Get one at koios.rest/pricing/Pricing.html");
+        return;
+      }
+
+      setIsLoading(true);
+      setError(null);
+      setResult(null);
+
+      try {
+        if (canUseUrlContext) {
+          const ctx = buildValidationContext(fetchedContext!, network);
+          const validationResult = validateTransactionWithContext(hex, ctx);
+          setResult(validationResult);
+          const map: InputUtxoInfoMap = new Map();
+          for (const utxo of fetchedContext!.utxoInfos ?? []) {
+            map.set(`${utxo.tx_hash}#${utxo.tx_index}`, utxo);
+          }
+          setInputUtxoInfoMap(map);
+        } else {
+          setInputUtxoInfoMap(null);
+          const { result: validationResult, utxoInfoMap, fetchedContext: fresh } =
+            await validateTransaction({
+              txHex: hex,
+              network,
+              apiKey: apiKey.trim(),
+            });
+          setResult(validationResult);
+          setInputUtxoInfoMap(utxoInfoMap);
+          setFetchedContext(fresh);
+          setContextSource("koios");
+          setContextCapturedAt(Date.now());
+          setCtxIncompatibleWarning(false);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Validation failed");
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [
+      txInput,
+      network,
+      apiKey,
+      contextSource,
+      fetchedContext,
+      useUrlContext,
+      setError,
+      setIsLoading,
+      setResult,
+      setInputUtxoInfoMap,
+      setFetchedContext,
+      setContextSource,
+      setContextCapturedAt,
+      setCtxIncompatibleWarning,
+    ]
+  );
+
+  const handleValidate = useCallback(() => runValidation(false), [runValidation]);
+  const handleRefetch = useCallback(() => runValidation(true), [runValidation]);
 
   // Build diagnostics list from validation result (excluding redeemer results)
   const diagnostics: DiagnosticItem[] = [];
@@ -778,6 +851,21 @@ export default function TransactionValidatorContent() {
         <HelpTooltip>
           <strong>How to use:</strong> Paste transaction CBOR (hex or base64), enter your Koios API key, then click Validate to check Phase 1 &amp; 2 validation rules. Click on errors to navigate to the problematic field.
         </HelpTooltip>
+        <ShareButton
+          disabled={!txInput.trim()}
+          getTarget={() => {
+            const hex = processTransactionInput(txInput).hex;
+            return {
+              kind: "validator",
+              input: {
+                cbor: hex,
+                net: network,
+                ctx: fetchedContext ?? undefined,
+                capturedAt: contextCapturedAt ?? undefined,
+              },
+            };
+          }}
+        />
         <button onClick={clearAll} className="btn-icon" title="Clear">
           ✕
         </button>
@@ -840,6 +928,81 @@ export default function TransactionValidatorContent() {
       <HintBanner storageKey="cquisitor_hint_validator">
         <strong>How to use:</strong> Paste transaction CBOR (hex or base64), enter your Koios API key, then click <strong>Validate</strong> to check Phase 1 &amp; 2 validation rules.
       </HintBanner>
+
+      {/* URL-provided context banner */}
+      {contextSource === "url" && (
+        <div className="url-context-banner">
+          <div className="url-context-banner-main">
+            <span className="url-context-banner-icon">🔗</span>
+            <span className="url-context-banner-text">
+              Validation context loaded from the URL
+              {contextCapturedAt !== null && (
+                <> (captured {formatRelativeAge(contextCapturedAt)})</>
+              )}
+              .
+            </span>
+          </div>
+          <div className="url-context-banner-actions">
+            <label className="url-context-banner-toggle" title="If off, Validate will fetch a fresh context from Koios">
+              <input
+                type="checkbox"
+                checked={useUrlContext}
+                onChange={(e) => setUseUrlContext(e.target.checked)}
+              />
+              <span>Use cached context</span>
+            </label>
+            <button
+              type="button"
+              className="url-context-banner-refetch"
+              onClick={handleRefetch}
+              disabled={isLoading || !apiKey.trim()}
+              title={!apiKey.trim() ? "Koios API key required" : "Fetch fresh context from Koios"}
+            >
+              {isLoading ? <SpinnerIcon size={12} className="animate-spin" /> : "↻"}
+              Refetch
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Incompatible-context warning */}
+      {ctxIncompatibleWarning && (
+        <div className="url-context-warning">
+          <WarningIcon size={14} className="text-yellow-600 flex-shrink-0" />
+          <span>
+            The URL included a validation context, but its schema is incompatible with this
+            build. Only the transaction &amp; network were applied — click <strong>Validate</strong>
+            to fetch a fresh context.
+          </span>
+          <button
+            type="button"
+            className="url-context-warning-dismiss"
+            onClick={() => setCtxIncompatibleWarning(false)}
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Future-version warning */}
+      {futureVersionWarning && (
+        <div className="url-context-warning">
+          <WarningIcon size={14} className="text-yellow-600 flex-shrink-0" />
+          <span>
+            This link was created by a newer version of CQuisitor. Only the transaction &amp;
+            network were applied; advanced fields were ignored.
+          </span>
+          <button
+            type="button"
+            className="url-context-warning-dismiss"
+            onClick={() => setFutureVersionWarning(false)}
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* CBOR input row with Validate button */}
       <div className="validator-input-row">

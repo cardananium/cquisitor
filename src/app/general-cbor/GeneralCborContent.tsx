@@ -9,6 +9,7 @@ import { useGeneralCbor } from "@/context/GeneralCborContext";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
+import ShareButton from "@/components/ShareButton";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 
 function isValidBase64(str: string): boolean {
@@ -161,6 +162,10 @@ export default function GeneralCborContent() {
         {hoverPath && <span className="panel-path">{hoverPath}</span>}
         {notification && <span className="panel-badge info">{notification}</span>}
         {error && <span className="panel-badge error">{error}</span>}
+        <ShareButton
+          disabled={!input.trim()}
+          getTarget={() => ({ kind: "general-cbor", input: { cbor: input.trim() } })}
+        />
         <button onClick={handleClear} className="btn-icon" title="Clear">
           ✕
         </button>

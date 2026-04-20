@@ -24,6 +24,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@textea/json-viewer": "^4.0.1",
     "bech32": "^2.0.0",
+    "brotli-wasm": "^3.0.1",
     "cbor-x": "^1.6.0",
     "next": "^16.0.10",
     "react": "19.2.0",
