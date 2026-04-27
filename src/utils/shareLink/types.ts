@@ -1,7 +1,7 @@
 import type { NetworkType, PlutusDataSchema } from "@cardananium/cquisitor-lib";
 import type { FetchedValidationData } from "@/utils/transactionValidation";
 
-export type TabId = "transaction-validator" | "cardano-cbor" | "general-cbor";
+export type TabId = "transaction-validator" | "cardano-cbor" | "general-cbor" | "cddl-validator";
 
 export type ShareLinkMode =
   | { kind: "minimal" }

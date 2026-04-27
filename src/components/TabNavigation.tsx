@@ -2,15 +2,18 @@
 
 import * as Tabs from "@radix-ui/react-tabs";
 
-export type TabId = "transaction-validator" | "cardano-cbor" | "general-cbor";
+export type TabId = "transaction-validator" | "cardano-cbor" | "general-cbor" | "cddl-validator";
 
 const tabs: { name: string; id: TabId }[] = [
   { name: "General CBOR", id: "general-cbor" },
   { name: "Cardano CBOR", id: "cardano-cbor" },
+  // CDDL Validator hidden for now — keep TabId/VALID_TABS so direct
+  // `#cddl-validator` links still work and the tab can be re-shown by
+  // re-adding this entry.
   { name: "Transaction Validator", id: "transaction-validator" },
 ];
 
-const VALID_TABS: TabId[] = ["general-cbor", "cardano-cbor", "transaction-validator"];
+const VALID_TABS: TabId[] = ["general-cbor", "cardano-cbor", "cddl-validator", "transaction-validator"];
 
 function stripQuery(hashPart: string): string {
   const qIdx = hashPart.indexOf("?");

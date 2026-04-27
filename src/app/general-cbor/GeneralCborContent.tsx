@@ -1,16 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import ResizablePanels from "@/components/ResizablePanels";
 import EditableHexView from "@/components/EditableHexView";
 import CborTreeView from "@/components/CborTreeView";
-import { cbor_to_json, type CborPosition } from "@cardananium/cquisitor-lib";
+import { cbor_to_json, type CborPosition, type CborDecodeResult } from "@cardananium/cquisitor-lib";
 import { useGeneralCbor } from "@/context/GeneralCborContext";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
+import { cborErrorToLocation } from "@/utils/cborError";
 
 function isValidBase64(str: string): boolean {
   try {
@@ -42,6 +44,7 @@ export default function GeneralCborContent() {
     hexValue,
     decodedJson,
     error,
+    errorLocation,
     notification,
     hoverPosition,
     focusPosition,
@@ -51,6 +54,7 @@ export default function GeneralCborContent() {
     setHexValue,
     setDecodedJson,
     setError,
+    setErrorLocation,
     setNotification,
     setHoverPosition,
     setFocusPosition,
@@ -74,45 +78,40 @@ export default function GeneralCborContent() {
         setHexValue("");
         setDecodedJson(null);
         setError(null);
+        setErrorLocation(null);
         setNotification(null);
         return;
       }
 
-      try {
-        let hex = input.trim();
+      let hex = input.trim();
 
-        // Check if it's base64
-        if (isValidBase64(hex)) {
-          hex = base64ToHex(hex);
-          setNotification("Base64 → hex");
-        } else {
-          setNotification(null);
-        }
+      // Check if it's base64
+      if (isValidBase64(hex)) {
+        hex = base64ToHex(hex);
+        setNotification("Base64 → hex");
+      } else {
+        setNotification(null);
+      }
 
-        // Clean up hex
-        hex = hex.replace(/\s/g, "").toLowerCase();
+      // Clean up hex (whitespace-only, preserve everything else for the lib to diagnose)
+      hex = hex.replace(/\s/g, "").toLowerCase();
 
-        // Validate hex
-        if (!/^[0-9a-f]*$/.test(hex)) {
-          setError("Invalid hex");
-          setDecodedJson(null); // Clear decoded structure on error
-          return;
-        }
+      // Decode CBOR — the new API never throws; errors come as { ok: false, ... }.
+      const raw = cbor_to_json(hex) as CborDecodeResult;
+      const result = convertSerdeNumbers(raw) as CborDecodeResult;
+      const hexByteLength = /^[0-9a-f]*$/.test(hex) ? hex.length / 2 : 0;
 
-        // Decode CBOR
-        const result = cbor_to_json(hex);
-        
-        // The library returns an array containing the CborValue - unwrap it
-        // Also convert serde_json numbers to native numbers/BigInt
-        const rawValue = Array.isArray(result) ? result[0] : result;
-        const cborValue = convertSerdeNumbers(rawValue);
-        
-        setHexValue(hex);
-        setDecodedJson(cborValue);
+      if (hexByteLength > 0) setHexValue(hex);
+      else setHexValue("");
+
+      if (result.ok) {
+        setDecodedJson(result.value);
         setError(null);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Decode error");
-        setDecodedJson(null); // Clear decoded structure on error
+        setErrorLocation(null);
+      } else {
+        setDecodedJson(result.partial ?? null);
+        setError(result.error.message);
+        setErrorLocation(cborErrorToLocation(result.error, hexByteLength));
       }
     }, 150); // 150ms debounce
 
@@ -162,6 +161,26 @@ export default function GeneralCborContent() {
         {hoverPath && <span className="panel-path">{hoverPath}</span>}
         {notification && <span className="panel-badge info">{notification}</span>}
         {error && <span className="panel-badge error">{error}</span>}
+        {errorLocation && errorLocation.path && errorLocation.path !== "$" && (
+          <Tooltip.Provider delayDuration={150}>
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <span className="panel-badge error-path">{errorLocation.path}</span>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content className="cbor-oddity-tooltip" sideOffset={4} side="bottom">
+                  <div className="cbor-oddity-tooltip-title">Error location</div>
+                  <div>
+                    <div>path: <span className="cbor-oddity-tooltip-detail">{errorLocation.path}</span></div>
+                    <div>offset: <span className="cbor-oddity-tooltip-detail">{errorLocation.offset}</span>{errorLocation.length > 1 && <> · length: <span className="cbor-oddity-tooltip-detail">{errorLocation.length}</span></>}</div>
+                    <div>kind: <span className="cbor-oddity-tooltip-detail">{errorLocation.kind}</span></div>
+                  </div>
+                  <Tooltip.Arrow className="cbor-oddity-tooltip-arrow" />
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          </Tooltip.Provider>
+        )}
         <ShareButton
           disabled={!input.trim()}
           getTarget={() => ({ kind: "general-cbor", input: { cbor: input.trim() } })}
@@ -184,6 +203,7 @@ export default function GeneralCborContent() {
         cborData={decodedJson}
         hoverPosition={hoverPosition}
         focusPosition={focusPosition}
+        errorLocation={errorLocation}
         onHoverPath={handleHoverPath}
         onShowInTree={handleShowInTree}
       />

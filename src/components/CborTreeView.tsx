@@ -1,11 +1,15 @@
 "use client";
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import type { CborValue, CborPosition } from "@cardananium/cquisitor-lib";
+import * as Tooltip from "@radix-ui/react-tooltip";
+import type { CborValue, CborPosition, CborOddity, CborOddityKind, CborPartialValue } from "@cardananium/cquisitor-lib";
 import { CopyIcon, CheckIcon } from "./Icons";
 
 interface CborTreeViewProps {
-  data: CborValue;
+  // CborPartialValue is structurally compatible with CborValue for our traversal
+  // (same fields), plus optional `incomplete` flags on containers and the rare
+  // partial map-entry with a missing key/value. We accept both.
+  data: CborValue | CborPartialValue;
   hexValue: string;
   onHoverPosition: (position: CborPosition | null) => void;
   onHighlightAndScroll: (position: CborPosition) => void;
@@ -17,27 +21,29 @@ interface CborTreeViewProps {
 interface ContextMenuState {
   x: number;
   y: number;
-  node: CborValue;
+  node: CborValue | CborPartialValue;
   path: string;
 }
 
+type AnyNode = CborValue | CborPartialValue;
+
 // Find path to a node by its position (returns array of path segments)
 function findPathToPosition(
-  node: CborValue,
+  node: AnyNode,
   targetPosition: CborPosition,
   currentPath: string[] = []
 ): string[] | null {
   if (!node || typeof node !== "object") return null;
-  
+
   const posInfo = node.position_info;
-  
+
   // Check if this node matches the target position
-  if (posInfo && 
-      posInfo.offset === targetPosition.offset && 
+  if (posInfo &&
+      posInfo.offset === targetPosition.offset &&
       posInfo.length === targetPosition.length) {
     return currentPath;
   }
-  
+
   // Search in children
   if ("type" in node) {
     if (node.type === "Array" && node.values) {
@@ -50,28 +56,30 @@ function findPathToPosition(
         if (result) return result;
       }
     }
-    
+
     if (node.type === "Map" && node.values) {
       for (let i = 0; i < node.values.length; i++) {
-        const entry = node.values[i];
-        // Check key
-        const keyResult = findPathToPosition(
-          entry.key,
-          targetPosition,
-          [...currentPath, `map[${i}].key`]
-        );
-        if (keyResult) return keyResult;
-        // Check value
-        const valueResult = findPathToPosition(
-          entry.value,
-          targetPosition,
-          [...currentPath, `map[${i}].value`]
-        );
-        if (valueResult) return valueResult;
+        const entry = node.values[i] as { key?: AnyNode; value?: AnyNode };
+        if (entry.key) {
+          const keyResult = findPathToPosition(
+            entry.key,
+            targetPosition,
+            [...currentPath, `map[${i}].key`]
+          );
+          if (keyResult) return keyResult;
+        }
+        if (entry.value) {
+          const valueResult = findPathToPosition(
+            entry.value,
+            targetPosition,
+            [...currentPath, `map[${i}].value`]
+          );
+          if (valueResult) return valueResult;
+        }
       }
     }
-    
-    if (node.type === "Tag" && node.value) {
+
+    if (node.type === "Tag" && "value" in node && node.value) {
       const result = findPathToPosition(
         node.value,
         targetPosition,
@@ -79,7 +87,7 @@ function findPathToPosition(
       );
       if (result) return result;
     }
-    
+
     if ((node.type === "IndefiniteLengthString" || node.type === "IndefiniteLengthBytes") && node.chunks) {
       for (let i = 0; i < node.chunks.length; i++) {
         const result = findPathToPosition(
@@ -91,12 +99,12 @@ function findPathToPosition(
       }
     }
   }
-  
+
   return null;
 }
 
 // Check if a position matches a node
-function positionMatchesNode(node: CborValue, position: CborPosition): boolean {
+function positionMatchesNode(node: AnyNode, position: CborPosition): boolean {
   const posInfo = node.position_info;
   return posInfo !== undefined && 
          posInfo.offset === position.offset && 
@@ -141,7 +149,13 @@ function formatValue(val: unknown): string {
   return String(val);
 }
 
-function getNodeLabel(node: CborValue): { type: string; value: string; color: string; detail?: string } {
+// The library includes the terminating Break marker as the last element of `chunks`
+// for indefinite-length strings/bytes. Filter it out for counting purposes.
+function countDataChunks(chunks: CborValue[]): number {
+  return chunks.filter(c => !("type" in c) || c.type !== "Break").length;
+}
+
+function getNodeLabel(node: AnyNode): { type: string; value: string; color: string; detail?: string } {
   // All CborValue types have a "type" field
   if ("type" in node && typeof node.type === "string") {
     const rawValue = (node as { value?: unknown }).value;
@@ -176,13 +190,13 @@ function getNodeLabel(node: CborValue): { type: string; value: string; color: st
       case "IndefiniteLengthString":
         return {
           type: "text (indefinite)",
-          value: `${node.chunks.length} chunks`,
+          value: `${countDataChunks(node.chunks)} chunks`,
           color: "#22c55e", // green
         };
       case "IndefiniteLengthBytes":
         return {
           type: "bytes (indefinite)",
-          value: `${node.chunks.length} chunks`,
+          value: `${countDataChunks(node.chunks)} chunks`,
           color: "#06b6d4", // cyan
         };
       
@@ -248,6 +262,69 @@ function getNodeLabel(node: CborValue): { type: string; value: string; color: st
   // Fallback for unknown structure
   const rawValue = (node as { value?: unknown }).value;
   return { type: "unknown", value: formatValue(rawValue), color: "#6b7280" };
+}
+
+// Short labels for non-canonical encoding flags (RFC 8949 §4.1/§4.2)
+const ODDITY_LABELS: Record<CborOddityKind, string> = {
+  IntNotShortest: "integer not in shortest form",
+  FloatNotShortest: "float not in shortest form",
+  IndefiniteLength: "indefinite length",
+  MapKeysNotSorted: "map keys not sorted",
+  DuplicateMapKeys: "duplicate map keys",
+  BignumForSmallInt: "bignum for small int",
+  BignumLeadingZeroes: "bignum has leading zero bytes",
+};
+
+function OdditiesBadge({ oddities }: { oddities: CborOddity[] }) {
+  return (
+    <Tooltip.Provider delayDuration={150}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <span className="cbor-tree-oddity" aria-label="Non-canonical encoding">
+            <span className="cbor-tree-oddity-icon">⚠</span>
+            {oddities.length > 1 && <span className="cbor-tree-oddity-count">×{oddities.length}</span>}
+          </span>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content className="cbor-oddity-tooltip" sideOffset={4} side="top">
+            <div className="cbor-oddity-tooltip-title">Non-canonical encoding</div>
+            <ul className="cbor-oddity-tooltip-list">
+              {oddities.map((o, i) => (
+                <li key={i}>
+                  <span className="cbor-oddity-tooltip-kind">{ODDITY_LABELS[o.kind] ?? o.kind}</span>
+                  {o.detail && <span className="cbor-oddity-tooltip-detail"> — {o.detail}</span>}
+                </li>
+              ))}
+            </ul>
+            <Tooltip.Arrow className="cbor-oddity-tooltip-arrow" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  );
+}
+
+// Visual marker for container nodes the decoder couldn't finish
+// (shows up only on partial trees returned alongside a CborDecodeError).
+function IncompleteBadge() {
+  return (
+    <Tooltip.Provider delayDuration={150}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <span className="cbor-tree-incomplete" aria-label="Incomplete">
+            incomplete
+          </span>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content className="cbor-oddity-tooltip" sideOffset={4} side="top">
+            <div className="cbor-oddity-tooltip-title">Incomplete</div>
+            <div>This container was cut short by a decode error.</div>
+            <Tooltip.Arrow className="cbor-oddity-tooltip-arrow" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  );
 }
 
 // Common CBOR tag descriptions
@@ -334,26 +411,52 @@ function ExpandableValue({ value }: { value: string }) {
   return (
     <span
       ref={containerRef}
-      className="cbor-tree-detail"
+      className={`cbor-tree-detail${isOverflowing ? " cbor-tree-detail-clickable" : ""}`}
       onClick={handleClick}
+      onKeyDown={(e) => {
+        if (isOverflowing && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsExpanded(true);
+        }
+      }}
       title={isOverflowing ? "Click to expand" : undefined}
-      style={{ cursor: isOverflowing ? "pointer" : "default" }}
+      role={isOverflowing ? "button" : undefined}
+      tabIndex={isOverflowing ? 0 : undefined}
     >
       <span ref={textRef} className="cbor-tree-detail-text">
         {value}
       </span>
-      {isOverflowing && <span className="cbor-tree-detail-ellipsis">…</span>}
+      {isOverflowing && (
+        <span className="cbor-tree-detail-ellipsis" aria-label="Expand value">
+          <span className="cbor-tree-detail-ellipsis-dots">…</span>
+          <svg
+            className="cbor-tree-detail-ellipsis-icon"
+            width="10"
+            height="10"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <polyline points="3,6 8,11 13,6" />
+          </svg>
+        </span>
+      )}
     </span>
   );
 }
 
 interface TreeNodeProps {
-  node: CborValue;
+  node: CborValue | CborPartialValue;
   depth: number;
   path: string;
   hexValue: string;
   defaultExpanded: boolean;
-  onContextMenu: (e: React.MouseEvent, node: CborValue, path: string) => void;
+  onContextMenu: (e: React.MouseEvent, node: CborValue | CborPartialValue, path: string) => void;
   onHover: (position: CborPosition | null) => void;
   keyLabel?: string;
   keyType?: "map-key" | "map-value";
@@ -499,40 +602,57 @@ function TreeNode({
       }
       if (node.type === "Map") {
         return node.values.map((entry, index) => {
+          // Partial map entries (from CborDecodeResult.partial) may have an
+          // undefined key or value on the entry where decoding stopped.
+          const partialEntry = entry as { key?: CborValue; value?: CborValue; incomplete?: true; incomplete_at?: "key" | "value" };
+          const hasKey = partialEntry.key !== undefined;
+          const hasValue = partialEntry.value !== undefined;
           return (
             <div key={index} className="cbor-map-entry">
-              <TreeNode
-                node={entry.key}
-                depth={depth + 1}
-                path={`${path}.keys[${index}]`}
-                hexValue={hexValue}
-                defaultExpanded={defaultExpanded}
-                onContextMenu={onContextMenu}
-                onHover={onHover}
-                keyLabel="key"
-                keyType="map-key"
-                highlightedPosition={highlightedPosition}
-                expandedPaths={expandedPaths}
-              />
+              {hasKey ? (
+                <TreeNode
+                  node={partialEntry.key!}
+                  depth={depth + 1}
+                  path={`${path}.keys[${index}]`}
+                  hexValue={hexValue}
+                  defaultExpanded={defaultExpanded}
+                  onContextMenu={onContextMenu}
+                  onHover={onHover}
+                  keyLabel="key"
+                  keyType="map-key"
+                  highlightedPosition={highlightedPosition}
+                  expandedPaths={expandedPaths}
+                />
+              ) : (
+                <span className="cbor-tree-missing">key: missing</span>
+              )}
               <span className="cbor-map-arrow">↓</span>
-              <TreeNode
-                node={entry.value}
-                depth={depth + 1}
-                path={`${path}.values[${index}]`}
-                hexValue={hexValue}
-                defaultExpanded={defaultExpanded}
-                onContextMenu={onContextMenu}
-                onHover={onHover}
-                keyLabel="val"
-                keyType="map-value"
-                highlightedPosition={highlightedPosition}
-                expandedPaths={expandedPaths}
-              />
+              {hasValue ? (
+                <TreeNode
+                  node={partialEntry.value!}
+                  depth={depth + 1}
+                  path={`${path}.values[${index}]`}
+                  hexValue={hexValue}
+                  defaultExpanded={defaultExpanded}
+                  onContextMenu={onContextMenu}
+                  onHover={onHover}
+                  keyLabel="val"
+                  keyType="map-value"
+                  highlightedPosition={highlightedPosition}
+                  expandedPaths={expandedPaths}
+                />
+              ) : (
+                <span className="cbor-tree-missing">value: missing</span>
+              )}
             </div>
           );
         });
       }
       if (node.type === "Tag") {
+        // Partial Tag may omit `value` when the inner item couldn't parse.
+        if (!("value" in node) || node.value === undefined) {
+          return <span className="cbor-tree-missing">value: missing</span>;
+        }
         return (
           <TreeNode
             node={node.value}
@@ -549,21 +669,26 @@ function TreeNode({
         );
       }
       if (node.type === "IndefiniteLengthString" || node.type === "IndefiniteLengthBytes") {
-        return node.chunks.map((chunk, index) => (
-          <TreeNode
-            key={index}
-            node={chunk}
-            depth={depth + 1}
-            path={`${path}.chunks[${index}]`}
-            hexValue={hexValue}
-            defaultExpanded={defaultExpanded}
-            onContextMenu={onContextMenu}
-            onHover={onHover}
-            keyLabel={`chunk ${index}`}
-            highlightedPosition={highlightedPosition}
-            expandedPaths={expandedPaths}
-          />
-        ));
+        let chunkIdx = 0;
+        return node.chunks.map((chunk, index) => {
+          const isBreak = "type" in chunk && chunk.type === "Break";
+          const keyLabel = isBreak ? "end" : `chunk ${chunkIdx++}`;
+          return (
+            <TreeNode
+              key={index}
+              node={chunk}
+              depth={depth + 1}
+              path={`${path}.chunks[${index}]`}
+              hexValue={hexValue}
+              defaultExpanded={defaultExpanded}
+              onContextMenu={onContextMenu}
+              onHover={onHover}
+              keyLabel={keyLabel}
+              highlightedPosition={highlightedPosition}
+              expandedPaths={expandedPaths}
+            />
+          );
+        });
       }
     }
     return null;
@@ -603,6 +728,14 @@ function TreeNode({
         >
           {label.type}
         </span>
+
+        {/* Non-canonical encoding indicator */}
+        {node.oddities && node.oddities.length > 0 && (
+          <OdditiesBadge oddities={node.oddities} />
+        )}
+
+        {/* Incomplete container (only present on partial trees from decode errors) */}
+        {(node as { incomplete?: true }).incomplete && <IncompleteBadge />}
 
         {/* Value info */}
         {label.value && (
@@ -769,7 +902,7 @@ export default function CborTreeView({
   }, [highlightedTreePosition, onClearHighlight]);
 
   const handleContextMenu = useCallback(
-    (e: React.MouseEvent, node: CborValue, path: string) => {
+    (e: React.MouseEvent, node: CborValue | CborPartialValue, path: string) => {
       setContextMenu({
         x: e.clientX,
         y: e.clientY,

@@ -370,13 +370,13 @@ function koiosParamsToProtocolParams(params: KoiosEpochParams): ProtocolParamete
 
   // Max execution units
   const maxTxExecutionUnits: ExUnits = {
-    mem: params.max_tx_ex_mem ?? 0,
-    steps: params.max_tx_ex_steps ?? 0,
+    mem: BigInt(params.max_tx_ex_mem ?? 0),
+    steps: BigInt(params.max_tx_ex_steps ?? 0),
   };
 
   const maxBlockExecutionUnits: ExUnits = {
-    mem: params.max_block_ex_mem ?? 0,
-    steps: params.max_block_ex_steps ?? 0,
+    mem: BigInt(params.max_block_ex_mem ?? 0),
+    steps: BigInt(params.max_block_ex_steps ?? 0),
   };
 
   // Reference script cost per byte

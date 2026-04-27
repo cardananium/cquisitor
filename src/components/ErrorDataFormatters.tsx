@@ -163,6 +163,20 @@ const ERROR_TYPE_MESSAGES: Record<string, (data?: Record<string, unknown>) => st
     }
     return "Fee too small for this transaction";
   },
+  DelegationToRetiringPool: (data) => {
+    const poolId = data?.pool_id ?? data?.poolId;
+    const certIndex = data?.cert_index ?? data?.certIndex;
+    const poolStr = poolId ? ` ${String(poolId)}` : "";
+    const suffix = certIndex !== undefined ? ` (certificate #${Number(certIndex)})` : "";
+    return `Delegation to retiring stake pool${poolStr}${suffix}`;
+  },
+  DelegateeDRepNotRegistered: (data) => {
+    const drepId = data?.drep_id ?? data?.drepId;
+    const certIndex = data?.cert_index ?? data?.certIndex;
+    const drepStr = drepId ? ` ${String(drepId)}` : "";
+    const suffix = certIndex !== undefined ? ` (certificate #${Number(certIndex)})` : "";
+    return `Delegation target DRep${drepStr} is not registered${suffix}`;
+  },
 };
 
 /**

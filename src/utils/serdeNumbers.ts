@@ -16,7 +16,10 @@ export function convertSerdeNumbers<T>(obj: T): T {
     // Check for serde_json number format
     if ("$serde_json::private::Number" in record) {
       const numStr = record["$serde_json::private::Number"] as string;
-      // Use BigInt for large numbers, regular number for small ones
+      // Floats (contain '.' or exponent) can't go through BigInt
+      if (/[.eE]/.test(numStr)) {
+        return Number(numStr) as T;
+      }
       const num = Number(numStr);
       if (Number.isSafeInteger(num)) {
         return num as T;

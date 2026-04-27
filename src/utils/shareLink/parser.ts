@@ -16,6 +16,7 @@ const VALID_TABS: readonly TabId[] = [
   "transaction-validator",
   "cardano-cbor",
   "general-cbor",
+  "cddl-validator",
 ] as const;
 const VALID_NETS: readonly NetworkType[] = ["mainnet", "preview", "preprod"] as const;
 

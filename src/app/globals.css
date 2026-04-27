@@ -306,6 +306,418 @@ input, textarea, select, button {
   color: #dc2626;
 }
 
+.panel-badge.error-path {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  cursor: help;
+}
+
+/* ===== CDDL Validator ===== */
+
+/* The textarea sits on top of an absolutely-positioned <pre> overlay that
+   paints the error highlight. They must share font/padding/wrapping exactly
+   so character positions line up. */
+.cddl-editor-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+  display: flex;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cddl-editor-wrap:focus-within {
+  border-color: #3182ce;
+  background: #fff;
+}
+
+.cddl-editor,
+.cddl-editor-overlay {
+  width: 100%;
+  margin: 0;
+  padding: 12px;
+  border: 0;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  tab-size: 4;
+  -moz-tab-size: 4;
+  box-sizing: border-box;
+}
+
+.cddl-editor {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+  background: transparent;
+  color: #1f2937;
+  caret-color: #1f2937;
+  resize: none;
+  outline: none;
+  z-index: 1;
+}
+
+.cddl-editor-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: transparent;
+  background: transparent;
+  overflow: auto;
+  z-index: 0;
+  scrollbar-width: none;
+}
+
+.cddl-editor-overlay::-webkit-scrollbar { display: none; }
+
+.cddl-editor-error-mark {
+  background: rgba(239, 68, 68, 0.22);
+  color: transparent;
+  border-radius: 2px;
+  box-shadow: inset 0 -2px 0 rgba(220, 38, 38, 0.85);
+  padding: 0 1px;
+  margin: 0 -1px;
+  pointer-events: auto;
+}
+
+.cddl-editor-mismatch-mark {
+  background: rgba(217, 119, 6, 0.18);
+  color: transparent;
+  border-radius: 2px;
+  box-shadow: inset 0 -2px 0 rgba(217, 119, 6, 0.75);
+  padding: 0 1px;
+  margin: 0 -1px;
+  pointer-events: auto;
+}
+
+.cddl-error-card-meta {
+  font-size: 11px;
+  color: #b91c1c;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+.cddl-rule-picker,
+.cddl-preset-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cddl-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+
+.cq-flex-grow {
+  flex: 1;
+  min-width: 4px;
+}
+
+.cq-err-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+  cursor: help;
+}
+
+.cq-err-nav-parse {
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+}
+
+.cq-err-nav-mismatch {
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+}
+
+.cq-err-nav-count {
+  padding: 0 4px;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+.cq-err-nav-btn {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.cq-err-nav-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.cq-err-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Rule names in real CDDL schemas can be long (e.g. `transaction_witness_set`).
+   Cap the visible width of the picker — the dropdown itself shows the full name. */
+.cddl-rule-name-select {
+  max-width: 220px;
+  text-overflow: ellipsis;
+}
+
+.cddl-rule-picker-label {
+  font-size: 10px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cddl-rule-picker-select,
+.cddl-rule-picker-input {
+  padding: 2px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: #1f2937;
+  min-width: 80px;
+}
+
+.cddl-rule-picker-select:focus,
+.cddl-rule-picker-input:focus {
+  outline: none;
+  border-color: #3182ce;
+}
+
+.cddl-result-panel {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cq-tabs-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.cq-tabs-list {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.cq-tabs-trigger {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  outline: none;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.cq-tabs-trigger:hover {
+  color: #1f2937;
+}
+
+.cq-tabs-trigger[data-state="active"] {
+  color: #3182ce;
+  border-bottom-color: #3182ce;
+}
+
+.cq-tabs-content {
+  flex: 1;
+  min-height: 0;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cq-tabs-content[data-state="active"] {
+  display: flex;
+}
+
+/* Vertical 70/30 split for the CBOR + Validation tab. */
+.cq-vsplit {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cq-vsplit-top {
+  flex: 7 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cq-vsplit-bottom {
+  flex: 3 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 2px;
+}
+
+.cq-decoded-viewer {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.cq-decoded-empty {
+  font-size: 12px;
+  color: #94a3b8;
+  padding: 12px;
+  text-align: center;
+}
+
+.cddl-success-card {
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  font-size: 13px;
+}
+
+.cddl-success-card code {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  background: #dcfce7;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.cddl-error-card {
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #7f1d1d;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cddl-error-card-kind {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.cddl-error-card-message {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  color: #991b1b;
+  word-break: break-word;
+}
+
+.cddl-error-card-fields {
+  margin: 4px 0 0 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  font-size: 12px;
+}
+
+.cddl-error-card-fields dt {
+  color: #991b1b;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cddl-error-card-fields dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  color: #1f2937;
+}
+
+.cddl-error-card-fields code {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  background: #fff;
+  border: 1px solid #fecaca;
+  padding: 0 4px;
+  border-radius: 3px;
+  color: #991b1b;
+}
+
+.cddl-span-chip {
+  cursor: pointer;
+  user-select: none;
+}
+
+.cddl-span-chip:hover {
+  background: #fee2e2;
+}
+
+.cddl-span-chip-anchor {
+  border-style: dashed;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+.cddl-span-chip-anchor:hover {
+  background: #fef3c7;
+}
+
 .btn-icon {
   width: 20px;
   height: 20px;
@@ -449,6 +861,60 @@ input, textarea, select, button {
   animation: focusPulse 0.6s ease-in-out 3;
   outline: 2px solid rgba(239, 68, 68, 0.8);
   outline-offset: 1px;
+}
+
+/* Non-canonical CBOR encoding marker (RFC 8949 §4.1/§4.2) */
+.hex-oddity {
+  text-decoration: underline wavy #d97706;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: help;
+}
+
+/* Byte(s) where the CBOR parser reported an error */
+.hex-error-highlight {
+  outline: 2px solid rgba(239, 68, 68, 0.85);
+  outline-offset: 0px;
+  border-radius: 2px;
+  animation: hexErrorPulse 1s ease-in-out infinite;
+  cursor: help;
+}
+
+/* React-managed hover tooltip over the hex editor (for error / oddity spans). */
+.hex-info-popup {
+  z-index: 9999;
+  max-width: 420px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #1e293b;
+  color: #e2e8f0;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+  line-height: 1.45;
+  animation: tooltipFadeIn 0.12s ease-out;
+}
+
+.hex-info-popup-title {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.hex-info-popup-error .hex-info-popup-title { color: #fca5a5; }
+.hex-info-popup-oddity .hex-info-popup-title { color: #fcd34d; }
+
+.hex-info-popup-body {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: #cbd5e1;
+  white-space: pre-wrap;
+}
+
+@keyframes hexErrorPulse {
+  0%, 100% { outline-color: rgba(239, 68, 68, 0.85); }
+  50%      { outline-color: rgba(239, 68, 68, 0.35); }
 }
 
 @keyframes focusPulse {
@@ -601,6 +1067,113 @@ input, textarea, select, button {
   border-radius: 3px;
 }
 
+.cbor-tree-oddity {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.cbor-tree-incomplete {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.cbor-tree-missing {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-style: italic;
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px dashed #fca5a5;
+  display: inline-block;
+}
+
+.cbor-tree-oddity-icon {
+  line-height: 1;
+}
+
+.cbor-tree-oddity-count {
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+.cbor-oddity-tooltip {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  max-width: 420px;
+  font-size: 12px;
+  line-height: 1.45;
+  animation: tooltipFadeIn 0.15s ease-out;
+}
+
+.cbor-oddity-tooltip-title {
+  color: #fcd34d;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.cbor-oddity-tooltip-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cbor-oddity-tooltip-list li {
+  padding-left: 10px;
+  position: relative;
+}
+
+.cbor-oddity-tooltip-list li::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: #fcd34d;
+}
+
+.cbor-oddity-tooltip-kind {
+  color: #fde68a;
+  font-weight: 500;
+}
+
+.cbor-oddity-tooltip-detail {
+  color: #cbd5e1;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+}
+
+.cbor-oddity-tooltip-arrow {
+  fill: #1e293b;
+}
+
 .cbor-tree-detail {
   color: #2d3748;
   font-size: 12px;
@@ -610,6 +1183,25 @@ input, textarea, select, button {
   position: relative;
   display: inline-flex;
   align-items: center;
+  gap: 2px;
+  border-radius: 4px;
+  padding: 1px 2px;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+
+.cbor-tree-detail-clickable {
+  cursor: pointer;
+}
+
+.cbor-tree-detail-clickable:hover {
+  background: #eef2ff;
+  box-shadow: inset 0 0 0 1px #c7d2fe;
+}
+
+.cbor-tree-detail-clickable:focus-visible {
+  outline: none;
+  background: #eef2ff;
+  box-shadow: inset 0 0 0 2px #818cf8;
 }
 
 .cbor-tree-detail-text {
@@ -618,11 +1210,40 @@ input, textarea, select, button {
   text-overflow: clip;
 }
 
+.cbor-tree-detail-clickable .cbor-tree-detail-text {
+  mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+}
+
 .cbor-tree-detail-ellipsis {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 5px;
+  height: 16px;
+  border-radius: 8px;
+  background: #f1f5f9;
   color: #64748b;
-  font-weight: 600;
+  font-weight: 500;
+  font-size: 11px;
+  line-height: 1;
   flex-shrink: 0;
-  padding-left: 2px;
+  user-select: none;
+}
+
+.cbor-tree-detail-clickable:hover .cbor-tree-detail-ellipsis,
+.cbor-tree-detail-clickable:focus-visible .cbor-tree-detail-ellipsis {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.cbor-tree-detail-ellipsis-dots {
+  letter-spacing: 1px;
+  margin-top: -2px;
+}
+
+.cbor-tree-detail-ellipsis-icon {
+  flex-shrink: 0;
 }
 
 .cbor-tree-detail-expanded {

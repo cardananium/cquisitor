@@ -1,14 +1,16 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
-import { type CborValue, type CborPosition } from "@cardananium/cquisitor-lib";
+import { type CborValue, type CborPartialValue, type CborPosition } from "@cardananium/cquisitor-lib";
 import { parseHash, parseGeneralCborShare } from "@/utils/shareLink";
+import type { CborErrorLocation } from "@/utils/cborError";
 
 interface GeneralCborState {
   input: string;
   hexValue: string;
-  decodedJson: CborValue | null;
+  decodedJson: CborValue | CborPartialValue | null;
   error: string | null;
+  errorLocation: CborErrorLocation | null;
   notification: string | null;
   hoverPosition: CborPosition | null;
   focusPosition: CborPosition | null;
@@ -20,8 +22,9 @@ interface GeneralCborState {
 interface GeneralCborContextType extends GeneralCborState {
   setInput: (value: string) => void;
   setHexValue: (value: string) => void;
-  setDecodedJson: (value: CborValue | null) => void;
+  setDecodedJson: (value: CborValue | CborPartialValue | null) => void;
   setError: (value: string | null) => void;
+  setErrorLocation: (value: CborErrorLocation | null) => void;
   setNotification: (value: string | null) => void;
   setHoverPosition: (value: CborPosition | null) => void;
   setFocusPosition: (value: CborPosition | null) => void;
@@ -42,8 +45,9 @@ function readInitialInput(): string {
 export function GeneralCborProvider({ children }: { children: ReactNode }) {
   const [input, setInput] = useState(readInitialInput);
   const [hexValue, setHexValue] = useState("");
-  const [decodedJson, setDecodedJson] = useState<CborValue | null>(null);
+  const [decodedJson, setDecodedJson] = useState<CborValue | CborPartialValue | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorLocation, setErrorLocation] = useState<CborErrorLocation | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
   const [hoverPosition, setHoverPosition] = useState<CborPosition | null>(null);
   const [focusPosition, setFocusPosition] = useState<CborPosition | null>(null);
@@ -55,6 +59,7 @@ export function GeneralCborProvider({ children }: { children: ReactNode }) {
     setHexValue("");
     setDecodedJson(null);
     setError(null);
+    setErrorLocation(null);
     setNotification(null);
     setFocusPosition(null);
     setHoverPosition(null);
@@ -85,6 +90,7 @@ export function GeneralCborProvider({ children }: { children: ReactNode }) {
         hexValue,
         decodedJson,
         error,
+        errorLocation,
         notification,
         hoverPosition,
         focusPosition,
@@ -94,6 +100,7 @@ export function GeneralCborProvider({ children }: { children: ReactNode }) {
         setHexValue,
         setDecodedJson,
         setError,
+        setErrorLocation,
         setNotification,
         setHoverPosition,
         setFocusPosition,

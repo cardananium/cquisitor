@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useEffect, useCallback, useLayoutEffect, useState } from "react";
-import type { CborValue, CborPosition } from "@cardananium/cquisitor-lib";
+import type { CborValue, CborPartialValue, CborPosition, CborOddity } from "@cardananium/cquisitor-lib";
+import type { CborErrorLocation } from "@/utils/cborError";
 
 // Colors for CBOR syntax highlighting
 const CBOR_COLORS = [
@@ -24,6 +25,7 @@ interface HighlightedSpan {
   colorIndex: number;
   label: string; // CBOR type label for tooltip
   path: string; // Path like "array → map → uint8"
+  oddities?: CborOddity[];
 }
 
 interface HexContextMenuState {
@@ -34,17 +36,29 @@ interface HexContextMenuState {
   chunkPosition: CborPosition | null; // The CBOR chunk at this position
 }
 
+export interface ExtraErrorSpan {
+  offset: number;
+  length: number;
+  message?: string;
+}
+
 interface EditableHexViewProps {
   value: string;
   onChange: (value: string) => void;
   hexValue: string;
-  cborData: CborValue | null;
+  cborData: CborValue | CborPartialValue | null;
   hoverPosition: CborPosition | null;
   focusPosition: CborPosition | null;
+  errorLocation?: CborErrorLocation | null;
+  /** Extra byte ranges to mark as error (e.g. CDDL byte_spans). */
+  extraErrorSpans?: ExtraErrorSpan[];
   onHoverPath?: (path: string | null) => void;
   onKeyDown?: (e: React.KeyboardEvent) => void;
   onShowInTree?: (position: CborPosition) => void;
 }
+
+// Color for the byte(s) where the CBOR parser reported an error.
+const ERROR_COLOR = "rgba(239, 68, 68, 0.35)";
 
 // Format value for display (same logic as CborTreeView)
 function formatValue(val: unknown): string {
@@ -72,7 +86,9 @@ function formatValue(val: unknown): string {
   return String(val);
 }
 
-function getTypeLabel(value: CborValue): string {
+type AnyNode = CborValue | CborPartialValue;
+
+function getTypeLabel(value: AnyNode): string {
   if (!("type" in value) || typeof value.type !== "string") {
     return "value";
   }
@@ -92,9 +108,9 @@ function getTypeLabel(value: CborValue): string {
     case "Tag":
       return `tag #${value.tag}`;
     case "IndefiniteLengthString":
-      return `text (indefinite, ${value.chunks.length} chunks)`;
+      return `text (indefinite, ${value.chunks.filter(c => !("type" in c) || c.type !== "Break").length} chunks)`;
     case "IndefiniteLengthBytes":
-      return `bytes (indefinite, ${value.chunks.length} chunks)`;
+      return `bytes (indefinite, ${value.chunks.filter(c => !("type" in c) || c.type !== "Break").length} chunks)`;
     
     // Simple types (CborSimpleType)
     case "Null": return "null";
@@ -128,7 +144,7 @@ function getTypeLabel(value: CborValue): string {
 }
 
 // Get short type name for path display
-function getShortTypeName(value: CborValue): string {
+function getShortTypeName(value: AnyNode): string {
   if (!("type" in value) || typeof value.type !== "string") return "?";
   
   switch (value.type) {
@@ -166,8 +182,26 @@ interface ChunkInfo {
   path: string;
 }
 
+function mergeOddities(a?: CborOddity[], b?: CborOddity[]): CborOddity[] | undefined {
+  if (!a?.length) return b?.length ? b : undefined;
+  if (!b?.length) return a;
+  return [...a, ...b];
+}
+
+function oddityKindsSummary(oddities: CborOddity[]): string {
+  return Array.from(new Set(oddities.map(o => o.kind))).join(", ");
+}
+
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function collectPositions(
-  value: CborValue,
+  value: AnyNode,
   spans: HighlightedSpan[],
   colorCounter: { value: number },
   path: string[] = []
@@ -176,7 +210,7 @@ function collectPositions(
 
   const currentPath = [...path, getShortTypeName(value)];
   const posInfo = value.position_info;
-  
+
   if (posInfo && typeof posInfo.offset === "number" && typeof posInfo.length === "number") {
     spans.push({
       start: posInfo.offset * 2,
@@ -184,25 +218,26 @@ function collectPositions(
       colorIndex: colorCounter.value % CBOR_COLORS.length,
       label: getTypeLabel(value),
       path: currentPath.join(" → "),
+      oddities: value.oddities,
     });
     colorCounter.value++;
   }
 
   if ("values" in value && Array.isArray(value.values)) {
     if ("type" in value && value.type === "Map") {
-      for (const item of value.values as { key: CborValue; value: CborValue }[]) {
-        collectPositions(item.key, spans, colorCounter, currentPath);
-        collectPositions(item.value, spans, colorCounter, currentPath);
+      for (const item of value.values as { key?: AnyNode; value?: AnyNode }[]) {
+        if (item.key) collectPositions(item.key, spans, colorCounter, currentPath);
+        if (item.value) collectPositions(item.value, spans, colorCounter, currentPath);
       }
     } else {
-      for (const item of value.values as CborValue[]) {
+      for (const item of value.values as AnyNode[]) {
         collectPositions(item, spans, colorCounter, currentPath);
       }
     }
   }
 
   if ("value" in value && typeof value.value === "object" && value.value !== null) {
-    collectPositions(value.value as CborValue, spans, colorCounter, currentPath);
+    collectPositions(value.value as AnyNode, spans, colorCounter, currentPath);
   }
 
   if ("chunks" in value && Array.isArray(value.chunks)) {
@@ -214,7 +249,7 @@ function collectPositions(
 
 // Collect all chunk positions for context menu
 function collectChunkPositions(
-  value: CborValue,
+  value: AnyNode,
   chunks: ChunkInfo[],
   path: string[] = []
 ): void {
@@ -222,7 +257,7 @@ function collectChunkPositions(
 
   const currentPath = [...path, getShortTypeName(value)];
   const posInfo = value.position_info;
-  
+
   if (posInfo && typeof posInfo.offset === "number" && typeof posInfo.length === "number") {
     chunks.push({
       position: posInfo,
@@ -233,19 +268,19 @@ function collectChunkPositions(
 
   if ("values" in value && Array.isArray(value.values)) {
     if ("type" in value && value.type === "Map") {
-      for (const item of value.values as { key: CborValue; value: CborValue }[]) {
-        collectChunkPositions(item.key, chunks, currentPath);
-        collectChunkPositions(item.value, chunks, currentPath);
+      for (const item of value.values as { key?: AnyNode; value?: AnyNode }[]) {
+        if (item.key) collectChunkPositions(item.key, chunks, currentPath);
+        if (item.value) collectChunkPositions(item.value, chunks, currentPath);
       }
     } else {
-      for (const item of value.values as CborValue[]) {
+      for (const item of value.values as AnyNode[]) {
         collectChunkPositions(item, chunks, currentPath);
       }
     }
   }
 
   if ("value" in value && typeof value.value === "object" && value.value !== null) {
-    collectChunkPositions(value.value as CborValue, chunks, currentPath);
+    collectChunkPositions(value.value as AnyNode, chunks, currentPath);
   }
 
   if ("chunks" in value && Array.isArray(value.chunks)) {
@@ -256,7 +291,7 @@ function collectChunkPositions(
 }
 
 // Find the smallest (most specific) chunk containing a given hex character position
-function findChunkAtPosition(charPos: number, cborData: CborValue | null): CborPosition | null {
+function findChunkAtPosition(charPos: number, cborData: AnyNode | null): CborPosition | null {
   if (!cborData) return null;
   
   const chunks: ChunkInfo[] = [];
@@ -408,6 +443,8 @@ export default function EditableHexView({
   cborData,
   hoverPosition,
   focusPosition,
+  errorLocation,
+  extraErrorSpans,
   onHoverPath,
   onKeyDown,
   onShowInTree,
@@ -555,7 +592,9 @@ export default function EditableHexView({
   // Check if current input matches the decoded hex
   const normalizedInput = value.replace(/\s/g, "").toLowerCase();
   const inputMatchesHex = hexValue && normalizedInput === hexValue;
-  const showHighlighted = cborData && inputMatchesHex;
+  const hasErrorHighlight = !!errorLocation && inputMatchesHex;
+  const hasExtraSpans = !!(extraErrorSpans && extraErrorSpans.length > 0) && inputMatchesHex;
+  const showHighlighted = (cborData || hasErrorHighlight || hasExtraSpans) && inputMatchesHex;
   
   // Track last rendered state to detect transitions
   const lastRenderedRef = useRef<{ showHighlighted: boolean; hexValue: string }>({ 
@@ -565,19 +604,54 @@ export default function EditableHexView({
 
   // Build HTML string for highlighted content
   const buildHighlightedHTML = useCallback((): string => {
-    if (!cborData || !hexValue) return "";
-    
+    if (!hexValue) return "";
+    if (!cborData && !errorLocation && !(extraErrorSpans && extraErrorSpans.length > 0)) return "";
+
     const spans: HighlightedSpan[] = [];
     const colorCounter = { value: 0 };
-    collectPositions(cborData, spans, colorCounter);
+    if (cborData) collectPositions(cborData, spans, colorCounter);
 
-    const positionColors: Map<number, { colorIndex: number; isHover: boolean; isFocus: boolean; label: string; path: string }> = new Map();
-    
+    const positionColors: Map<number, { colorIndex: number; isHover: boolean; isFocus: boolean; isError: boolean; errorMessage?: string; label: string; path: string; oddities?: CborOddity[] }> = new Map();
+
     for (const span of spans) {
       for (let i = span.start; i < span.end && i < hexValue.length; i++) {
-        if (!positionColors.has(i)) {
-          positionColors.set(i, { colorIndex: span.colorIndex, isHover: false, isFocus: false, label: span.label, path: span.path });
+        const existing = positionColors.get(i);
+        // Mark oddities even if a smaller (inner) span already claimed the base color
+        const mergedOddities = mergeOddities(existing?.oddities, span.oddities);
+        if (!existing) {
+          positionColors.set(i, { colorIndex: span.colorIndex, isHover: false, isFocus: false, isError: false, label: span.label, path: span.path, oddities: mergedOddities });
+        } else if (mergedOddities !== existing.oddities) {
+          positionColors.set(i, { ...existing, oddities: mergedOddities });
         }
+      }
+    }
+
+    // Apply error highlight — last-wins so it paints over CBOR colors.
+    const applyErrorSpan = (offset: number, length: number, message: string) => {
+      const startChar = offset * 2;
+      const endChar = Math.min(startChar + length * 2, hexValue.length);
+      for (let i = startChar; i < endChar && i < hexValue.length; i++) {
+        const existing = positionColors.get(i);
+        positionColors.set(i, {
+          colorIndex: existing?.colorIndex ?? 0,
+          isHover: existing?.isHover ?? false,
+          isFocus: existing?.isFocus ?? false,
+          isError: true,
+          errorMessage: message,
+          label: existing?.label ?? "",
+          path: existing?.path ?? "",
+          oddities: existing?.oddities,
+        });
+      }
+    };
+    if (errorLocation) {
+      applyErrorSpan(errorLocation.offset, errorLocation.length, errorLocation.message);
+    }
+    if (extraErrorSpans) {
+      for (const span of extraErrorSpans) {
+        // length=0 spans are common for "here" markers — highlight 1 byte anyway.
+        const len = Math.max(1, span.length);
+        applyErrorSpan(span.offset, len, span.message ?? "");
       }
     }
 
@@ -587,12 +661,15 @@ export default function EditableHexView({
       const end = (hoverPosition.offset + hoverPosition.length) * 2;
       for (let i = start; i < end && i < hexValue.length; i++) {
         const existing = positionColors.get(i);
-        positionColors.set(i, { 
-          colorIndex: existing?.colorIndex ?? 0, 
-          isHover: true, 
+        positionColors.set(i, {
+          colorIndex: existing?.colorIndex ?? 0,
+          isHover: true,
           isFocus: false,
+          isError: existing?.isError ?? false,
+          errorMessage: existing?.errorMessage,
           label: existing?.label ?? "",
           path: existing?.path ?? "",
+          oddities: existing?.oddities,
         });
       }
     }
@@ -603,12 +680,15 @@ export default function EditableHexView({
       const end = (focusPosition.offset + focusPosition.length) * 2;
       for (let i = start; i < end && i < hexValue.length; i++) {
         const existing = positionColors.get(i);
-        positionColors.set(i, { 
-          colorIndex: existing?.colorIndex ?? 0, 
-          isHover: existing?.isHover ?? false, 
+        positionColors.set(i, {
+          colorIndex: existing?.colorIndex ?? 0,
+          isHover: existing?.isHover ?? false,
           isFocus: true,
+          isError: existing?.isError ?? false,
+          errorMessage: existing?.errorMessage,
           label: existing?.label ?? "",
           path: existing?.path ?? "",
+          oddities: existing?.oddities,
         });
       }
     }
@@ -628,11 +708,15 @@ export default function EditableHexView({
     while (i < hexValue.length) {
       const colorInfo = positionColors.get(i);
       let j = i + 1;
-      const isSpecialHighlight = colorInfo?.isHover || colorInfo?.isFocus;
-      
+      const isSpecialHighlight = colorInfo?.isHover || colorInfo?.isFocus || colorInfo?.isError;
+      const hasOddity = !!(colorInfo?.oddities && colorInfo.oddities.length > 0);
+
       while (j < hexValue.length) {
         const nextColor = positionColors.get(j);
         if (colorInfo?.isHover !== nextColor?.isHover || colorInfo?.isFocus !== nextColor?.isFocus) break;
+        if (colorInfo?.isError !== nextColor?.isError) break;
+        const nextHasOddity = !!(nextColor?.oddities && nextColor.oddities.length > 0);
+        if (hasOddity !== nextHasOddity) break;
         if (!isSpecialHighlight) {
           if (colorInfo?.colorIndex !== nextColor?.colorIndex || colorInfo?.label !== nextColor?.label) break;
         }
@@ -642,7 +726,9 @@ export default function EditableHexView({
       const segment = hexValue.slice(i, j);
       let backgroundColor: string | undefined;
 
-      if (colorInfo?.isFocus) {
+      if (colorInfo?.isError) {
+        backgroundColor = ERROR_COLOR;
+      } else if (colorInfo?.isFocus) {
         backgroundColor = FOCUS_COLOR;
       } else if (colorInfo?.isHover) {
         backgroundColor = HOVER_COLOR;
@@ -650,18 +736,32 @@ export default function EditableHexView({
         backgroundColor = CBOR_COLORS[colorInfo.colorIndex];
       }
 
-      if (backgroundColor) {
-        const className = colorInfo?.isFocus ? "hex-focus-highlight" : colorInfo?.isHover ? "hex-hover-highlight" : "";
+      const needsSpan = !!backgroundColor || hasOddity;
+
+      if (needsSpan) {
+        const classes: string[] = [];
+        if (colorInfo?.isError) classes.push("hex-error-highlight");
+        else if (colorInfo?.isFocus) classes.push("hex-focus-highlight");
+        else if (colorInfo?.isHover) classes.push("hex-hover-highlight");
+        if (hasOddity) classes.push("hex-oddity");
+        const className = classes.join(" ");
         const isFocusStart = colorInfo?.isFocus && focusPosition && i === focusPosition.offset * 2;
-        // Add data-pos for hover path detection
-        html += `<span class="${className}" style="background-color:${backgroundColor};border-radius:2px" title="${colorInfo?.label || ""}" data-pos="${i}"${isFocusStart ? ' data-focus-target="true"' : ''}>${segment}</span>`;
+        const titleText = colorInfo?.isError
+          ? colorInfo.errorMessage ?? "CBOR parse error"
+          : hasOddity
+          ? `${colorInfo?.label ?? ""}${colorInfo?.label ? " — " : ""}non-canonical: ${oddityKindsSummary(colorInfo!.oddities!)}`
+          : colorInfo?.label || "";
+        const titleAttr = escapeAttr(titleText);
+        const style = backgroundColor ? `background-color:${backgroundColor};border-radius:2px` : "";
+        const styleAttr = style ? ` style="${style}"` : "";
+        html += `<span class="${className}"${styleAttr} title="${titleAttr}" data-pos="${i}"${isFocusStart ? ' data-focus-target="true"' : ''}>${segment}</span>`;
       } else {
         html += segment;
       }
       i = j;
     }
     return html;
-  }, [cborData, hexValue, hoverPosition, focusPosition]);
+  }, [cborData, hexValue, hoverPosition, focusPosition, errorLocation, extraErrorSpans]);
 
   // Update DOM using useLayoutEffect (runs before paint)
   useLayoutEffect(() => {
@@ -702,24 +802,42 @@ export default function EditableHexView({
     }
   }, [value, showHighlighted]);
 
+  // Hover tooltip for error / oddity spans (native `title` is slow and doesn't
+  // reliably show inside contenteditable, so we render our own).
+  const [hexHoverTip, setHexHoverTip] = useState<
+    | { x: number; y: number; kind: "error" | "oddity"; text: string }
+    | null
+  >(null);
+
   // Handle mouse move for path detection
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!onHoverPath) return;
-    
     const target = e.target as HTMLElement;
     const posAttr = target.getAttribute?.("data-pos");
-    
-    if (posAttr !== null) {
-      const pos = parseInt(posAttr, 10);
-      const path = positionPathsRef.current.get(pos);
-      onHoverPath(path || null);
-    } else {
-      onHoverPath(null);
+
+    if (onHoverPath) {
+      if (posAttr !== null) {
+        const pos = parseInt(posAttr, 10);
+        const path = positionPathsRef.current.get(pos);
+        onHoverPath(path || null);
+      } else {
+        onHoverPath(null);
+      }
     }
-  }, [onHoverPath]);
+
+    const errEl = target.closest?.(".hex-error-highlight") as HTMLElement | null;
+    const oddEl = !errEl ? (target.closest?.(".hex-oddity") as HTMLElement | null) : null;
+    if (errEl) {
+      setHexHoverTip({ x: e.clientX, y: e.clientY, kind: "error", text: errEl.getAttribute("title") || "" });
+    } else if (oddEl) {
+      setHexHoverTip({ x: e.clientX, y: e.clientY, kind: "oddity", text: oddEl.getAttribute("title") || "" });
+    } else if (hexHoverTip) {
+      setHexHoverTip(null);
+    }
+  }, [onHoverPath, hexHoverTip]);
 
   const handleMouseLeave = useCallback(() => {
     onHoverPath?.(null);
+    setHexHoverTip(null);
   }, [onHoverPath]);
 
   // Get current selection text
@@ -743,14 +861,31 @@ export default function EditableHexView({
     return 0;
   }, []);
 
+  // Suppress the browser's "select word on right-click" behavior in
+  // contenteditable. Snapshots the live selection on mousedown and restores
+  // it on the next animation frame, after the browser has auto-selected.
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 2) return;
+    const sel = window.getSelection();
+    if (!sel) return;
+    const ranges: Range[] = [];
+    for (let i = 0; i < sel.rangeCount; i++) ranges.push(sel.getRangeAt(i).cloneRange());
+    requestAnimationFrame(() => {
+      const s = window.getSelection();
+      if (!s) return;
+      s.removeAllRanges();
+      for (const r of ranges) s.addRange(r);
+    });
+  }, []);
+
   // Handle context menu
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    
+
     const selectedText = getSelectedText();
     const charPosition = getCursorCharPosition(e);
     const chunkPosition = findChunkAtPosition(charPosition, cborData);
-    
+
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
@@ -839,11 +974,30 @@ export default function EditableHexView({
         onInput={handleInput}
         onPaste={handlePaste}
         onKeyDown={handleKeyDown}
+        onMouseDown={handleMouseDown}
         onContextMenu={handleContextMenu}
         data-placeholder=""
         spellCheck={false}
       />
-      
+
+      {/* Floating tooltip for error / oddity spans */}
+      {hexHoverTip && hexHoverTip.text && (
+        <div
+          className={`hex-info-popup ${hexHoverTip.kind === "error" ? "hex-info-popup-error" : "hex-info-popup-oddity"}`}
+          style={{
+            position: "fixed",
+            left: hexHoverTip.x + 12,
+            top: hexHoverTip.y + 14,
+            pointerEvents: "none",
+          }}
+        >
+          <div className="hex-info-popup-title">
+            {hexHoverTip.kind === "error" ? "Decode error" : "Non-canonical"}
+          </div>
+          <div className="hex-info-popup-body">{hexHoverTip.text}</div>
+        </div>
+      )}
+
       {/* Context Menu */}
       {contextMenu && (
         <HexContextMenuPortal x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu}>

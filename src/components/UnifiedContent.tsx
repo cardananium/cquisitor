@@ -63,10 +63,23 @@ const GeneralCborContent = dynamic(
   }
 );
 
+const CddlValidatorContent = dynamic(
+  () => import("@/app/cddl-validator/CddlValidatorContent"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-gray-500">Loading CDDL Validator...</div>
+      </div>
+    ),
+  }
+);
+
 const tabs = [
   { name: "Transaction Validator", id: "transaction-validator" as TabId },
   { name: "Cardano CBOR", id: "cardano-cbor" as TabId },
   { name: "General CBOR", id: "general-cbor" as TabId },
+  // CDDL Validator hidden for now — see TabNavigation.tsx.
 ];
 
 function InvalidHashError({ invalidHash }: { invalidHash: string }) {
@@ -183,6 +196,9 @@ export default function UnifiedContent() {
       </div>
       <div className={activeTab === "general-cbor" ? "block h-full" : "hidden"}>
         <GeneralCborContent />
+      </div>
+      <div className={activeTab === "cddl-validator" ? "block h-full" : "hidden"}>
+        <CddlValidatorContent />
       </div>
     </CompactLayout>
   );
