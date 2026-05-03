@@ -75,11 +75,12 @@ const CddlValidatorContent = dynamic(
   }
 );
 
+// CDDL Validator is intentionally omitted from the visible nav / fallback
+// list for now (still mounted on direct `#cddl-validator` hash).
 const tabs = [
   { name: "Transaction Validator", id: "transaction-validator" as TabId },
   { name: "Cardano CBOR", id: "cardano-cbor" as TabId },
   { name: "General CBOR", id: "general-cbor" as TabId },
-  // CDDL Validator hidden for now — see TabNavigation.tsx.
 ];
 
 function InvalidHashError({ invalidHash }: { invalidHash: string }) {

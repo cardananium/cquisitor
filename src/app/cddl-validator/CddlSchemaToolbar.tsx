@@ -9,6 +9,8 @@ interface CddlSchemaToolbarProps {
   onRulePick: (rule: string) => void;
   presetLoading: string | null;
   onLoadPreset: (id: string) => void;
+  onFormat?: () => void;
+  formatDisabled?: boolean;
   /** Right-aligned slot — used for the error nav when there are errors. */
   rightSlot?: ReactNode;
 }
@@ -19,6 +21,8 @@ export default function CddlSchemaToolbar({
   onRulePick,
   presetLoading,
   onLoadPreset,
+  onFormat,
+  formatDisabled,
   rightSlot,
 }: CddlSchemaToolbarProps) {
   return (
@@ -67,6 +71,16 @@ export default function CddlSchemaToolbar({
           ))}
         </select>
       </div>
+
+      {onFormat && (
+        <button
+          type="button"
+          className="cq-toolbar-btn"
+          onClick={onFormat}
+          disabled={formatDisabled}
+          title={formatDisabled ? "Format unavailable while CDDL has errors" : "Reformat CDDL"}
+        >Format</button>
+      )}
 
       {rightSlot && (
         <>

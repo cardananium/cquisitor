@@ -16,6 +16,8 @@ interface CborTreeViewProps {
   // Position to highlight in tree (from hex view context menu)
   highlightedTreePosition?: CborPosition | null;
   onClearHighlight?: () => void;
+  /** Right-click on a tree node → fired with that node's CBOR position. */
+  onPinPosition?: (position: CborPosition) => void;
 }
 
 interface ContextMenuState {
@@ -848,6 +850,7 @@ export default function CborTreeView({
   onHighlightAndScroll,
   highlightedTreePosition,
   onClearHighlight,
+  onPinPosition,
 }: CborTreeViewProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   
@@ -903,6 +906,10 @@ export default function CborTreeView({
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, node: CborValue | CborPartialValue, path: string) => {
+      // Side-effect: pin this node into the cross-panel selection if a
+      // parent wired the handler.
+      const pos = node.struct_position_info || node.position_info;
+      if (onPinPosition && pos) onPinPosition(pos);
       setContextMenu({
         x: e.clientX,
         y: e.clientY,
@@ -910,7 +917,7 @@ export default function CborTreeView({
         path,
       });
     },
-    []
+    [onPinPosition]
   );
 
   const closeContextMenu = useCallback(() => {

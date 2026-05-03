@@ -158,6 +158,28 @@ input, textarea, select, button {
   min-height: 0;
 }
 
+/* ===== CDDL Validator Layout (top: inputs, bottom: output) ===== */
+.cddl-validator-layout {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cddl-validator-top {
+  flex: 6 1 0;
+  min-height: 0;
+  display: flex;
+  border-bottom: 2px solid #cbd5e1;
+}
+
+.cddl-validator-bottom {
+  flex: 4 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 /* ===== Resizable Panels ===== */
 .resizable-panels {
   display: flex;
@@ -359,18 +381,22 @@ input, textarea, select, button {
   flex: 1;
   min-height: 240px;
   background: transparent;
-  color: #1f2937;
+  /* Text is rendered by the colour-syntax overlay underneath; the textarea
+     keeps the caret + native selection visible. */
+  color: transparent;
   caret-color: #1f2937;
   resize: none;
   outline: none;
   z-index: 1;
 }
 
+.cddl-editor::selection { background: rgba(49, 130, 206, 0.25); color: transparent; }
+
 .cddl-editor-overlay {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  color: transparent;
+  color: #1f2937;
   background: transparent;
   overflow: auto;
   z-index: 0;
@@ -379,24 +405,248 @@ input, textarea, select, button {
 
 .cddl-editor-overlay::-webkit-scrollbar { display: none; }
 
+/* Marks are additive backgrounds — they DON'T blank out the text
+   underneath, so syntax colours stay visible inside them. **No padding,
+   margin, font-style or font-weight here**: the textarea sitting on top
+   has plain metrics; any glyph-width change in the overlay drifts the
+   caret away from the visible character. */
 .cddl-editor-error-mark {
   background: rgba(239, 68, 68, 0.22);
-  color: transparent;
-  border-radius: 2px;
+  color: inherit;
+  border-radius: 0;
   box-shadow: inset 0 -2px 0 rgba(220, 38, 38, 0.85);
-  padding: 0 1px;
-  margin: 0 -1px;
   pointer-events: auto;
 }
 
 .cddl-editor-mismatch-mark {
   background: rgba(217, 119, 6, 0.18);
-  color: transparent;
-  border-radius: 2px;
+  color: inherit;
+  border-radius: 0;
   box-shadow: inset 0 -2px 0 rgba(217, 119, 6, 0.75);
-  padding: 0 1px;
-  margin: 0 -1px;
   pointer-events: auto;
+}
+
+.cddl-editor-reference-mark {
+  background: rgba(99, 102, 241, 0.16);
+  color: inherit;
+  border-radius: 0;
+  pointer-events: none;
+}
+
+.cddl-editor-linked-mark {
+  background: rgba(59, 130, 246, 0.22);
+  color: inherit;
+  border-radius: 0;
+  box-shadow: inset 0 -2px 0 rgba(37, 99, 235, 0.65);
+  pointer-events: auto;
+}
+
+/* Cross-panel pinned selection — distinct from passive bridge highlight. */
+.cddl-editor-pinned-mark {
+  background: rgba(168, 85, 247, 0.25);
+  color: inherit;
+  border-radius: 0;
+  box-shadow: inset 0 -2px 0 rgba(126, 34, 206, 0.85);
+  pointer-events: auto;
+}
+
+/* DecodedJsonTree — schema-mapped JSON viewer for the CDDL validator. */
+.cq-json-tree {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 12.5px;
+  color: #1f2937;
+  line-height: 1.45;
+}
+
+.cq-json-block {
+  display: block;
+}
+
+.cq-json-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  cursor: context-menu;
+}
+
+.cq-json-row:hover {
+  background: #f1f5f9;
+}
+
+.cq-json-pinned {
+  background: rgba(168, 85, 247, 0.18);
+  box-shadow: inset 0 -2px 0 rgba(126, 34, 206, 0.65);
+}
+
+.cq-json-pinned:hover {
+  background: rgba(168, 85, 247, 0.28);
+}
+
+.cq-json-toggle {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  background: transparent;
+  font-size: 10px;
+  color: #64748b;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.cq-json-toggle.open { color: #334155; }
+
+.cq-json-key {
+  color: #047857;
+  font-weight: 500;
+}
+
+.cq-json-array-key {
+  color: #6b7280;
+  font-weight: 400;
+}
+
+.cq-json-colon {
+  color: #94a3b8;
+  margin-left: -2px;
+}
+
+.cq-json-bracket {
+  color: #475569;
+}
+
+.cq-json-summary {
+  color: #94a3b8;
+  font-size: 11px;
+  margin: 0 4px;
+}
+
+.cq-json-string  { color: #c2410c; }
+.cq-json-number  { color: #6d28d9; }
+.cq-json-bool    { color: #2563eb; font-weight: 500; }
+.cq-json-null    { color: #94a3b8; font-style: italic; }
+
+.cq-json-children {
+  margin-left: 16px;
+  border-left: 1px dashed #e2e8f0;
+  padding-left: 6px;
+}
+
+/* @entries — wire-order map shape from `decode_cbor_against_cddl`. */
+.cq-entries-map {
+  display: inline-block;
+  vertical-align: top;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+}
+
+.cq-entries-summary {
+  color: #64748b;
+  font-size: 11px;
+  margin-bottom: 4px;
+  font-style: italic;
+}
+
+.cq-entries-summary .cq-entries-count {
+  color: #1f2937;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.cq-entries-table {
+  border-collapse: collapse;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+}
+
+.cq-entries-table td {
+  padding: 2px 6px;
+  vertical-align: top;
+  border-bottom: 1px solid #eef2f7;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cq-entries-table tr:last-child td {
+  border-bottom: none;
+}
+
+.cq-entries-index {
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+.cq-entries-key {
+  color: #047857;
+  cursor: help;
+}
+
+.cq-entries-arrow {
+  color: #94a3b8;
+  padding: 2px 4px !important;
+}
+
+.cq-entries-value {
+  color: #1f2937;
+  cursor: help;
+}
+
+.cq-entries-via {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+
+.cq-entries-via-literal   { background: #6366f1; }
+.cq-entries-via-type      { background: #0ea5e9; }
+.cq-entries-via-unmatched { background: #ef4444; }
+
+/* CDDL syntax token colours (overlay foreground). Colour-only — no
+   `font-style`/`font-weight` differences, otherwise italic/bold glyphs
+   render at different widths than the plain text the textarea draws on
+   top, and the caret drifts. */
+.cq-syntax-comment      { color: #64748b; }
+.cq-syntax-string       { color: #c2410c; }
+.cq-syntax-number       { color: #6d28d9; }
+.cq-syntax-keyword      { color: #be185d; }
+.cq-syntax-prelude      { color: #0e7490; }
+.cq-syntax-rule         { color: #047857; }
+.cq-syntax-ident        { color: #1f2937; }
+.cq-syntax-operator     { color: #b91c1c; }
+.cq-syntax-punctuation  { color: #475569; }
+
+.cq-toolbar-btn {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cq-toolbar-btn:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.cq-toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .cddl-error-card-meta {
@@ -525,6 +775,123 @@ input, textarea, select, button {
   gap: 8px;
 }
 
+/* ===== Pin context menu (CDDL Validator RMB) ===== */
+.cq-pin-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 240px;
+  max-width: 320px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  color: #1f2937;
+  padding: 8px 0;
+  user-select: none;
+}
+.cq-pin-menu-header {
+  padding: 4px 12px 6px;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 6px;
+}
+.cq-pin-menu-title {
+  font-weight: 600;
+  color: #111827;
+}
+.cq-pin-menu-role {
+  display: inline-block;
+  font-weight: 500;
+  font-size: 10px;
+  color: #6b7280;
+  background: #f3f4f6;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.cq-pin-menu-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: #374151;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cq-pin-menu-rule {
+  font-size: 11px;
+  color: #4b5563;
+  margin-top: 2px;
+}
+.cq-pin-menu-rule code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: transparent;
+}
+.cq-pin-menu-source {
+  font-size: 10px;
+  color: #9ca3af;
+  margin-top: 4px;
+}
+.cq-pin-menu-section-title {
+  padding: 0 12px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+.cq-pin-menu-targets {
+  list-style: none;
+  margin: 0;
+  padding: 0 4px 6px;
+}
+.cq-pin-menu-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cq-pin-menu-target:hover {
+  background: #f3f4f6;
+}
+.cq-pin-menu-target input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+.cq-pin-menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px 0;
+  border-top: 1px solid #e5e7eb;
+}
+.cq-pin-menu-btn {
+  appearance: none;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #1f2937;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+.cq-pin-menu-btn:hover {
+  background: #f9fafb;
+}
+.cq-pin-menu-btn-primary {
+  background: #3182ce;
+  color: #ffffff;
+  border-color: #3182ce;
+}
+.cq-pin-menu-btn-primary:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
 .cq-tabs-root {
   display: flex;
   flex-direction: column;
@@ -597,8 +964,31 @@ input, textarea, select, button {
 .cq-vsplit-bottom {
   flex: 3 1 0;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 4px 2px;
+  display: flex;
+  flex-direction: column;
+}
+
+.cq-subtabs-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.cq-subtabs-list {
+  margin-bottom: 4px;
+}
+
+.cq-tree-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 6px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
 }
 
 .cq-decoded-viewer {
@@ -878,6 +1268,51 @@ input, textarea, select, button {
   border-radius: 2px;
   animation: hexErrorPulse 1s ease-in-out infinite;
   cursor: help;
+}
+
+/* Byte(s) "linked" from the CDDL panel — bridge highlight, not an error. */
+.hex-linked-highlight {
+  outline: 1px solid rgba(37, 99, 235, 0.6);
+  outline-offset: 0px;
+  border-radius: 2px;
+}
+
+.cq-link-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: rgba(59, 130, 246, 0.1);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.3);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.cq-link-banner-text {
+  color: #1e40af;
+  font-weight: 500;
+}
+
+.cq-link-banner-close {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e40af;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.cq-link-banner-close:hover {
+  background: rgba(59, 130, 246, 0.2);
 }
 
 /* React-managed hover tooltip over the hex editor (for error / oddity spans). */

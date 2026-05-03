@@ -52,13 +52,22 @@ interface EditableHexViewProps {
   errorLocation?: CborErrorLocation | null;
   /** Extra byte ranges to mark as error (e.g. CDDL byte_spans). */
   extraErrorSpans?: ExtraErrorSpan[];
+  /** Soft "linked from elsewhere" highlight — blue, not red. */
+  linkedSpans?: ExtraErrorSpan[];
   onHoverPath?: (path: string | null) => void;
   onKeyDown?: (e: React.KeyboardEvent) => void;
   onShowInTree?: (position: CborPosition) => void;
+  /**
+   * Right-click on a hex byte → fired with that byte's offset (in bytes,
+   * not chars). Suppresses the default context menu when wired.
+   */
+  onContextMenuPin?: (byteOffset: number) => void;
 }
 
 // Color for the byte(s) where the CBOR parser reported an error.
 const ERROR_COLOR = "rgba(239, 68, 68, 0.35)";
+// Color for "linked from CDDL editor" highlight (bridge between panels).
+const LINKED_COLOR = "rgba(59, 130, 246, 0.32)";
 
 // Format value for display (same logic as CborTreeView)
 function formatValue(val: unknown): string {
@@ -445,9 +454,11 @@ export default function EditableHexView({
   focusPosition,
   errorLocation,
   extraErrorSpans,
+  linkedSpans,
   onHoverPath,
   onKeyDown,
   onShowInTree,
+  onContextMenuPin,
 }: EditableHexViewProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const cursorPosRef = useRef<number>(0);
@@ -594,7 +605,8 @@ export default function EditableHexView({
   const inputMatchesHex = hexValue && normalizedInput === hexValue;
   const hasErrorHighlight = !!errorLocation && inputMatchesHex;
   const hasExtraSpans = !!(extraErrorSpans && extraErrorSpans.length > 0) && inputMatchesHex;
-  const showHighlighted = (cborData || hasErrorHighlight || hasExtraSpans) && inputMatchesHex;
+  const hasLinkedSpans = !!(linkedSpans && linkedSpans.length > 0) && inputMatchesHex;
+  const showHighlighted = (cborData || hasErrorHighlight || hasExtraSpans || hasLinkedSpans) && inputMatchesHex;
   
   // Track last rendered state to detect transitions
   const lastRenderedRef = useRef<{ showHighlighted: boolean; hexValue: string }>({ 
@@ -605,13 +617,13 @@ export default function EditableHexView({
   // Build HTML string for highlighted content
   const buildHighlightedHTML = useCallback((): string => {
     if (!hexValue) return "";
-    if (!cborData && !errorLocation && !(extraErrorSpans && extraErrorSpans.length > 0)) return "";
+    if (!cborData && !errorLocation && !(extraErrorSpans && extraErrorSpans.length > 0) && !(linkedSpans && linkedSpans.length > 0)) return "";
 
     const spans: HighlightedSpan[] = [];
     const colorCounter = { value: 0 };
     if (cborData) collectPositions(cborData, spans, colorCounter);
 
-    const positionColors: Map<number, { colorIndex: number; isHover: boolean; isFocus: boolean; isError: boolean; errorMessage?: string; label: string; path: string; oddities?: CborOddity[] }> = new Map();
+    const positionColors: Map<number, { colorIndex: number; isHover: boolean; isFocus: boolean; isError: boolean; isLinked: boolean; errorMessage?: string; linkedMessage?: string; label: string; path: string; oddities?: CborOddity[] }> = new Map();
 
     for (const span of spans) {
       for (let i = span.start; i < span.end && i < hexValue.length; i++) {
@@ -619,7 +631,7 @@ export default function EditableHexView({
         // Mark oddities even if a smaller (inner) span already claimed the base color
         const mergedOddities = mergeOddities(existing?.oddities, span.oddities);
         if (!existing) {
-          positionColors.set(i, { colorIndex: span.colorIndex, isHover: false, isFocus: false, isError: false, label: span.label, path: span.path, oddities: mergedOddities });
+          positionColors.set(i, { colorIndex: span.colorIndex, isHover: false, isFocus: false, isError: false, isLinked: false, label: span.label, path: span.path, oddities: mergedOddities });
         } else if (mergedOddities !== existing.oddities) {
           positionColors.set(i, { ...existing, oddities: mergedOddities });
         }
@@ -637,7 +649,9 @@ export default function EditableHexView({
           isHover: existing?.isHover ?? false,
           isFocus: existing?.isFocus ?? false,
           isError: true,
+          isLinked: existing?.isLinked ?? false,
           errorMessage: message,
+          linkedMessage: existing?.linkedMessage,
           label: existing?.label ?? "",
           path: existing?.path ?? "",
           oddities: existing?.oddities,
@@ -655,6 +669,30 @@ export default function EditableHexView({
       }
     }
 
+    // Apply "linked" highlight (bridge from another panel — blue, weaker than error).
+    if (linkedSpans) {
+      for (const span of linkedSpans) {
+        const len = Math.max(1, span.length);
+        const startChar = span.offset * 2;
+        const endChar = Math.min(startChar + len * 2, hexValue.length);
+        for (let i = startChar; i < endChar && i < hexValue.length; i++) {
+          const existing = positionColors.get(i);
+          positionColors.set(i, {
+            colorIndex: existing?.colorIndex ?? 0,
+            isHover: existing?.isHover ?? false,
+            isFocus: existing?.isFocus ?? false,
+            isError: existing?.isError ?? false,
+            isLinked: true,
+            errorMessage: existing?.errorMessage,
+            linkedMessage: span.message ?? existing?.linkedMessage,
+            label: existing?.label ?? "",
+            path: existing?.path ?? "",
+            oddities: existing?.oddities,
+          });
+        }
+      }
+    }
+
     // Apply hover
     if (hoverPosition && typeof hoverPosition.offset === "number" && typeof hoverPosition.length === "number") {
       const start = hoverPosition.offset * 2;
@@ -666,7 +704,9 @@ export default function EditableHexView({
           isHover: true,
           isFocus: false,
           isError: existing?.isError ?? false,
+          isLinked: existing?.isLinked ?? false,
           errorMessage: existing?.errorMessage,
+          linkedMessage: existing?.linkedMessage,
           label: existing?.label ?? "",
           path: existing?.path ?? "",
           oddities: existing?.oddities,
@@ -685,7 +725,9 @@ export default function EditableHexView({
           isHover: existing?.isHover ?? false,
           isFocus: true,
           isError: existing?.isError ?? false,
+          isLinked: existing?.isLinked ?? false,
           errorMessage: existing?.errorMessage,
+          linkedMessage: existing?.linkedMessage,
           label: existing?.label ?? "",
           path: existing?.path ?? "",
           oddities: existing?.oddities,
@@ -708,13 +750,14 @@ export default function EditableHexView({
     while (i < hexValue.length) {
       const colorInfo = positionColors.get(i);
       let j = i + 1;
-      const isSpecialHighlight = colorInfo?.isHover || colorInfo?.isFocus || colorInfo?.isError;
+      const isSpecialHighlight = colorInfo?.isHover || colorInfo?.isFocus || colorInfo?.isError || colorInfo?.isLinked;
       const hasOddity = !!(colorInfo?.oddities && colorInfo.oddities.length > 0);
 
       while (j < hexValue.length) {
         const nextColor = positionColors.get(j);
         if (colorInfo?.isHover !== nextColor?.isHover || colorInfo?.isFocus !== nextColor?.isFocus) break;
         if (colorInfo?.isError !== nextColor?.isError) break;
+        if (colorInfo?.isLinked !== nextColor?.isLinked) break;
         const nextHasOddity = !!(nextColor?.oddities && nextColor.oddities.length > 0);
         if (hasOddity !== nextHasOddity) break;
         if (!isSpecialHighlight) {
@@ -732,6 +775,8 @@ export default function EditableHexView({
         backgroundColor = FOCUS_COLOR;
       } else if (colorInfo?.isHover) {
         backgroundColor = HOVER_COLOR;
+      } else if (colorInfo?.isLinked) {
+        backgroundColor = LINKED_COLOR;
       } else if (colorInfo?.colorIndex !== undefined) {
         backgroundColor = CBOR_COLORS[colorInfo.colorIndex];
       }
@@ -743,11 +788,14 @@ export default function EditableHexView({
         if (colorInfo?.isError) classes.push("hex-error-highlight");
         else if (colorInfo?.isFocus) classes.push("hex-focus-highlight");
         else if (colorInfo?.isHover) classes.push("hex-hover-highlight");
+        else if (colorInfo?.isLinked) classes.push("hex-linked-highlight");
         if (hasOddity) classes.push("hex-oddity");
         const className = classes.join(" ");
         const isFocusStart = colorInfo?.isFocus && focusPosition && i === focusPosition.offset * 2;
         const titleText = colorInfo?.isError
           ? colorInfo.errorMessage ?? "CBOR parse error"
+          : colorInfo?.isLinked
+          ? colorInfo.linkedMessage ?? colorInfo.label ?? ""
           : hasOddity
           ? `${colorInfo?.label ?? ""}${colorInfo?.label ? " — " : ""}non-canonical: ${oddityKindsSummary(colorInfo!.oddities!)}`
           : colorInfo?.label || "";
@@ -761,7 +809,7 @@ export default function EditableHexView({
       i = j;
     }
     return html;
-  }, [cborData, hexValue, hoverPosition, focusPosition, errorLocation, extraErrorSpans]);
+  }, [cborData, hexValue, hoverPosition, focusPosition, errorLocation, extraErrorSpans, linkedSpans]);
 
   // Update DOM using useLayoutEffect (runs before paint)
   useLayoutEffect(() => {
@@ -886,6 +934,13 @@ export default function EditableHexView({
     const charPosition = getCursorCharPosition(e);
     const chunkPosition = findChunkAtPosition(charPosition, cborData);
 
+    // If a parent wired the cross-panel pin, fire it directly. (We still
+    // open the menu so the user has access to the existing actions.)
+    if (onContextMenuPin) {
+      const byteOffset = Math.floor(charPosition / 2);
+      onContextMenuPin(byteOffset);
+    }
+
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
@@ -893,7 +948,7 @@ export default function EditableHexView({
       selectedText,
       chunkPosition,
     });
-  }, [getSelectedText, getCursorCharPosition, cborData]);
+  }, [getSelectedText, getCursorCharPosition, cborData, onContextMenuPin]);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);

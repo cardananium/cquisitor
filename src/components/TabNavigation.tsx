@@ -4,12 +4,11 @@ import * as Tabs from "@radix-ui/react-tabs";
 
 export type TabId = "transaction-validator" | "cardano-cbor" | "general-cbor" | "cddl-validator";
 
+// CDDL Validator is intentionally omitted from the visible nav for now
+// (still mounted on direct `#cddl-validator` hash for internal use).
 const tabs: { name: string; id: TabId }[] = [
   { name: "General CBOR", id: "general-cbor" },
   { name: "Cardano CBOR", id: "cardano-cbor" },
-  // CDDL Validator hidden for now — keep TabId/VALID_TABS so direct
-  // `#cddl-validator` links still work and the tab can be re-shown by
-  // re-adding this entry.
   { name: "Transaction Validator", id: "transaction-validator" },
 ];
 

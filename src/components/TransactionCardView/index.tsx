@@ -2,6 +2,14 @@
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import JSONBig from "json-bigint";
+
+// Plutus datum integers can exceed Number.MAX_SAFE_INTEGER (u64 token
+// quantities, large pool reserves, etc.). Native `JSON.parse` quietly
+// truncates those to a lossy `Number`. `useNativeBigInt: true` keeps
+// safe-integer ints as `Number` and promotes oversize values to
+// `BigInt`. PD.asInt already accepts both.
+const datumJson = JSONBig({ useNativeBigInt: true, alwaysParseAsBig: false });
 import { SectionCard, InputCard, OutputCard, VKeyCard, RedeemerCard, MintSection, DiagnosticBadge, CertificateCard, WithdrawalCard, AuxiliaryDataSection, BootstrapWitnessCard, NativeScriptCard, TransactionDetailsSection, RequiredSignersCard, VotingProcedureCard, VotingProposalCard, PlutusScriptCard, PlutusDataCard, SundaeScoopBanner } from "./components";
 import {
   buildDiagnosticsMap,
@@ -187,7 +195,7 @@ export default function TransactionCardView({
       const raw = elems[i];
       if (!hash || !raw) continue;
       try {
-        const parsed = JSON.parse(raw);
+        const parsed = datumJson.parse(raw);
         if (parsed && typeof parsed === "object") {
           map.set(hash.toLowerCase(), parsed);
         }

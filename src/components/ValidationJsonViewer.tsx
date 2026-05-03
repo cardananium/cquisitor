@@ -1,11 +1,27 @@
 "use client";
 
-import { useState, useMemo, useEffect, useLayoutEffect, useRef } from "react";
+// Adapter over the shared `JsonTreeView` that adds the Transaction
+// Validator's domain-specific concerns:
+//   - per-node diagnostic indicators (errors/warnings) with descendant counts
+//   - expandable long string values
+//   - CardanoScan links for known fields (transaction_id, address)
+//   - vkey → vkey_hash auto-injection
+//   - scroll-into-view on focused path
+// Path scheme: dot-joined ("transaction.body.0"), no "$" prefix.
+
+import { useCallback, useMemo, useState } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { bech32 } from "bech32";
 import { blake2b } from "@noble/hashes/blake2.js";
 import { ErrorFormatter } from "./ErrorDataFormatters";
 import { getTransactionLink, getAddressLink, type CardanoNetwork } from "@/utils/cardanoscanLinks";
+import {
+  JsonTreeView,
+  dotIsPathAncestor,
+  dotJoinKey,
+  dotPathsEqual,
+  type RenderRowArgs,
+} from "@/components/jsonTree";
 
 // Diagnostic item structure (same as in TransactionValidatorContent)
 export interface ValidationDiagnostic {
@@ -26,65 +42,45 @@ interface ValidationJsonViewerProps {
   focusedPath?: string[] | null;
 }
 
-// Build a map of paths to diagnostics for quick lookup
 function buildDiagnosticsMap(diagnostics: ValidationDiagnostic[]): Map<string, ValidationDiagnostic[]> {
   const map = new Map<string, ValidationDiagnostic[]>();
-  
   for (const diag of diagnostics) {
-    if (diag.locations) {
-      for (const location of diag.locations) {
-        const existing = map.get(location) || [];
-        existing.push(diag);
-        map.set(location, existing);
-      }
+    if (!diag.locations) continue;
+    for (const location of diag.locations) {
+      const existing = map.get(location) ?? [];
+      existing.push(diag);
+      map.set(location, existing);
     }
   }
-  
   return map;
 }
 
-// Check if a path has diagnostics or any children with diagnostics
-function pathHasDiagnostics(
-  currentPath: string, 
-  diagnosticsMap: Map<string, ValidationDiagnostic[]>
-): ValidationDiagnostic[] {
-  return diagnosticsMap.get(currentPath) || [];
-}
-
-// Check if any descendant path has diagnostics
 function hasDescendantDiagnostics(
   currentPath: string,
-  diagnosticsMap: Map<string, ValidationDiagnostic[]>
+  diagnosticsMap: Map<string, ValidationDiagnostic[]>,
 ): boolean {
   for (const key of diagnosticsMap.keys()) {
-    if (key.startsWith(currentPath + ".")) {
-      return true;
-    }
+    if (key.startsWith(currentPath + ".")) return true;
   }
   return false;
 }
 
-// Count descendant diagnostics by severity
 function getDescendantDiagnosticCounts(
   currentPath: string,
-  diagnosticsMap: Map<string, ValidationDiagnostic[]>
+  diagnosticsMap: Map<string, ValidationDiagnostic[]>,
 ): { errors: number; warnings: number } {
   let errors = 0;
   let warnings = 0;
-  
   for (const [key, diagnostics] of diagnosticsMap.entries()) {
-    if (key.startsWith(currentPath + ".")) {
-      for (const d of diagnostics) {
-        if (d.severity === "error") errors++;
-        else if (d.severity === "warning") warnings++;
-      }
+    if (!key.startsWith(currentPath + ".")) continue;
+    for (const d of diagnostics) {
+      if (d.severity === "error") errors++;
+      else if (d.severity === "warning") warnings++;
     }
   }
-  
   return { errors, warnings };
 }
 
-// Decode bech32 vkey and compute blake2b-224 hash
 function computeVkeyHash(vkeyBech32: string): string | null {
   try {
     const decoded = bech32.decode(vkeyBech32, 100);
@@ -98,33 +94,18 @@ function computeVkeyHash(vkeyBech32: string): string | null {
   }
 }
 
-
-// Prepare data: convert BigInt, Uint8Array, add vkey_hash
 function prepareData(data: unknown): unknown {
-  if (data === null || data === undefined) {
-    return data;
-  }
-  if (typeof data === "bigint") {
-    return data.toString();
-  }
-  if (data instanceof Uint8Array) {
-    return Array.from(data);
-  }
-  if (Array.isArray(data)) {
-    return data.map((item) => prepareData(item));
-  }
+  if (data === null || data === undefined) return data;
+  if (typeof data === "bigint") return data.toString();
+  if (data instanceof Uint8Array) return Array.from(data);
+  if (Array.isArray(data)) return data.map((item) => prepareData(item));
   if (typeof data === "object") {
     const result: Record<string, unknown> = {};
-    const entries = Object.entries(data);
-    
-    for (const [key, value] of entries) {
+    for (const [key, value] of Object.entries(data)) {
       result[key] = prepareData(value);
-      
       if (key === "vkey" && typeof value === "string" && value.startsWith("ed25519_pk")) {
         const vkeyHash = computeVkeyHash(value);
-        if (vkeyHash) {
-          result["vkey_hash"] = vkeyHash;
-        }
+        if (vkeyHash) result["vkey_hash"] = vkeyHash;
       }
     }
     return result;
@@ -132,13 +113,12 @@ function prepareData(data: unknown): unknown {
   return data;
 }
 
-// Diagnostic indicator component
 function DiagnosticIndicator({ diagnostics }: { diagnostics: ValidationDiagnostic[] }) {
-  const hasErrors = diagnostics.some(d => d.severity === "error");
-  const hasWarnings = diagnostics.some(d => d.severity === "warning");
-  
-  const errors = diagnostics.filter(d => d.severity === "error");
-  const warnings = diagnostics.filter(d => d.severity === "warning");
+  const hasErrors = diagnostics.some((d) => d.severity === "error");
+  const hasWarnings = diagnostics.some((d) => d.severity === "warning");
+
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  const warnings = diagnostics.filter((d) => d.severity === "warning");
 
   return (
     <Tooltip.Provider delayDuration={100}>
@@ -154,16 +134,14 @@ function DiagnosticIndicator({ diagnostics }: { diagnostics: ValidationDiagnosti
             <div className="validation-tooltip-content">
               {errors.length > 0 && (
                 <div className="validation-tooltip-section">
-                  <div className="validation-tooltip-title error">
-                    Errors ({errors.length})
-                  </div>
-                    {errors.map((err, i) => (
+                  <div className="validation-tooltip-title error">Errors ({errors.length})</div>
+                  {errors.map((err, i) => (
                     <div key={i} className="validation-tooltip-item">
                       <span className="validation-tooltip-phase">[{err.phase}]</span>
                       <span className="validation-tooltip-message">
                         {err.errorData ? (
-                          <ErrorFormatter 
-                            error={err.errorData} 
+                          <ErrorFormatter
+                            error={err.errorData}
                             errorType={err.errorType}
                             message={err.message}
                             hint={err.hint}
@@ -172,25 +150,21 @@ function DiagnosticIndicator({ diagnostics }: { diagnostics: ValidationDiagnosti
                           err.message
                         )}
                       </span>
-                      {err.hint && (
-                        <div className="validation-tooltip-hint">💡 {err.hint}</div>
-                      )}
+                      {err.hint && <div className="validation-tooltip-hint">💡 {err.hint}</div>}
                     </div>
                   ))}
                 </div>
               )}
               {warnings.length > 0 && (
                 <div className="validation-tooltip-section">
-                  <div className="validation-tooltip-title warning">
-                    Warnings ({warnings.length})
-                  </div>
+                  <div className="validation-tooltip-title warning">Warnings ({warnings.length})</div>
                   {warnings.map((warn, i) => (
                     <div key={i} className="validation-tooltip-item">
                       <span className="validation-tooltip-phase">[{warn.phase}]</span>
                       <span className="validation-tooltip-message">
                         {warn.errorData ? (
-                          <ErrorFormatter 
-                            error={warn.errorData} 
+                          <ErrorFormatter
+                            error={warn.errorData}
                             errorType={warn.errorType}
                             message={warn.message}
                             hint={warn.hint}
@@ -199,9 +173,7 @@ function DiagnosticIndicator({ diagnostics }: { diagnostics: ValidationDiagnosti
                           warn.message
                         )}
                       </span>
-                      {warn.hint && (
-                        <div className="validation-tooltip-hint">💡 {warn.hint}</div>
-                      )}
+                      {warn.hint && <div className="validation-tooltip-hint">💡 {warn.hint}</div>}
                     </div>
                   ))}
                 </div>
@@ -215,23 +187,22 @@ function DiagnosticIndicator({ diagnostics }: { diagnostics: ValidationDiagnosti
   );
 }
 
-// Expandable string component for long values
 function ExpandableString({ value, truncateAt = 80 }: { value: string; truncateAt?: number }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const needsTruncation = value.length > truncateAt;
-  
+
   if (!needsTruncation) {
     return <span className="vjv-string">&quot;{value}&quot;</span>;
   }
-  
+
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsExpanded(!isExpanded);
   };
-  
+
   return (
-    <span 
-      className={`vjv-string vjv-expandable-string ${isExpanded ? 'vjv-expanded' : ''}`}
+    <span
+      className={`vjv-string vjv-expandable-string ${isExpanded ? "vjv-expanded" : ""}`}
       onClick={handleClick}
       title={isExpanded ? "Click to collapse" : "Click to expand"}
     >
@@ -240,24 +211,78 @@ function ExpandableString({ value, truncateAt = 80 }: { value: string; truncateA
   );
 }
 
-// Format a primitive value for display
+interface ValidationRowProps {
+  ctx: RenderRowArgs;
+  diagnosticsMap: Map<string, ValidationDiagnostic[]>;
+  network?: CardanoNetwork;
+}
+
+function ValidationRow({ ctx, diagnosticsMap, network }: ValidationRowProps) {
+  const { keyLabel, value, path, isArrayItem, isComplex, isOpen, kind, childCount } = ctx;
+  // Synthetic root in skipRoot mode renders nothing visible.
+  if (keyLabel === null) return null;
+
+  const nodeDiagnostics = diagnosticsMap.get(path) ?? [];
+  const hasIssue = nodeDiagnostics.length > 0;
+
+  const keySpan = (
+    <span className="vjv-key">{isArrayItem ? `[${keyLabel}]` : keyLabel}:</span>
+  );
+
+  if (!isComplex) {
+    return (
+      <>
+        {hasIssue && <DiagnosticIndicator diagnostics={nodeDiagnostics} />}
+        {keySpan}
+        {formatValue(value, String(keyLabel), network)}
+      </>
+    );
+  }
+
+  const isArray = kind === "array";
+  const bracketOpen = isArray ? "[" : "{";
+  const bracketClose = isArray ? "]" : "}";
+  const isEmpty = childCount === 0;
+  const counts = getDescendantDiagnosticCounts(path, diagnosticsMap);
+  const hasDescendants = counts.errors > 0 || counts.warnings > 0;
+
+  return (
+    <>
+      <span className="vjv-toggle">{isOpen ? "▼" : "▶"}</span>
+      {hasIssue && <DiagnosticIndicator diagnostics={nodeDiagnostics} />}
+      {keySpan}
+      <span className="vjv-bracket">{bracketOpen}</span>
+      {!isOpen && (
+        <>
+          <span className="vjv-collapsed-info">{isEmpty ? "" : ` … `}</span>
+          <span className="vjv-bracket">{bracketClose}</span>
+          {hasDescendants && (
+            <span className="vjv-hidden-issues">
+              {counts.errors > 0 && (
+                <span className="vjv-hidden-errors" title={`${counts.errors} error(s) inside`}>
+                  ⊗ {counts.errors}
+                </span>
+              )}
+              {counts.warnings > 0 && (
+                <span className="vjv-hidden-warnings" title={`${counts.warnings} warning(s) inside`}>
+                  ⚠ {counts.warnings}
+                </span>
+              )}
+            </span>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
 function formatValue(value: unknown, key: string, network?: CardanoNetwork): React.ReactNode {
-  if (value === null) {
-    return <span className="vjv-null">NULL</span>;
-  }
-  if (value === undefined) {
-    return <span className="vjv-undefined">undefined</span>;
-  }
-  if (typeof value === "boolean") {
-    return <span className="vjv-boolean">{value ? "true" : "false"}</span>;
-  }
-  if (typeof value === "number") {
-    return <span className="vjv-number">{value}</span>;
-  }
+  if (value === null) return <span className="vjv-null">NULL</span>;
+  if (value === undefined) return <span className="vjv-undefined">undefined</span>;
+  if (typeof value === "boolean") return <span className="vjv-boolean">{value ? "true" : "false"}</span>;
+  if (typeof value === "number") return <span className="vjv-number">{value}</span>;
   if (typeof value === "string") {
-    // Check for linkable values
     if (network) {
-      // Transaction ID
       if (key === "transaction_id" && /^[a-f0-9]{64}$/i.test(value)) {
         return (
           <a
@@ -272,8 +297,6 @@ function formatValue(value: unknown, key: string, network?: CardanoNetwork): Rea
           </a>
         );
       }
-      
-      // Address
       if (key === "address" && value.startsWith("addr")) {
         return (
           <a
@@ -289,169 +312,9 @@ function formatValue(value: unknown, key: string, network?: CardanoNetwork): Rea
         );
       }
     }
-    
-    // Use expandable string for long values
     return <ExpandableString value={value} />;
   }
   return <span>{String(value)}</span>;
-}
-
-// JSON Tree Node component
-interface TreeNodeProps {
-  keyName: string | number;
-  value: unknown;
-  path: string;
-  depth: number;
-  defaultExpanded: number;
-  diagnosticsMap: Map<string, ValidationDiagnostic[]>;
-  network?: CardanoNetwork;
-  isArrayItem?: boolean;
-  focusedPath?: string[] | null;
-}
-
-function TreeNode({
-  keyName,
-  value,
-  path,
-  depth,
-  defaultExpanded,
-  diagnosticsMap,
-  network,
-  isArrayItem = false,
-  focusedPath,
-}: TreeNodeProps) {
-  const nodeRef = useRef<HTMLDivElement>(null);
-  const nodeDiagnostics = pathHasDiagnostics(path, diagnosticsMap);
-  const hasDescendants = hasDescendantDiagnostics(path, diagnosticsMap);
-  const descendantCounts = getDescendantDiagnosticCounts(path, diagnosticsMap);
-  const isFocused = focusedPath?.includes(path) ?? false;
-  
-  // Check if this node is an ancestor of any focused path
-  const hasFocusedDescendant = focusedPath?.some(fp => fp.startsWith(path + '.')) ?? false;
-  
-  const shouldDefaultExpand = depth < defaultExpanded || hasDescendants || nodeDiagnostics.length > 0;
-  
-  // Track expansion state
-  const [isExpanded, setIsExpanded] = useState(shouldDefaultExpand);
-  
-  // When a focused descendant appears, expand the node
-  useLayoutEffect(() => {
-    if (hasFocusedDescendant) {
-      // Use requestAnimationFrame to make this async and avoid linter warning
-      requestAnimationFrame(() => {
-        setIsExpanded(true);
-      });
-    }
-  }, [hasFocusedDescendant]);
-  
-  // Scroll to focused element
-  useEffect(() => {
-    if (isFocused && nodeRef.current) {
-      // Small delay to allow tree to expand first
-      setTimeout(() => {
-        nodeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 100);
-    }
-  }, [isFocused]);
-  
-  const isObject = value !== null && typeof value === "object" && !Array.isArray(value);
-  const isArray = Array.isArray(value);
-  const isPrimitive = !isObject && !isArray;
-  
-  const hasIssue = nodeDiagnostics.length > 0;
-  const hasError = nodeDiagnostics.some(d => d.severity === "error");
-  const hasWarning = nodeDiagnostics.some(d => d.severity === "warning");
-
-  const toggleExpand = () => {
-    setIsExpanded(prev => !prev);
-  };
-
-  // Render primitive value
-  if (isPrimitive) {
-    return (
-      <div 
-        ref={nodeRef}
-        className={`vjv-row vjv-primitive ${hasError ? 'vjv-error' : ''} ${hasWarning && !hasError ? 'vjv-warning' : ''} ${isFocused ? 'vjv-focused' : ''}`}
-      >
-        {hasIssue && <DiagnosticIndicator diagnostics={nodeDiagnostics} />}
-        <span className="vjv-key">{isArrayItem ? `[${keyName}]` : keyName}:</span>
-        {formatValue(value, String(keyName), network)}
-      </div>
-    );
-  }
-
-  // Render object or array
-  const entries = isArray 
-    ? (value as unknown[]).map((v, i) => [i, v] as [number, unknown])
-    : Object.entries(value as Record<string, unknown>);
-  
-  const bracketOpen = isArray ? "[" : "{";
-  const bracketClose = isArray ? "]" : "}";
-  const isEmpty = entries.length === 0;
-
-  return (
-    <div 
-      ref={nodeRef}
-      className={`vjv-node ${hasError ? 'vjv-error-node' : ''} ${hasWarning && !hasError ? 'vjv-warning-node' : ''} ${isFocused ? 'vjv-focused-node' : ''}`}
-    >
-      <div 
-        className={`vjv-row vjv-expandable ${hasError ? 'vjv-error' : ''} ${hasWarning && !hasError ? 'vjv-warning' : ''} ${isFocused ? 'vjv-focused' : ''}`}
-        onClick={toggleExpand}
-      >
-        <span className="vjv-toggle">{isExpanded ? "▼" : "▶"}</span>
-        {hasIssue && <DiagnosticIndicator diagnostics={nodeDiagnostics} />}
-        <span className="vjv-key">{isArrayItem ? `[${keyName}]` : keyName}:</span>
-        <span className="vjv-bracket">{bracketOpen}</span>
-        {!isExpanded && (
-          <>
-            <span className="vjv-collapsed-info">
-              {isEmpty ? "" : ` … `}
-            </span>
-            <span className="vjv-bracket">{bracketClose}</span>
-            {hasDescendants && (
-              <span className="vjv-hidden-issues">
-                {descendantCounts.errors > 0 && (
-                  <span className="vjv-hidden-errors" title={`${descendantCounts.errors} error(s) inside`}>
-                    ⊗ {descendantCounts.errors}
-                  </span>
-                )}
-                {descendantCounts.warnings > 0 && (
-                  <span className="vjv-hidden-warnings" title={`${descendantCounts.warnings} warning(s) inside`}>
-                    ⚠ {descendantCounts.warnings}
-                  </span>
-                )}
-              </span>
-            )}
-          </>
-        )}
-      </div>
-      
-      {isExpanded && (
-        <div className="vjv-children">
-          {entries.map(([key, val]) => {
-            const childPath = `${path}.${key}`;
-            return (
-              <TreeNode
-                key={key}
-                keyName={key}
-                value={val}
-                path={childPath}
-                depth={depth + 1}
-                defaultExpanded={defaultExpanded}
-                diagnosticsMap={diagnosticsMap}
-                network={network}
-                focusedPath={focusedPath}
-                isArrayItem={isArray}
-              />
-            );
-          })}
-          <div className="vjv-row">
-            <span className="vjv-bracket">{bracketClose}</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 export default function ValidationJsonViewer({
@@ -463,6 +326,70 @@ export default function ValidationJsonViewer({
 }: ValidationJsonViewerProps) {
   const preparedData = useMemo(() => prepareData(data), [data]);
   const diagnosticsMap = useMemo(() => buildDiagnosticsMap(diagnostics), [diagnostics]);
+
+  const highlightedPaths = useMemo(() => focusedPath ?? [], [focusedPath]);
+
+  const shouldDefaultExpand = useMemo(
+    () =>
+      ({ path }: { path: string }) => {
+        if (diagnosticsMap.has(path)) return true;
+        if (hasDescendantDiagnostics(path, diagnosticsMap)) return true;
+        return false;
+      },
+    [diagnosticsMap],
+  );
+
+  const renderRow = useCallback(
+    (ctx: RenderRowArgs) => (
+      <ValidationRow ctx={ctx} diagnosticsMap={diagnosticsMap} network={network} />
+    ),
+    [diagnosticsMap, network],
+  );
+
+  // Per-row severity/focus classes — applied to the walker's row + block
+  // wrappers so background tinting reaches the whole row (matches original).
+  const getRowClassName = useMemo(
+    () => (ctx: RenderRowArgs) => {
+      const { path, isComplex } = ctx;
+      const diags = diagnosticsMap.get(path) ?? [];
+      const hasError = diags.some((d) => d.severity === "error");
+      const hasWarning = diags.some((d) => d.severity === "warning");
+      const cls: string[] = [];
+      if (!isComplex) cls.push("vjv-primitive");
+      else cls.push("vjv-expandable");
+      if (hasError) cls.push("vjv-error");
+      else if (hasWarning) cls.push("vjv-warning");
+      return cls.join(" ");
+    },
+    [diagnosticsMap],
+  );
+
+  const getNodeBlockClassName = useMemo(
+    () => (ctx: RenderRowArgs) => {
+      const { path, isHighlighted } = ctx;
+      const diags = diagnosticsMap.get(path) ?? [];
+      const hasError = diags.some((d) => d.severity === "error");
+      const hasWarning = diags.some((d) => d.severity === "warning");
+      const cls: string[] = [];
+      if (hasError) cls.push("vjv-error-node");
+      else if (hasWarning) cls.push("vjv-warning-node");
+      if (isHighlighted) cls.push("vjv-focused-node");
+      return cls.join(" ");
+    },
+    [diagnosticsMap],
+  );
+
+  // Whole-row click toggles complex nodes (matches original behavior).
+  const handleRowClick = useMemo(
+    () => (ctx: RenderRowArgs, e: React.MouseEvent) => {
+      if (!ctx.isComplex) return;
+      // Don't hijack clicks on inner anchors / interactive controls.
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest("a, button")) return;
+      ctx.toggle();
+    },
+    [],
+  );
 
   if (preparedData === null || preparedData === undefined) {
     return (
@@ -483,36 +410,34 @@ export default function ValidationJsonViewer({
     );
   }
 
-  const entries = isArray
-    ? (preparedData as unknown[]).map((v, i) => [i, v] as [number, unknown])
-    : Object.entries(preparedData as Record<string, unknown>);
-
   return (
     <div className="vjv-wrapper">
-      <div className="vjv-root">
-        {entries.map(([key, val]) => {
-          // Root path starts without leading dot
-          const basePath = isObject 
-            ? (key === "transaction" ? "transaction" : String(key))
-            : String(key);
-          
-          return (
-            <TreeNode
-              key={key}
-              keyName={key}
-              value={val}
-              path={basePath}
-              depth={0}
-              defaultExpanded={expanded}
-              diagnosticsMap={diagnosticsMap}
-              network={network}
-              isArrayItem={isArray}
-              focusedPath={focusedPath}
-            />
-          );
-        })}
-      </div>
+      <JsonTreeView
+        data={preparedData}
+        expanded={expanded}
+        rootPath=""
+        joinKey={dotJoinKey}
+        pathsEqual={dotPathsEqual}
+        isPathAncestor={dotIsPathAncestor}
+        highlightedPaths={highlightedPaths}
+        renderRow={renderRow}
+        shouldDefaultExpand={shouldDefaultExpand}
+        onRowClick={handleRowClick}
+        scrollOnHighlight
+        skipRoot
+        wrapperClassName="vjv-root"
+        rowClassName="vjv-row"
+        highlightedRowClassName="vjv-focused"
+        childrenClassName="vjv-children"
+        nodeBlockClassName="vjv-node"
+        getRowClassName={getRowClassName}
+        getNodeBlockClassName={getNodeBlockClassName}
+        renderClosingRow={({ kind }) => (
+          <div className="vjv-row">
+            <span className="vjv-bracket">{kind === "array" ? "]" : "}"}</span>
+          </div>
+        )}
+      />
     </div>
   );
 }
-
