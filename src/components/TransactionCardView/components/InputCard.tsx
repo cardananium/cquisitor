@@ -6,6 +6,7 @@ import { UtxoRef } from "../../UtxoRef";
 import { OutputCard } from "./OutputCard";
 import { getPathDiagnostics, getTransactionLink } from "../utils";
 import type { TransactionInput, TransactionOutput, ValidationDiagnostic, CardanoNetwork, KoiosUtxoInfo } from "../types";
+import type { SundaeInputDetection } from "@/utils/sundae";
 
 interface InputCardProps {
   input: TransactionInput;
@@ -16,6 +17,10 @@ interface InputCardProps {
   focusedPath?: string[] | null;
   /** Fetched UTxO info from Koios */
   utxoInfo?: KoiosUtxoInfo;
+  /** Pre-computed sundae context for this input (Cancel / Scoop, etc.) */
+  sundaeDetection?: SundaeInputDetection;
+  /** Witness-set datum lookup map (forwarded to the wrapped OutputCard). */
+  witnessDatums?: Map<string, import("@/utils/sundae/plutusData").PD> | null;
 }
 
 /**
@@ -85,14 +90,41 @@ function koiosUtxoToTransactionOutput(utxoInfo: KoiosUtxoInfo): TransactionOutpu
   };
 }
 
-export function InputCard({ 
-  input, 
-  index, 
+function SundaeInputBadge({ detection }: { detection: SundaeInputDetection }) {
+  const protocolLabel = `Sundae ${detection.match.protocol} ${
+    detection.match.role === "order" ? "Order" : "Pool"
+  }`;
+  if (detection.redeemer?.kind === "Cancel") {
+    return (
+      <span className="tcv-tag tcv-tag-sundae-cancel" title={`${protocolLabel} cancellation`}>
+        🚫 Cancel
+      </span>
+    );
+  }
+  if (detection.redeemer?.kind === "Scoop") {
+    return (
+      <span className="tcv-tag tcv-tag-sundae-scoop" title={`${protocolLabel} being scooped`}>
+        🍨 Scoop
+      </span>
+    );
+  }
+  return (
+    <span className="tcv-tag tcv-tag-sundae" title={protocolLabel}>
+      🍨 {detection.match.protocol} {detection.match.role === "order" ? "Order" : "Pool"}
+    </span>
+  );
+}
+
+export function InputCard({
+  input,
+  index,
   network,
   path,
   diagnosticsMap,
   focusedPath,
-  utxoInfo
+  utxoInfo,
+  sundaeDetection,
+  witnessDatums = null,
 }: InputCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
@@ -115,12 +147,13 @@ export function InputCard({
         <div className="tcv-input-compact-row">
           <span className="tcv-item-index">#{index}</span>
           <div className="tcv-utxo-ref">
-            <UtxoRef 
+            <UtxoRef
               txHash={input.transaction_id}
               index={input.index}
               txUrl={txUrl}
             />
           </div>
+          {sundaeDetection && <SundaeInputBadge detection={sundaeDetection} />}
           <DiagnosticBadge diagnostics={diagnostics} />
         </div>
       </div>
@@ -154,6 +187,7 @@ export function InputCard({
           />
         </div>
         {isSpent && <span className="tcv-tag tcv-tag-spent">Spent</span>}
+        {sundaeDetection && <SundaeInputBadge detection={sundaeDetection} />}
         <DiagnosticBadge diagnostics={diagnostics} />
       </div>
       
@@ -168,6 +202,7 @@ export function InputCard({
         inlineDatumHash={inlineDatumHash}
         inlineScriptInfo={inlineScriptInfo}
         isInputCard={true}
+        witnessDatums={witnessDatums}
       />
     </div>
   );

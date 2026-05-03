@@ -6860,6 +6860,371 @@ a.tcv-hash-truncate:hover {
   color: #be185d;
 }
 
+.tcv-tag.tcv-tag-sundae {
+  background: linear-gradient(135deg, #fde68a 0%, #fdba74 100%);
+  color: #92400e;
+}
+
+.tcv-tag.tcv-tag-sundae-cancel {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.tcv-tag.tcv-tag-sundae-scoop {
+  background: linear-gradient(135deg, #c7d2fe 0%, #a5b4fc 100%);
+  color: #312e81;
+}
+
+/* --- Sundae Scoop Banner --- */
+.tcv-sundae-scoop-banner {
+  margin-bottom: 12px;
+  border: 1px solid #a5b4fc;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
+  overflow: hidden;
+}
+
+.tcv-sundae-scoop-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  flex-wrap: wrap;
+}
+
+.tcv-sundae-scoop-banner-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #312e81;
+}
+
+.tcv-sundae-scoop-banner-count {
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.7);
+  color: #312e81;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.tcv-sundae-scoop-banner-meta {
+  font-size: 10px;
+  color: #4338ca;
+  margin-left: auto;
+}
+
+.tcv-sundae-scoop-banner-detail {
+  border-top: 1px solid #c7d2fe;
+}
+
+.tcv-sundae-scoop-banner-detail > summary {
+  padding: 6px 14px;
+  font-size: 11px;
+  color: #4338ca;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.tcv-sundae-scoop-table {
+  width: 100%;
+  font-size: 11px;
+  border-collapse: collapse;
+}
+
+.tcv-sundae-scoop-table th,
+.tcv-sundae-scoop-table td {
+  padding: 4px 14px;
+  text-align: left;
+  border-top: 1px solid #c7d2fe;
+}
+
+.tcv-sundae-scoop-table th {
+  font-weight: 600;
+  color: #4338ca;
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.tcv-sundae-scoop-strategy-row td {
+  padding-top: 2px;
+  padding-bottom: 6px;
+  border-top: none;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.tcv-sundae-scoop-strategy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: baseline;
+  font-size: 11px;
+}
+
+/* --- Sundae Order Panel --- */
+.tcv-sundae-panel {
+  margin: 10px 0;
+  border: 1px solid #fcd9b6;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fffbeb 0%, #fff7ed 100%);
+  overflow: hidden;
+}
+
+.tcv-sundae-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: linear-gradient(90deg, #fef3c7 0%, #fed7aa 100%);
+  border-bottom: 1px solid #fcd9b6;
+  font-size: 12px;
+  font-weight: 600;
+  color: #92400e;
+}
+
+.tcv-sundae-icon {
+  font-size: 14px;
+}
+
+.tcv-sundae-title {
+  flex-shrink: 0;
+}
+
+.tcv-sundae-script-hash {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: monospace;
+  font-size: 10px;
+  color: #78350f;
+}
+
+.tcv-sundae-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 0;
+}
+
+.tcv-sundae-order-kind {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #fed7aa;
+  color: #9a3412;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.tcv-sundae-pair {
+  font-size: 11px;
+  font-weight: 600;
+  color: #78350f;
+  background: rgba(255, 255, 255, 0.6);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #fcd9b6;
+}
+
+.tcv-sundae-pair-loading {
+  font-style: italic;
+  font-weight: 400;
+  color: #b45309;
+}
+
+.tcv-sundae-status {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+.tcv-sundae-status.ok {
+  background: #d1fae5;
+  color: #065f46;
+}
+.tcv-sundae-status.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+.tcv-sundae-status.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.tcv-sundae-section {
+  padding: 8px 12px;
+  border-bottom: 1px dashed #fcd9b6;
+}
+.tcv-sundae-section:last-child {
+  border-bottom: none;
+}
+
+.tcv-sundae-meta {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.tcv-sundae-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.tcv-sundae-row-block {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.tcv-sundae-leg-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #92400e;
+  flex-shrink: 0;
+  min-width: 90px;
+}
+
+.tcv-sundae-mono {
+  font-family: monospace;
+  font-size: 11px;
+  color: #1f2937;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tcv-sundae-asset {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.tcv-sundae-asset-amount {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.tcv-sundae-asset-symbol {
+  font-size: 11px;
+  color: #4b5563;
+}
+
+.tcv-sundae-asset-policy {
+  font-family: monospace;
+  font-size: 10px;
+  color: #9ca3af;
+  background: #f3f4f6;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.tcv-sundae-swap-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tcv-sundae-arrow {
+  font-size: 16px;
+  color: #d97706;
+  font-weight: 700;
+}
+
+.tcv-sundae-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tcv-sundae-self {
+  font-style: italic;
+  color: #4b5563;
+}
+
+.tcv-sundae-dest {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.tcv-sundae-estimate {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px dashed #fcd9b6;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tcv-sundae-estimate-headline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tcv-sundae-cushion {
+  font-size: 10px;
+  font-weight: 600;
+  background: #d1fae5;
+  color: #065f46;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.tcv-sundae-estimate-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 10px;
+  color: #4b5563;
+}
+
+.tcv-sundae-estimate-dim {
+  color: #94a3b8;
+}
+
+.tcv-sundae-issues {
+  padding: 6px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tcv-sundae-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.tcv-sundae-issue-error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.tcv-sundae-issue-warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+.tcv-sundae-issue-info {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.tcv-sundae-issue-icon {
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
 /* Assets Section */
 .tcv-assets-section {
   margin-top: 10px;

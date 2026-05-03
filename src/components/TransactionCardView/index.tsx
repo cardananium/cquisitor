@@ -2,12 +2,13 @@
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { SectionCard, InputCard, OutputCard, VKeyCard, RedeemerCard, MintSection, DiagnosticBadge, CertificateCard, WithdrawalCard, AuxiliaryDataSection, BootstrapWitnessCard, NativeScriptCard, TransactionDetailsSection, RequiredSignersCard, VotingProcedureCard, VotingProposalCard, PlutusScriptCard, PlutusDataCard } from "./components";
-import { 
-  buildDiagnosticsMap, 
+import { SectionCard, InputCard, OutputCard, VKeyCard, RedeemerCard, MintSection, DiagnosticBadge, CertificateCard, WithdrawalCard, AuxiliaryDataSection, BootstrapWitnessCard, NativeScriptCard, TransactionDetailsSection, RequiredSignersCard, VotingProcedureCard, VotingProposalCard, PlutusScriptCard, PlutusDataCard, SundaeScoopBanner } from "./components";
+import {
+  buildDiagnosticsMap,
   formatAda,
-  isTransactionData 
+  isTransactionData
 } from "./utils";
+import { buildSundaeTxContext } from "@/utils/sundae";
 import type { 
   TransactionCardViewProps, 
   TransactionData,
@@ -163,7 +164,40 @@ export default function TransactionCardView({
   inputUtxoInfoMap,
 }: TransactionCardViewProps): React.ReactElement {
   const diagnosticsMap = useMemo(() => buildDiagnosticsMap(diagnostics), [diagnostics]);
-  
+  const sundaeCtx = useMemo(() => {
+    if (!data.transaction || !isTransactionData(data.transaction)) return null;
+    return buildSundaeTxContext(
+      data.transaction.body,
+      data.transaction.witness_set.redeemers,
+      network,
+      inputUtxoInfoMap ?? null
+    );
+  }, [data.transaction, network, inputUtxoInfoMap]);
+
+  // Map of witness-set datum hash → parsed plutus data, for outputs that store
+  // their datum by hash rather than inline.
+  const witnessDatums = useMemo(() => {
+    if (!data.transaction || !isTransactionData(data.transaction)) return null;
+    const elems = data.transaction.witness_set.plutus_data?.elems;
+    const hashes = extractedHashes?.witness_datum_hashes;
+    if (!elems || !hashes) return null;
+    const map = new Map<string, import("@/utils/sundae/plutusData").PD>();
+    for (let i = 0; i < elems.length; i++) {
+      const hash = hashes[i];
+      const raw = elems[i];
+      if (!hash || !raw) continue;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          map.set(hash.toLowerCase(), parsed);
+        }
+      } catch {
+        // not parseable JSON; skip
+      }
+    }
+    return map;
+  }, [data.transaction, extractedHashes]);
+
   if (!data.transaction || !isTransactionData(data.transaction)) {
     return (
       <div className="tcv-wrapper">
@@ -229,6 +263,8 @@ export default function TransactionCardView({
           </div>
         </div>
         
+        {sundaeCtx?.scoop && <SundaeScoopBanner scoop={sundaeCtx.scoop} />}
+
         {/* Transaction Body Section */}
         <TopLevelSection
           title="Transaction Body"
@@ -256,15 +292,17 @@ export default function TransactionCardView({
           >
             <div className="tcv-items-grid">
               {body.inputs.map((input, i) => (
-                <InputCard 
-                  key={`${input.transaction_id}#${input.index}`} 
-                  input={input} 
-                  index={i} 
+                <InputCard
+                  key={`${input.transaction_id}#${input.index}`}
+                  input={input}
+                  index={i}
                   network={network}
                   path={`transaction.body.inputs.${i}`}
                   diagnosticsMap={diagnosticsMap}
                   focusedPath={focusedPath}
                   utxoInfo={inputUtxoInfoMap?.get(`${input.transaction_id}#${input.index}`)}
+                  sundaeDetection={sundaeCtx?.inputs.get(i)}
+                  witnessDatums={witnessDatums}
                 />
               ))}
             </div>
@@ -281,16 +319,17 @@ export default function TransactionCardView({
           >
             <div className="tcv-items-grid">
               {body.outputs.map((output, i) => (
-                <OutputCard 
-                  key={i} 
-                  output={output} 
-                  index={i} 
+                <OutputCard
+                  key={i}
+                  output={output}
+                  index={i}
                   network={network}
                   path={`transaction.body.outputs.${i}`}
                   diagnosticsMap={diagnosticsMap}
                   focusedPath={focusedPath}
                   inlineDatumHash={extractedHashes?.output_inline_datum_hashes?.[i] ?? null}
                   inlineScriptInfo={extractedHashes?.output_inline_scripts?.[i] ?? null}
+                  witnessDatums={witnessDatums}
                 />
               ))}
             </div>

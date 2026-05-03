@@ -1,13 +1,16 @@
 "use client";
 
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useMemo } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { HashWithTooltip } from "./HashWithTooltip";
+import { SundaeOrderPanel } from "./SundaeOrderPanel";
 import { AddressWithTooltip } from "../../AddressWithTooltip";
 import { getPathDiagnostics, getAddressLink, formatAda, formatAssetName } from "../utils";
+import { detectSundaeOutput } from "@/utils/sundae";
+import type { PD as SundaePD } from "@/utils/sundae/plutusData";
 import type { TransactionOutput, ValidationDiagnostic, CardanoNetwork, DataOption } from "../types";
 import type { InlineScriptInfo } from "@cardananium/cquisitor-lib";
 
@@ -33,6 +36,8 @@ interface OutputCardProps {
   inlineScriptInfo?: InlineScriptInfo | ExtendedScriptInfo | null;
   /** When true, hides the header (used when wrapped by InputCard) */
   isInputCard?: boolean;
+  /** Map of datum hash (lowercase hex) to parsed plutus data, for resolving DataHash datums via the tx's witness set. */
+  witnessDatums?: Map<string, SundaePD> | null;
 }
 
 // Auto-truncate with tooltip
@@ -175,7 +180,8 @@ export function OutputCard({
   focusedPath,
   inlineDatumHash,
   inlineScriptInfo,
-  isInputCard = false
+  isInputCard = false,
+  witnessDatums = null,
 }: OutputCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
@@ -192,6 +198,13 @@ export function OutputCard({
   
   const hasMultiasset = output.amount.multiasset && Object.keys(output.amount.multiasset).length > 0;
   const hasScriptRef = !!output.script_ref;
+
+  // Sundae detection — runs only when the output address looks like a script
+  // hosted by a known SundaeSwap protocol script.
+  const sundaeDetection = useMemo(
+    () => detectSundaeOutput(output, network, witnessDatums),
+    [output, network, witnessDatums]
+  );
 
   // Parse plutus data to determine type
   const plutusDataInfo = parseDataOption(output.plutus_data);
@@ -245,6 +258,12 @@ export function OutputCard({
             {isDatumHash && <span className="tcv-tag datum-hash">Datum Hash</span>}
             {isInlineDatum && <span className="tcv-tag datum">Inline Datum</span>}
             {(hasScriptRef || inlineScriptInfo) && <span className="tcv-tag script">Script</span>}
+            {sundaeDetection && (
+              <span className="tcv-tag tcv-tag-sundae">
+                Sundae {sundaeDetection.match.protocol}{" "}
+                {sundaeDetection.match.role === "order" ? "Order" : "Pool"}
+              </span>
+            )}
           </div>
           <DiagnosticBadge diagnostics={diagnostics} />
         </div>
@@ -338,6 +357,8 @@ export function OutputCard({
         </div>
       )}
       
+      {sundaeDetection && <SundaeOrderPanel detection={sundaeDetection} />}
+
       <div className="tcv-item-row tcv-ada-row">
         <span className="tcv-item-label">ADA</span>
         <span className="tcv-ada-amount">₳ {formatAda(output.amount.coin)}</span>
