@@ -9,7 +9,18 @@ import JSONBig from "json-bigint";
 // truncates those to a lossy `Number`. `useNativeBigInt: true` keeps
 // safe-integer ints as `Number` and promotes oversize values to
 // `BigInt`. PD.asInt already accepts both.
-const datumJson = JSONBig({ useNativeBigInt: true, alwaysParseAsBig: false });
+//
+// `constructorAction: "preserve"` is critical: Plutus datum JSON uses
+// `"constructor"` as a real key (Constr tag) and json-bigint's default
+// `"error"` policy throws `SyntaxError: forbidden constructor property`
+// — the data isn't user-attacker-controlled (it came from our own lib's
+// CBOR decoder), so the prototype-pollution guard doesn't apply here.
+const datumJson = JSONBig({
+  useNativeBigInt: true,
+  alwaysParseAsBig: false,
+  constructorAction: "preserve",
+  protoAction: "preserve",
+});
 import { SectionCard, InputCard, OutputCard, VKeyCard, RedeemerCard, MintSection, DiagnosticBadge, CertificateCard, WithdrawalCard, AuxiliaryDataSection, BootstrapWitnessCard, NativeScriptCard, TransactionDetailsSection, RequiredSignersCard, VotingProcedureCard, VotingProposalCard, PlutusScriptCard, PlutusDataCard, SundaeScoopBanner } from "./components";
 import {
   buildDiagnosticsMap,
