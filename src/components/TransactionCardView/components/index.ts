@@ -19,4 +19,6 @@ export { VotingProcedureCard } from "./VotingProcedureCard";
 export { VotingProposalCard } from "./VotingProposalCard";
 export { PlutusScriptCard } from "./PlutusScriptCard";
 export { PlutusDataCard } from "./PlutusDataCard";
+export { SundaeOrderPanel } from "./SundaeOrderPanel";
+export { SundaeScoopBanner } from "./SundaeScoopBanner";
 
