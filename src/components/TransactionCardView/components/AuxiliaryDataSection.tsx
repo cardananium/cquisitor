@@ -173,7 +173,7 @@ export function AuxiliaryDataSection({ auxData }: AuxiliaryDataSectionProps) {
               {auxData.plutus_scripts!.map((script, i) => (
                 <CollapsibleDataItem
                   key={i}
-                  label={`Script #${i} (${script.length} chars)`}
+                  label={`Script #${i} (${script.length / 2} bytes)`}
                   data={script}
                   colorAccent={AUX_DATA_ACCENT}
                 />

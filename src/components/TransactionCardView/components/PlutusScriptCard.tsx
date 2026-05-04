@@ -78,7 +78,7 @@ export function PlutusScriptCard({
               <HashWithTooltip hash={scriptInfo.hash} className="tcv-script-hash-inline" />
             </>
           )}
-          <span className="tcv-script-size">({script.length} bytes)</span>
+          <span className="tcv-script-size">({script.length / 2} bytes)</span>
           <DiagnosticBadge diagnostics={diagnostics} />
         </Collapsible.Trigger>
         <Collapsible.Content className="tcv-cdi-content">
