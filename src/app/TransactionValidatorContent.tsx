@@ -556,6 +556,18 @@ export default function TransactionValidatorContent() {
   
   // Modal visibility state
   const [showViewModeModal, setShowViewModeModal] = useState(false);
+
+  // Blockfrost coverage note: dismissable, persisted in localStorage.
+  const [showBlockfrostNote, setShowBlockfrostNote] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return !localStorage.getItem("cquisitor_blockfrost_coverage_note_dismissed");
+  });
+  const dismissBlockfrostNote = useCallback(() => {
+    setShowBlockfrostNote(false);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("cquisitor_blockfrost_coverage_note_dismissed", "true");
+    }
+  }, []);
   
   // Track if we should show modal after first decode
   const shouldShowModalRef = useRef(false);
@@ -966,14 +978,22 @@ export default function TransactionValidatorContent() {
 
       {/* Provider-specific coverage note: Blockfrost has narrower coverage
           than Koios (no committee endpoint in the public API, a few account/
-          pool fields fall back to defaults). Persistent — not dismissable —
-          so users hitting committee-aware validation know to expect drift. */}
-      {provider === "blockfrost" && (
+          pool fields fall back to defaults). Dismiss state is persisted in
+          localStorage so users who already know don't see it every session. */}
+      {provider === "blockfrost" && showBlockfrostNote && (
         <div className="url-context-warning" role="note">
           <span aria-hidden="true">ℹ️</span>
           <span>
             <strong>Blockfrost</strong> covers a narrower data surface than Koios. Constitutional committee membership isn&apos;t exposed by the public API, and a few account / pool / DRep fields fall back to protocol defaults — minor result drift is possible. For full coverage, switch to <strong>Koios</strong>.
           </span>
+          <button
+            type="button"
+            className="url-context-warning-dismiss"
+            onClick={dismissBlockfrostNote}
+            aria-label="Dismiss Blockfrost coverage note"
+          >
+            ×
+          </button>
         </div>
       )}
 
