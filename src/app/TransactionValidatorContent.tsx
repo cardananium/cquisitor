@@ -964,6 +964,19 @@ export default function TransactionValidatorContent() {
         </div>
       </div>
 
+      {/* Provider-specific coverage note: Blockfrost has narrower coverage
+          than Koios (no committee endpoint in the public API, a few account/
+          pool fields fall back to defaults). Persistent — not dismissable —
+          so users hitting committee-aware validation know to expect drift. */}
+      {provider === "blockfrost" && (
+        <div className="url-context-warning" role="note">
+          <span aria-hidden="true">ℹ️</span>
+          <span>
+            <strong>Blockfrost</strong> covers a narrower data surface than Koios. Constitutional committee membership isn&apos;t exposed by the public API, and a few account / pool / DRep fields fall back to protocol defaults — minor result drift is possible. For full coverage, switch to <strong>Koios</strong>.
+          </span>
+        </div>
+      )}
+
       {/* Usage hint */}
       <HintBanner storageKey="cquisitor_hint_validator">
         <strong>How to use:</strong> Paste transaction CBOR (hex or base64), enter your {provider === "blockfrost" ? "Blockfrost project_id" : "Koios API key"}, then click <strong>Validate</strong> to check Phase 1 &amp; 2 validation rules.

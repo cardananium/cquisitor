@@ -30,7 +30,6 @@ import {
   KoiosPoolInfo,
   KoiosDrepInfo,
   KoiosCommitteeInfo,
-  KoiosCommitteeMember,
   KoiosProposal,
   KoiosEpochParams,
   KoiosTxCborResponse,
@@ -93,7 +92,11 @@ interface BfTxUtxos {
 
 interface BfAccount {
   stake_address: string;
+  // `active` = currently delegating; `registered` = current registration state.
+  // The two diverge for stake addresses that registered then deregistered, so
+  // map `registered` (not `active`) to KoiosAccountInfo.status.
   active: boolean;
+  registered: boolean;
   controlled_amount: string;
   rewards_sum: string;
   withdrawable_amount: string;
@@ -134,19 +137,9 @@ interface BfDrep {
   expired: boolean;
 }
 
-interface BfCommitteeMember {
-  cc_cold: string; // hex
-  cc_hot: string | null; // hex
-  status: "authorized" | "not_authorized" | "resigned";
-  cc_cold_has_script: boolean;
-  cc_hot_has_script: boolean | null;
-  expiration_epoch: number;
-}
-
-interface BfCommittee {
-  threshold: { numerator: number; denominator: number };
-  members: BfCommitteeMember[];
-}
+// NOTE: no BfCommittee/BfCommitteeMember types here — public Blockfrost has
+// no committee endpoint, so getCommitteeInfo returns an empty stub. See
+// comment on that method for details.
 
 interface BfProposal {
   tx_hash: string;
@@ -203,10 +196,18 @@ interface BfEpochParameters {
   min_utxo: string;
   min_pool_cost: string;
   nonce: string;
+  // Deprecated by Blockfrost in favour of `cost_models_raw`; we still read it
+  // as a fallback for older nodes that haven't started serving the raw form.
   cost_models: {
     PlutusV1?: Record<string, number>;
     PlutusV2?: Record<string, number>;
     PlutusV3?: Record<string, number>;
+  } | null;
+  // Already in canonical operator-index order — no name→index mapping needed.
+  cost_models_raw?: {
+    PlutusV1?: number[];
+    PlutusV2?: number[];
+    PlutusV3?: number[];
   } | null;
   price_mem: number;
   price_step: number;
@@ -337,7 +338,10 @@ export class BlockfrostClient implements BlockchainDataClient {
 
   private async getRaw<T>(path: string, opts?: { allow404?: boolean }): Promise<T | null> {
     const url = `${this.baseUrl}${path}`;
-    const cached = this.getCache.get(url) as Promise<T | null> | undefined;
+    // Cache key includes allow404 so a 404→null reuse never leaks to a caller
+    // that would otherwise expect a throw.
+    const cacheKey = opts?.allow404 ? `${url}|404ok` : url;
+    const cached = this.getCache.get(cacheKey) as Promise<T | null> | undefined;
     if (cached) return cached;
     const promise = fetch(url, { method: "GET", headers: this.headers() }).then(async (res) => {
       if (res.status === 404 && opts?.allow404) return null;
@@ -347,7 +351,12 @@ export class BlockfrostClient implements BlockchainDataClient {
       }
       return res.json() as Promise<T>;
     });
-    this.getCache.set(url, promise);
+    // Evict failed promises so a transient error doesn't poison the rest of
+    // the validation run (one 429/5xx would otherwise stick for the session).
+    promise.catch(() => {
+      if (this.getCache.get(cacheKey) === promise) this.getCache.delete(cacheKey);
+    });
+    this.getCache.set(cacheKey, promise);
     return promise;
   }
 
@@ -459,9 +468,14 @@ export class BlockfrostClient implements BlockchainDataClient {
     try {
       const [info, cbor] = await Promise.all([
         this.getRaw<BfScriptInfo>(`/scripts/${hash}`, { allow404: true }),
-        this.getRaw<{ cbor: string }>(`/scripts/${hash}/cbor`, { allow404: true }),
+        this.getRaw<{ cbor: string | null }>(`/scripts/${hash}/cbor`, { allow404: true }),
       ]);
       if (!info) return null;
+      // For native scripts /scripts/{hash}/cbor returns null — that's expected
+      // and the validator handles missing bytes via extractMissingRefScriptBytes.
+      // For Plutus scripts a missing CBOR is a real failure: we leave bytes
+      // empty so the upstream "missing bytes" path can try recovering from
+      // the originating tx CBOR rather than silently dropping the ref script.
       return {
         hash,
         size: info.serialised_size ?? 0,
@@ -490,10 +504,10 @@ export class BlockfrostClient implements BlockchainDataClient {
       if (!data) continue; // unknown — caller fills in unregistered fallback
       out.push({
         stake_address: addr,
-        // Blockfrost treats `active` as "currently delegating". A stake address
-        // can be registered without delegating — Blockfrost sends 200 for any
-        // registered address, so 200 here means registered.
-        status: "registered",
+        // `data.registered` is the actual registration state. A stake address
+        // can return 200 with `registered: false` after deregistration, so the
+        // earlier "200 ⇒ registered" assumption was wrong.
+        status: data.registered ? "registered" : "not registered",
         delegated_drep: data.drep_id ?? null,
         delegated_pool: data.pool_id ?? null,
         total_balance: data.controlled_amount,
@@ -501,8 +515,11 @@ export class BlockfrostClient implements BlockchainDataClient {
         rewards: data.rewards_sum,
         withdrawals: "0",
         rewards_available: data.withdrawable_amount,
-        // Blockfrost doesn't report the original deposit; the validator
-        // fallback uses null when unknown.
+        // Blockfrost doesn't expose the historical deposit. Hardcode 2 ADA:
+        // Cardano's keyDeposit has been 2_000_000 lovelace since Shelley and
+        // has never changed, so this is correct in practice and keeps the
+        // validator on the same numeric path as the Koios provider (which
+        // always returns a non-empty value).
         deposit: "2000000",
         reserves: "0",
         treasury: "0",
@@ -536,9 +553,14 @@ export class BlockfrostClient implements BlockchainDataClient {
         meta_url: null,
         meta_hash: null,
         meta_json: null,
-        // Blockfrost surfaces retirement separately; an empty `retirement`
-        // array means the pool is still registered.
-        pool_status: data.retirement.length > 0 ? "retiring" : "registered",
+        // `registration` and `retirement` are append-only lists of cert tx
+        // hashes for the pool's history. The pool's *current* state is
+        // determined by which list received the most recent entry — but
+        // Blockfrost only gives us the lists in chronological order, not the
+        // last-touched-at. Since each retirement must be preceded by a
+        // registration, `registration.length > retirement.length` ⇒ the pool
+        // is currently registered (re-registered after its last retirement).
+        pool_status: data.registration.length > data.retirement.length ? "registered" : "retired",
         retiring_epoch: null,
         op_cert: null,
         op_cert_counter: null,
@@ -587,22 +609,21 @@ export class BlockfrostClient implements BlockchainDataClient {
   }
 
   async getCommitteeInfo(): Promise<KoiosCommitteeInfo> {
-    const data = await this.get<BfCommittee>("/governance/committee");
-    const members: KoiosCommitteeMember[] = data.members.map((m) => ({
-      status: m.status,
-      cc_cold_hex: m.cc_cold,
-      cc_cold_has_script: m.cc_cold_has_script,
-      cc_hot_hex: m.cc_hot,
-      cc_hot_has_script: m.cc_hot_has_script,
-      expiration_epoch: m.expiration_epoch,
-    }));
+    // KNOWN LIMITATION: the public Blockfrost API has no committee endpoint
+    // (verified against blockfrost/openapi.yaml; /governance/committee and
+    // every plausible variant return 400 "Invalid path"). For now return an
+    // empty committee so the validator runs to completion;
+    // committee-membership-aware validation (resignations, hot-key auth,
+    // etc.) simply degrades on the Blockfrost provider compared to Koios.
+    // Switch back to fetching here once Blockfrost ships an equivalent
+    // endpoint.
     return {
       proposal_id: "",
       proposal_tx_hash: "",
       proposal_index: 0,
-      quorum_numerator: data.threshold.numerator,
-      quorum_denominator: data.threshold.denominator,
-      members,
+      quorum_numerator: 0,
+      quorum_denominator: 1,
+      members: [],
     };
   }
 
@@ -626,33 +647,53 @@ export class BlockfrostClient implements BlockchainDataClient {
 
   async getLastEnactedProposals(proposalTypes: string[]): Promise<KoiosProposal[]> {
     if (proposalTypes.length === 0) return [];
-    // Blockfrost's `/governance/proposals` lists everything paginated; we walk
-    // the first page only (default 100, ordered desc by recency) which covers
-    // a comfortable history window without hammering the API. We can extend
-    // pagination later if needed.
-    type BfProposalListItem = BfProposal;
-    let page = 1;
-    const wanted = new Set(
-      proposalTypes.map((t) => t.toLowerCase())
-    );
+    // `/governance/proposals` (list) only returns
+    // `{id, tx_hash, cert_index, governance_type}` — no enacted_epoch — so
+    // we have to fetch each candidate's detail to know whether it was
+    // enacted. We walk pages newest-first, filter list entries to types we
+    // still need, batch-fetch their details, and take the first enacted hit
+    // per type. The detail calls are the expensive part, so prefiltering on
+    // governance_type before issuing them is what keeps the request budget
+    // sane.
+    type BfProposalListItem = {
+      id: string;
+      tx_hash: string;
+      cert_index: number;
+      governance_type: string;
+    };
+    const remaining = new Set(proposalTypes.map((t) => t.toLowerCase()));
     const enacted: KoiosProposal[] = [];
-    // Cap at 5 pages = 500 proposals to keep the network footprint bounded.
-    for (let i = 0; i < 5; i++) {
+    const PAGE_SIZE = 100;
+    const MAX_PAGES = 20;
+    for (let page = 1; page <= MAX_PAGES; page++) {
       const list = await this.get<BfProposalListItem[]>(
-        `/governance/proposals?count=100&page=${page}&order=desc`
+        `/governance/proposals?count=${PAGE_SIZE}&page=${page}&order=desc`
       );
-      for (const p of list) {
-        if (p.enacted_epoch === null) continue;
-        const koios = this.bfProposalToKoios(p);
-        if (
-          wanted.has(koios.proposal_type) ||
-          wanted.has(koios.proposal_type.toLowerCase())
-        ) {
+      if (list.length === 0) break;
+      const candidates = list.filter((p) => {
+        const key = mapGovernanceType(p.governance_type).toLowerCase();
+        return remaining.has(key);
+      });
+      const details = await Promise.all(
+        candidates.map((c) =>
+          this.getRaw<BfProposal>(
+            `/governance/proposals/${c.tx_hash}/${c.cert_index}`,
+            { allow404: true }
+          )
+        )
+      );
+      for (const d of details) {
+        if (!d || d.enacted_epoch === null) continue;
+        const koios = this.bfProposalToKoios(d);
+        const key = koios.proposal_type.toLowerCase();
+        if (remaining.has(key)) {
           enacted.push(koios);
+          // Lock in the most-recent enaction per type, then stop watching it.
+          remaining.delete(key);
         }
       }
-      if (list.length < 100) break;
-      page++;
+      if (remaining.size === 0) break;
+      if (list.length < PAGE_SIZE) break;
     }
     return enacted;
   }
@@ -661,14 +702,25 @@ export class BlockfrostClient implements BlockchainDataClient {
     const path =
       epochNo !== undefined ? `/epochs/${epochNo}/parameters` : "/epochs/latest/parameters";
     const p = await this.get<BfEpochParameters>(path);
+    // Prefer `cost_models_raw` (already in canonical order, hash-stable) and
+    // fall back to translating the deprecated named-key `cost_models` only if
+    // the node doesn't serve the raw form. The named-key path is fragile —
+    // adding a new operator requires updating PLUTUS_V*_ORDER in lockstep, and
+    // any drift produces silent script_data_hash mismatches.
     const cost_models =
-      p.cost_models
+      p.cost_models_raw
         ? {
-            PlutusV1: namedCostModelToArray(p.cost_models.PlutusV1, PLUTUS_V1_ORDER) ?? undefined,
-            PlutusV2: namedCostModelToArray(p.cost_models.PlutusV2, PLUTUS_V2_ORDER) ?? undefined,
-            PlutusV3: namedCostModelToArray(p.cost_models.PlutusV3, PLUTUS_V3_ORDER) ?? undefined,
+            PlutusV1: p.cost_models_raw.PlutusV1,
+            PlutusV2: p.cost_models_raw.PlutusV2,
+            PlutusV3: p.cost_models_raw.PlutusV3,
           }
-        : null;
+        : p.cost_models
+          ? {
+              PlutusV1: namedCostModelToArray(p.cost_models.PlutusV1, PLUTUS_V1_ORDER) ?? undefined,
+              PlutusV2: namedCostModelToArray(p.cost_models.PlutusV2, PLUTUS_V2_ORDER) ?? undefined,
+              PlutusV3: namedCostModelToArray(p.cost_models.PlutusV3, PLUTUS_V3_ORDER) ?? undefined,
+            }
+          : null;
     return [
       {
         epoch_no: p.epoch,
