@@ -31,7 +31,8 @@ import {
 } from '@cardananium/cquisitor-lib';
 
 import { KoiosClient, formatUtxoRef, govActionTypeToKoiosProposalType } from './koiosClient';
-import type { GovActionRef } from './koiosClient';
+import { BlockfrostClient } from './blockfrostClient';
+import type { GovActionRef, BlockchainDataClient } from './koiosClient';
 import { ensurePoolIdBech32 } from './cip129';
 import { formatScriptRefForLib, encodeCborBytes } from './scriptRefFormat';
 import type {
@@ -52,12 +53,33 @@ export type { KoiosUtxoInfo } from './koiosTypes';
 export type NetworkType = 'mainnet' | 'preview' | 'preprod';
 
 /**
+ * Which blockchain data provider to use for fetching the validation context.
+ * Both providers expose the same surface — see BlockchainDataClient — so the
+ * downstream pipeline doesn't care which one is in play.
+ */
+export type DataProvider = 'koios' | 'blockfrost';
+
+/**
  * Configuration for transaction validation
  */
 export interface TransactionValidationConfig {
   txHex: string;
   network: NetworkType;
+  /** Defaults to 'koios' for backwards compatibility. */
+  provider?: DataProvider;
   apiKey?: string;
+}
+
+function makeClient(
+  provider: DataProvider,
+  network: NetworkType,
+  apiKey?: string
+): BlockchainDataClient {
+  if (provider === 'blockfrost') {
+    if (!apiKey) throw new Error('Blockfrost project_id is required');
+    return new BlockfrostClient({ network, apiKey });
+  }
+  return new KoiosClient({ network, apiKey });
 }
 
 /**
@@ -190,7 +212,7 @@ function findUtxosWithMissingRefScriptBytes(utxoInfos: KoiosUtxoInfo[]): KoiosUt
  */
 async function extractMissingRefScriptBytes(
   utxosWithMissingBytes: KoiosUtxoInfo[],
-  client: KoiosClient
+  client: BlockchainDataClient
 ): Promise<Map<string, string>> {
   const result = new Map<string, string>();
   
@@ -473,15 +495,16 @@ function govActionIdToRef(actionId: GovernanceActionId): GovActionRef {
 }
 
 /**
- * Fetches all necessary data from Koios for transaction validation
+ * Fetches all necessary data from the chosen data provider for transaction validation
  */
 export async function fetchValidationData(
   necessaryData: NecessaryInputData,
   network: NetworkType,
-  apiKey?: string
+  apiKey?: string,
+  provider: DataProvider = 'koios'
 ): Promise<FetchedValidationData> {
   const koiosNetwork = mapToKoiosNetwork(network);
-  const client = new KoiosClient({ network: koiosNetwork, apiKey });
+  const client = makeClient(provider, koiosNetwork, apiKey);
 
   // Convert govActions to refs for targeted querying
   const govActionRefs: GovActionRef[] = necessaryData.govActions.map(govActionIdToRef);
@@ -746,15 +769,15 @@ export async function fetchValidationData(
 export async function validateTransaction(
   config: TransactionValidationConfig
 ): Promise<ExtendedValidationResult> {
-  const { txHex, network, apiKey } = config;
+  const { txHex, network, apiKey, provider = 'koios' } = config;
 
   // Step 1: Get the list of necessary data from the transaction
   const necessaryDataJson = get_necessary_data_list_js(txHex, network);
   console.log('[validateTransaction] necessaryDataJson:', necessaryDataJson);
   const necessaryData: NecessaryInputData = JSON.parse(necessaryDataJson);
 
-  // Step 2: Fetch all required data from Koios
-  const fetchedData = await fetchValidationData(necessaryData, network, apiKey);
+  // Step 2: Fetch all required data from the chosen provider
+  const fetchedData = await fetchValidationData(necessaryData, network, apiKey, provider);
 
   // Step 3: Build the ValidationInputContext
   const validationContext: ValidationInputContext = {

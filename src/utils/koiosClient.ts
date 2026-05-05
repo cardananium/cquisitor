@@ -32,6 +32,26 @@ export interface GovActionRef {
 }
 
 /**
+ * The cross-provider surface the validator needs. Both KoiosClient and
+ * BlockfrostClient satisfy this — pick whichever, the rest of the pipeline
+ * works the same way (both translate into Koios-shaped responses for the
+ * shared adapter code in transactionValidation.ts).
+ */
+export interface BlockchainDataClient {
+  getTip(): Promise<KoiosTip[]>;
+  getTotals(epochNo?: number): Promise<KoiosTotals[]>;
+  getUtxoInfo(utxoRefs: string[]): Promise<KoiosUtxoInfo[]>;
+  getAccountInfo(stakeAddresses: string[]): Promise<KoiosAccountInfo[]>;
+  getPoolInfo(poolIds: string[]): Promise<KoiosPoolInfo[]>;
+  getDrepInfo(drepIds: string[]): Promise<KoiosDrepInfo[]>;
+  getCommitteeInfo(): Promise<KoiosCommitteeInfo>;
+  getProposalsByRefs(refs: GovActionRef[]): Promise<KoiosProposal[]>;
+  getLastEnactedProposals(proposalTypes: string[]): Promise<KoiosProposal[]>;
+  getEpochParams(epochNo?: number): Promise<KoiosEpochParams[]>;
+  getTxCbor(txHashes: string[]): Promise<KoiosTxCborResponse[]>;
+}
+
+/**
  * Predefined DRep values that should not be queried from Koios
  * These are special built-in DRep types in the Cardano protocol
  */
@@ -45,7 +65,7 @@ export interface KoiosClientConfig {
   apiKey?: string;
 }
 
-export class KoiosClient {
+export class KoiosClient implements BlockchainDataClient {
   private baseUrl: string;
   private apiKey?: string;
 
