@@ -495,6 +495,8 @@ export default function TransactionValidatorContent() {
     setTxInput,
     network,
     setNetwork,
+    provider,
+    setProvider,
     apiKey,
     isLoading,
     setIsLoading,
@@ -689,7 +691,11 @@ export default function TransactionValidatorContent() {
         !forceRefetch && contextSource === "url" && !!fetchedContext && useUrlContext;
 
       if (!canUseUrlContext && !apiKey.trim()) {
-        setError("Koios API Key is required. Get one at koios.rest/pricing/Pricing.html");
+        setError(
+          provider === "blockfrost"
+            ? "Blockfrost project_id is required. Get one at blockfrost.io/dashboard"
+            : "Koios API Key is required. Get one at koios.rest/pricing/Pricing.html"
+        );
         return;
       }
 
@@ -713,12 +719,13 @@ export default function TransactionValidatorContent() {
             await validateTransaction({
               txHex: hex,
               network,
+              provider,
               apiKey: apiKey.trim(),
             });
           setResult(validationResult);
           setInputUtxoInfoMap(utxoInfoMap);
           setFetchedContext(fresh);
-          setContextSource("koios");
+          setContextSource(provider);
           setContextCapturedAt(Date.now());
           setCtxIncompatibleWarning(false);
         }
@@ -731,6 +738,7 @@ export default function TransactionValidatorContent() {
     [
       txInput,
       network,
+      provider,
       apiKey,
       contextSource,
       fetchedContext,
@@ -849,7 +857,7 @@ export default function TransactionValidatorContent() {
       <div className="panel-header-compact">
         <span className="panel-title">Transaction Validator</span>
         <HelpTooltip>
-          <strong>How to use:</strong> Paste transaction CBOR (hex or base64), enter your Koios API key, then click Validate to check Phase 1 &amp; 2 validation rules. Click on errors to navigate to the problematic field.
+          <strong>How to use:</strong> Paste transaction CBOR (hex or base64), pick a data provider and enter its API key, then click Validate to check Phase 1 &amp; 2 validation rules. Click on errors to navigate to the problematic field.
         </HelpTooltip>
         <ShareButton
           disabled={!txInput.trim()}
@@ -871,7 +879,7 @@ export default function TransactionValidatorContent() {
         </button>
       </div>
 
-      {/* Controls row: Network + API Key */}
+      {/* Controls row: Network + Provider + API Key */}
       <div className="validator-controls-row">
         <div className="control-group">
           <label>Network</label>
@@ -886,9 +894,21 @@ export default function TransactionValidatorContent() {
           />
         </div>
 
+        <div className="control-group">
+          <label>Data provider</label>
+          <Select
+            value={provider}
+            onValueChange={(value) => setProvider(value as "koios" | "blockfrost")}
+            options={[
+              { value: "koios", label: "Koios" },
+              { value: "blockfrost", label: "Blockfrost" },
+            ]}
+          />
+        </div>
+
         <div className="control-group flex-1">
           <label htmlFor="api-key" className="api-key-label">
-            Koios API Key <span className="text-red-500">*</span>
+            {provider === "blockfrost" ? "Blockfrost project_id" : "Koios API Key"} <span className="text-red-500">*</span>
             <Tooltip.Provider delayDuration={200}>
               <Tooltip.Root>
                 <Tooltip.Trigger asChild>
@@ -898,15 +918,31 @@ export default function TransactionValidatorContent() {
                 </Tooltip.Trigger>
                 <Tooltip.Portal>
                   <Tooltip.Content className="tooltip-content" sideOffset={5} side="bottom">
-                    <p>API key is required to fetch blockchain data from Koios API for transaction validation.</p>
-                    <a 
-                      href="https://koios.rest/pricing/Pricing.html" 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="tooltip-link"
-                    >
-                      Get your API key at koios.rest →
-                    </a>
+                    {provider === "blockfrost" ? (
+                      <>
+                        <p>A Blockfrost project_id is required to fetch blockchain data for transaction validation.</p>
+                        <a
+                          href="https://blockfrost.io/dashboard"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="tooltip-link"
+                        >
+                          Get your project_id at blockfrost.io →
+                        </a>
+                      </>
+                    ) : (
+                      <>
+                        <p>API key is required to fetch blockchain data from Koios API for transaction validation.</p>
+                        <a
+                          href="https://koios.rest/pricing/Pricing.html"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="tooltip-link"
+                        >
+                          Get your API key at koios.rest →
+                        </a>
+                      </>
+                    )}
                     <Tooltip.Arrow className="tooltip-arrow" />
                   </Tooltip.Content>
                 </Tooltip.Portal>
@@ -918,7 +954,11 @@ export default function TransactionValidatorContent() {
             type="password"
             value={apiKey}
             onChange={(e) => handleApiKeyChange(e.target.value)}
-            placeholder="Enter your Koios API key"
+            placeholder={
+              provider === "blockfrost"
+                ? "Enter your Blockfrost project_id"
+                : "Enter your Koios API key"
+            }
             className={`validator-input ${!apiKey.trim() ? 'validator-input-required' : ''}`}
           />
         </div>
@@ -926,7 +966,7 @@ export default function TransactionValidatorContent() {
 
       {/* Usage hint */}
       <HintBanner storageKey="cquisitor_hint_validator">
-        <strong>How to use:</strong> Paste transaction CBOR (hex or base64), enter your Koios API key, then click <strong>Validate</strong> to check Phase 1 &amp; 2 validation rules.
+        <strong>How to use:</strong> Paste transaction CBOR (hex or base64), enter your {provider === "blockfrost" ? "Blockfrost project_id" : "Koios API key"}, then click <strong>Validate</strong> to check Phase 1 &amp; 2 validation rules.
       </HintBanner>
 
       {/* URL-provided context banner */}
@@ -943,7 +983,10 @@ export default function TransactionValidatorContent() {
             </span>
           </div>
           <div className="url-context-banner-actions">
-            <label className="url-context-banner-toggle" title="If off, Validate will fetch a fresh context from Koios">
+            <label
+              className="url-context-banner-toggle"
+              title={`If off, Validate will fetch a fresh context from ${provider === "blockfrost" ? "Blockfrost" : "Koios"}`}
+            >
               <input
                 type="checkbox"
                 checked={useUrlContext}
@@ -956,7 +999,11 @@ export default function TransactionValidatorContent() {
               className="url-context-banner-refetch"
               onClick={handleRefetch}
               disabled={isLoading || !apiKey.trim()}
-              title={!apiKey.trim() ? "Koios API key required" : "Fetch fresh context from Koios"}
+              title={
+                !apiKey.trim()
+                  ? `${provider === "blockfrost" ? "Blockfrost project_id" : "Koios API key"} required`
+                  : `Fetch fresh context from ${provider === "blockfrost" ? "Blockfrost" : "Koios"}`
+              }
             >
               {isLoading ? <SpinnerIcon size={12} className="animate-spin" /> : "↻"}
               Refetch
@@ -1200,7 +1247,7 @@ export default function TransactionValidatorContent() {
       ) : (
         <EmptyStatePlaceholder
           title="Transaction Validator"
-          description="Paste transaction CBOR (hex or base64) in the left panel, enter your Koios API key, then click Validate to check Phase 1 & 2 validation rules."
+          description="Paste transaction CBOR (hex or base64) in the left panel, pick a data provider and enter its API key, then click Validate to check Phase 1 & 2 validation rules."
           showArrow={false}
           icon="validator"
         />

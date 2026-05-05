@@ -9,12 +9,14 @@ import {
   ReactNode,
 } from "react";
 import type { NetworkType, ExtractedHashes } from "@cardananium/cquisitor-lib";
-import type { ValidationResult, FetchedValidationData } from "@/utils/transactionValidation";
+import type { ValidationResult, FetchedValidationData, DataProvider } from "@/utils/transactionValidation";
 import type { TransactionData } from "@/components/TransactionCardView/types";
 import type { KoiosUtxoInfo } from "@/utils/koiosTypes";
 import { parseHash, parseValidatorShare } from "@/utils/shareLink";
 
 const KOIOS_API_KEY_STORAGE_KEY = "cquisitor_koios_api_key";
+const BLOCKFROST_API_KEY_STORAGE_KEY = "cquisitor_blockfrost_api_key";
+const PROVIDER_STORAGE_KEY = "cquisitor_data_provider";
 
 export interface DecodedTransaction {
   transaction_hash?: string;
@@ -26,11 +28,12 @@ export interface DecodedTransaction {
  */
 export type InputUtxoInfoMap = Map<string, KoiosUtxoInfo>;
 
-export type ContextSource = "url" | "koios" | null;
+export type ContextSource = "url" | "koios" | "blockfrost" | null;
 
 interface TransactionValidatorState {
   txInput: string;
   network: NetworkType;
+  provider: DataProvider;
   apiKey: string;
   isLoading: boolean;
   result: ValidationResult | null;
@@ -59,6 +62,7 @@ interface TransactionValidatorState {
 interface TransactionValidatorContextType extends TransactionValidatorState {
   setTxInput: (value: string) => void;
   setNetwork: (value: NetworkType) => void;
+  setProvider: (value: DataProvider) => void;
   setApiKey: (value: string) => void;
   setIsLoading: (value: boolean) => void;
   setResult: (value: ValidationResult | null) => void;
@@ -106,13 +110,29 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
   const initial = readInitialValidatorState();
   const [txInput, setTxInput] = useState(initial.txInput);
   const [network, setNetwork] = useState<NetworkType>(initial.network);
-  // Load API key from localStorage on initial render
-  const [apiKey, setApiKey] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem(KOIOS_API_KEY_STORAGE_KEY) || "";
-    }
-    return "";
+  // Provider + per-provider keys, persisted independently in localStorage so
+  // switching back and forth doesn't lose either key.
+  const [provider, setProviderState] = useState<DataProvider>(() => {
+    if (typeof window === "undefined") return "koios";
+    const v = localStorage.getItem(PROVIDER_STORAGE_KEY);
+    return v === "blockfrost" ? "blockfrost" : "koios";
   });
+  const [koiosKey, setKoiosKey] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem(KOIOS_API_KEY_STORAGE_KEY) || "";
+  });
+  const [blockfrostKey, setBlockfrostKey] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem(BLOCKFROST_API_KEY_STORAGE_KEY) || "";
+  });
+  const apiKey = provider === "blockfrost" ? blockfrostKey : koiosKey;
+  const setApiKey = useCallback(
+    (value: string) => {
+      if (provider === "blockfrost") setBlockfrostKey(value);
+      else setKoiosKey(value);
+    },
+    [provider]
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -129,13 +149,27 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
   const [ctxIncompatibleWarning, setCtxIncompatibleWarning] = useState(false);
   const [futureVersionWarning, setFutureVersionWarning] = useState(false);
 
-  // Save API key to localStorage when it changes
-  const handleApiKeyChange = useCallback((value: string) => {
-    setApiKey(value);
-    if (value.trim()) {
-      localStorage.setItem(KOIOS_API_KEY_STORAGE_KEY, value.trim());
-    } else {
-      localStorage.removeItem(KOIOS_API_KEY_STORAGE_KEY);
+  // Save API key (for the currently active provider) to localStorage.
+  const handleApiKeyChange = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      const storageKey =
+        provider === "blockfrost" ? BLOCKFROST_API_KEY_STORAGE_KEY : KOIOS_API_KEY_STORAGE_KEY;
+      if (provider === "blockfrost") setBlockfrostKey(value);
+      else setKoiosKey(value);
+      if (trimmed) {
+        localStorage.setItem(storageKey, trimmed);
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    },
+    [provider]
+  );
+
+  const setProvider = useCallback((value: DataProvider) => {
+    setProviderState(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(PROVIDER_STORAGE_KEY, value);
     }
   }, []);
 
@@ -191,6 +225,7 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
       value={{
         txInput,
         network,
+        provider,
         apiKey,
         isLoading,
         result,
@@ -209,6 +244,7 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
         futureVersionWarning,
         setTxInput,
         setNetwork,
+        setProvider,
         setApiKey,
         setIsLoading,
         setResult,
