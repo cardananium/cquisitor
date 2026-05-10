@@ -1,6 +1,6 @@
 import type { NetworkType } from "@cardananium/cquisitor-lib";
 
-const TX_STUDIO_BASE_URL = "https://tx-studio.onrender.com";
+const TX_STUDIO_BASE_URL = "https://www.transaction.studio";
 
 export function buildTxStudioUrl(cborHex: string, network: NetworkType): string {
   const params = new URLSearchParams();
