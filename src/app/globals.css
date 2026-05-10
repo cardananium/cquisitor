@@ -2713,6 +2713,69 @@ input, textarea, select, button {
   margin-left: 0;
 }
 
+/* ===== External app launch buttons ("Open in ...") =====
+   Same shape/size as .share-btn but with a neutral outlined look so the
+   primary Share action stays visually dominant. */
+.external-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: #2c5282;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, transform 0.05s;
+}
+
+.external-link-btn:hover:not(:disabled) {
+  background: #ebf4ff;
+  border-color: #3182ce;
+  color: #2c5282;
+  box-shadow: 0 1px 2px rgba(49, 130, 206, 0.15);
+}
+
+.external-link-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.external-link-btn:disabled {
+  background: #f7fafc;
+  color: #a0aec0;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
+}
+
+.external-link-btn + .external-link-btn,
+.share-btn + .external-link-btn,
+.external-link-btn + .share-btn,
+.external-link-btn + .btn-icon {
+  margin-left: 0;
+}
+
+:root.dark .external-link-btn {
+  background: #1e293b;
+  color: #93c5fd;
+  border-color: #334155;
+}
+
+:root.dark .external-link-btn:hover:not(:disabled) {
+  background: #1e3a5f;
+  border-color: #3182ce;
+  color: #bfdbfe;
+}
+
+:root.dark .external-link-btn:disabled {
+  background: #0f172a;
+  color: #475569;
+  border-color: #1e293b;
+}
+
 .share-btn:hover:not(:disabled) {
   background: #2c5fa8;
   box-shadow: 0 2px 4px rgba(49, 130, 206, 0.35);

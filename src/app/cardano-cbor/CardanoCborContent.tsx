@@ -17,8 +17,14 @@ import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
+import { CheckCircleIcon, ExternalLinkIcon } from "@/components/Icons";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
+import {
+  buildTxStudioUrl,
+  buildValidatorUrl,
+  openExternalUrl,
+} from "@/utils/externalApps";
 
 // Types that require DecodingParams
 const TYPES_WITH_PLUTUS_SCRIPT_VERSION = ["PlutusScript"];
@@ -313,6 +319,34 @@ export default function CardanoCborContent() {
             },
           })}
         />
+        {selectedType === "Transaction" && input.trim() && (
+          <>
+            <button
+              type="button"
+              className="external-link-btn"
+              title="Open this transaction in the Transaction Validator"
+              onClick={() => {
+                const hex = detectTypesWithFallback(input).processedInput;
+                openExternalUrl(buildValidatorUrl(hex, network));
+              }}
+            >
+              <CheckCircleIcon size={12} />
+              <span>Open in Validator</span>
+            </button>
+            <button
+              type="button"
+              className="external-link-btn"
+              title="Open this transaction in Tx Studio"
+              onClick={() => {
+                const hex = detectTypesWithFallback(input).processedInput;
+                openExternalUrl(buildTxStudioUrl(hex, network));
+              }}
+            >
+              <ExternalLinkIcon size={12} />
+              <span>Tx Studio</span>
+            </button>
+          </>
+        )}
         <button onClick={handleClear} className="btn-icon" title="Clear">
           ✕
         </button>

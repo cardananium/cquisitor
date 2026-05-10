@@ -19,7 +19,9 @@ import {
   ChevronDownIcon,
   CopyIcon,
   CheckIcon,
+  ExternalLinkIcon,
 } from "@/components/Icons";
+import { buildTxStudioUrl, openExternalUrl } from "@/utils/externalApps";
 import { ErrorDataDetails, getCleanedErrorMessage, DecompositionModalProvider } from "@/components/ErrorDataFormatters";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
@@ -886,6 +888,20 @@ export default function TransactionValidatorContent() {
             };
           }}
         />
+        {decodedTx && txInput.trim() && (
+          <button
+            type="button"
+            className="external-link-btn"
+            title="Open this transaction in Tx Studio"
+            onClick={() => {
+              const { hex } = processTransactionInput(txInput);
+              openExternalUrl(buildTxStudioUrl(hex, network));
+            }}
+          >
+            <ExternalLinkIcon size={12} />
+            <span>Tx Studio</span>
+          </button>
+        )}
         <button onClick={clearAll} className="btn-icon" title="Clear">
           ✕
         </button>
