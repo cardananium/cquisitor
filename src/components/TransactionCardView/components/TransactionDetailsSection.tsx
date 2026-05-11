@@ -4,6 +4,7 @@ import React, { useRef, useEffect } from "react";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { CopyButton } from "./CopyButton";
 import { HashWithTooltip } from "./HashWithTooltip";
+import { SlotWithTooltip } from "./SlotWithTooltip";
 import { getPathDiagnostics } from "../utils";
 import type { TransactionBody, ValidationDiagnostic } from "../types";
 
@@ -81,7 +82,7 @@ function DetailField({
       displayValue = <span className="tcv-detail-ada">₳ {formatAda(String(value))}</span>;
       break;
     case "slot":
-      displayValue = <span className="tcv-detail-slot">{Number(value).toLocaleString()}</span>;
+      displayValue = <SlotWithTooltip slot={Number(value)} className="tcv-detail-slot" />;
       break;
     case "number":
       displayValue = <span className="tcv-detail-number">{Number(value).toLocaleString()}</span>;

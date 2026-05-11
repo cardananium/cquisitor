@@ -15,6 +15,7 @@ export { CollapsibleDataItem } from "./CollapsibleDataItem";
 export { TransactionDetailsSection } from "./TransactionDetailsSection";
 export { RequiredSignersCard } from "./RequiredSignersCard";
 export { HashWithTooltip } from "./HashWithTooltip";
+export { SlotWithTooltip } from "./SlotWithTooltip";
 export { VotingProcedureCard } from "./VotingProcedureCard";
 export { VotingProposalCard } from "./VotingProposalCard";
 export { PlutusScriptCard } from "./PlutusScriptCard";

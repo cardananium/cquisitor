@@ -14,9 +14,40 @@ import type { TransactionData } from "@/components/TransactionCardView/types";
 import type { KoiosUtxoInfo } from "@/utils/koiosTypes";
 import { parseHash, parseValidatorShare } from "@/utils/shareLink";
 
+// Blockfrost project_ids are strictly tied to a single network, so they are
+// stored per-network. Koios tokens are valid across networks per koios.rest's
+// pricing page ("API Tokens are valid across networks"), so a single key is
+// stored. The legacy un-suffixed Blockfrost key (pre 2026-05) is migrated
+// into the mainnet slot on first read so users don't lose their entry.
 const KOIOS_API_KEY_STORAGE_KEY = "cquisitor_koios_api_key";
-const BLOCKFROST_API_KEY_STORAGE_KEY = "cquisitor_blockfrost_api_key";
+const BLOCKFROST_API_KEY_STORAGE_PREFIX = "cquisitor_blockfrost_api_key";
 const PROVIDER_STORAGE_KEY = "cquisitor_data_provider";
+
+const NETWORKS: ReadonlyArray<NetworkType> = ["mainnet", "preview", "preprod"];
+
+type BlockfrostKeyMap = Record<NetworkType, string>;
+
+function blockfrostStorageKey(network: NetworkType): string {
+  return `${BLOCKFROST_API_KEY_STORAGE_PREFIX}_${network}`;
+}
+
+function loadBlockfrostKeys(): BlockfrostKeyMap {
+  const empty: BlockfrostKeyMap = { mainnet: "", preview: "", preprod: "" };
+  if (typeof window === "undefined") return empty;
+  const map = { ...empty };
+  for (const net of NETWORKS) {
+    map[net] = localStorage.getItem(blockfrostStorageKey(net)) || "";
+  }
+  const legacy = localStorage.getItem(BLOCKFROST_API_KEY_STORAGE_PREFIX);
+  if (legacy) {
+    if (!map.mainnet) {
+      map.mainnet = legacy;
+      localStorage.setItem(blockfrostStorageKey("mainnet"), legacy);
+    }
+    localStorage.removeItem(BLOCKFROST_API_KEY_STORAGE_PREFIX);
+  }
+  return map;
+}
 
 export interface DecodedTransaction {
   transaction_hash?: string;
@@ -117,21 +148,21 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
     const v = localStorage.getItem(PROVIDER_STORAGE_KEY);
     return v === "blockfrost" ? "blockfrost" : "koios";
   });
-  const [koiosKey, setKoiosKey] = useState(() => {
+  const [koiosKey, setKoiosKey] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     return localStorage.getItem(KOIOS_API_KEY_STORAGE_KEY) || "";
   });
-  const [blockfrostKey, setBlockfrostKey] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return localStorage.getItem(BLOCKFROST_API_KEY_STORAGE_KEY) || "";
-  });
-  const apiKey = provider === "blockfrost" ? blockfrostKey : koiosKey;
+  const [blockfrostKeys, setBlockfrostKeys] = useState<BlockfrostKeyMap>(() => loadBlockfrostKeys());
+  const apiKey = provider === "blockfrost" ? blockfrostKeys[network] : koiosKey;
   const setApiKey = useCallback(
     (value: string) => {
-      if (provider === "blockfrost") setBlockfrostKey(value);
-      else setKoiosKey(value);
+      if (provider === "blockfrost") {
+        setBlockfrostKeys((prev) => ({ ...prev, [network]: value }));
+      } else {
+        setKoiosKey(value);
+      }
     },
-    [provider]
+    [provider, network]
   );
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ValidationResult | null>(null);
@@ -149,21 +180,25 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
   const [ctxIncompatibleWarning, setCtxIncompatibleWarning] = useState(false);
   const [futureVersionWarning, setFutureVersionWarning] = useState(false);
 
-  // Save API key (for the currently active provider) to localStorage.
+  // Save the API key for the currently active provider. Blockfrost is scoped
+  // by network; Koios is a single shared key.
   const handleApiKeyChange = useCallback(
     (value: string) => {
       const trimmed = value.trim();
       const storageKey =
-        provider === "blockfrost" ? BLOCKFROST_API_KEY_STORAGE_KEY : KOIOS_API_KEY_STORAGE_KEY;
-      if (provider === "blockfrost") setBlockfrostKey(value);
-      else setKoiosKey(value);
+        provider === "blockfrost" ? blockfrostStorageKey(network) : KOIOS_API_KEY_STORAGE_KEY;
+      if (provider === "blockfrost") {
+        setBlockfrostKeys((prev) => ({ ...prev, [network]: value }));
+      } else {
+        setKoiosKey(value);
+      }
       if (trimmed) {
         localStorage.setItem(storageKey, trimmed);
       } else {
         localStorage.removeItem(storageKey);
       }
     },
-    [provider]
+    [provider, network]
   );
 
   const setProvider = useCallback((value: DataProvider) => {

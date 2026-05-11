@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { CopyButton } from "./CopyButton";
 import { HashWithTooltip } from "./HashWithTooltip";
+import { SlotWithTooltip } from "./SlotWithTooltip";
 import { formatAda, formatAssetName, truncateHash } from "../utils";
 import {
   loadPool,
@@ -258,9 +259,9 @@ function describeOwner(owner: V3Multisig): React.ReactNode {
         </span>
       );
     case "Before":
-      return <span>Before slot {owner.time.toString()}</span>;
+      return <span>Before slot <SlotWithTooltip slot={owner.time.toString()} /></span>;
     case "After":
-      return <span>After slot {owner.time.toString()}</span>;
+      return <span>After slot <SlotWithTooltip slot={owner.time.toString()} /></span>;
   }
 }
 
@@ -746,7 +747,7 @@ function PoolBody({ datum }: { datum: SundaePoolDatum }) {
         )}
         <div className="tcv-sundae-row">
           <span className="tcv-sundae-leg-label">Market opens</span>
-          <span className="tcv-sundae-mono">slot {datum.marketOpenSlot.toString()}</span>
+          <span className="tcv-sundae-mono">slot <SlotWithTooltip slot={datum.marketOpenSlot.toString()} /></span>
         </div>
       </div>
     </>

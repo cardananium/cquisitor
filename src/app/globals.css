@@ -7926,6 +7926,30 @@ a.tcv-hash-truncate:hover {
   padding: 4px;
 }
 
+/* Slot tooltip — human-readable datetime for a chain slot */
+.tcv-slot-trigger {
+  cursor: help;
+  text-decoration: underline dotted rgba(148, 163, 184, 0.6);
+  text-underline-offset: 2px;
+}
+
+.tcv-slot-tooltip-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+.tcv-slot-tooltip-utc {
+  font-weight: 600;
+}
+
+.tcv-slot-tooltip-rel {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+}
+
 /* Asset name tooltip with decoded string and hex */
 .tcv-asset-tooltip-content {
   display: flex;
