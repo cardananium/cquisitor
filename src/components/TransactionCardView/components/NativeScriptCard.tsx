@@ -4,6 +4,7 @@ import React, { useRef, useEffect } from "react";
 import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { HashWithTooltip } from "./HashWithTooltip";
+import { SlotWithTooltip } from "./SlotWithTooltip";
 import { getPathDiagnostics } from "../utils";
 import type { NativeScript, ValidationDiagnostic } from "../types";
 
@@ -17,7 +18,7 @@ interface NativeScriptCardProps {
   scriptHash?: string | null;
 }
 
-function getScriptType(script: NativeScript): { type: string; icon: string; description: string } {
+function getScriptType(script: NativeScript): { type: string; icon: string; description: React.ReactNode } {
   if ("ScriptPubkey" in script) {
     return { type: "ScriptPubkey", icon: "🔑", description: "Signature required" };
   }
@@ -31,10 +32,18 @@ function getScriptType(script: NativeScript): { type: string; icon: string; desc
     return { type: "ScriptNOfK", icon: "🔢", description: `${script.ScriptNOfK.n} of ${script.ScriptNOfK.native_scripts.length}` };
   }
   if ("TimelockStart" in script) {
-    return { type: "TimelockStart", icon: "⏰", description: `Valid after slot ${script.TimelockStart.slot}` };
+    return {
+      type: "TimelockStart",
+      icon: "⏰",
+      description: <>Valid after slot <SlotWithTooltip slot={script.TimelockStart.slot} /></>,
+    };
   }
   if ("TimelockExpiry" in script) {
-    return { type: "TimelockExpiry", icon: "⏱️", description: `Valid before slot ${script.TimelockExpiry.slot}` };
+    return {
+      type: "TimelockExpiry",
+      icon: "⏱️",
+      description: <>Valid before slot <SlotWithTooltip slot={script.TimelockExpiry.slot} /></>,
+    };
   }
   return { type: "Unknown", icon: "❓", description: "Unknown script type" };
 }
@@ -106,17 +115,17 @@ function NativeScriptDisplay({ script, depth = 0 }: { script: NativeScript; dept
       <div className="tcv-ns-item tcv-ns-timelock" style={{ marginLeft: indent }}>
         <span className="tcv-ns-item-icon">⏰</span>
         <span className="tcv-ns-timelock-label">Valid after</span>
-        <span className="tcv-ns-slot">{script.TimelockStart.slot}</span>
+        <SlotWithTooltip slot={script.TimelockStart.slot} className="tcv-ns-slot" />
       </div>
     );
   }
-  
+
   if ("TimelockExpiry" in script) {
     return (
       <div className="tcv-ns-item tcv-ns-timelock" style={{ marginLeft: indent }}>
         <span className="tcv-ns-item-icon">⏱️</span>
         <span className="tcv-ns-timelock-label">Valid before</span>
-        <span className="tcv-ns-slot">{script.TimelockExpiry.slot}</span>
+        <SlotWithTooltip slot={script.TimelockExpiry.slot} className="tcv-ns-slot" />
       </div>
     );
   }

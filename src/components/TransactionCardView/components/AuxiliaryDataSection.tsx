@@ -4,6 +4,7 @@ import React from "react";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { CopyButton } from "./CopyButton";
 import { CollapsibleDataItem } from "./CollapsibleDataItem";
+import { SlotWithTooltip } from "./SlotWithTooltip";
 import type { AuxiliaryData, NativeScript } from "../types";
 
 interface AuxiliaryDataSectionProps {
@@ -81,17 +82,17 @@ function NativeScriptDisplay({ script, depth = 0 }: { script: NativeScript; dept
       <div className="tcv-native-script-item" style={{ marginLeft: indent }}>
         <span className="tcv-ns-icon">⏰</span>
         <span className="tcv-ns-type">Valid after</span>
-        <span className="tcv-ns-slot">slot {script.TimelockStart.slot}</span>
+        <span className="tcv-ns-slot">slot <SlotWithTooltip slot={script.TimelockStart.slot} /></span>
       </div>
     );
   }
-  
+
   if ("TimelockExpiry" in script) {
     return (
       <div className="tcv-native-script-item" style={{ marginLeft: indent }}>
         <span className="tcv-ns-icon">⏱️</span>
         <span className="tcv-ns-type">Valid before</span>
-        <span className="tcv-ns-slot">slot {script.TimelockExpiry.slot}</span>
+        <span className="tcv-ns-slot">slot <SlotWithTooltip slot={script.TimelockExpiry.slot} /></span>
       </div>
     );
   }

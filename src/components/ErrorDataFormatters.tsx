@@ -6,6 +6,7 @@ import { UtxoRef } from "./UtxoRef";
 import { AddressWithTooltip } from "./AddressWithTooltip";
 import { CopyIcon, CheckIcon, XCircleIcon } from "./Icons";
 import { AssetsTable, type AssetRow } from "./AssetsTable";
+import { SlotWithTooltip } from "./TransactionCardView/components/SlotWithTooltip";
 
 // ============================================================================
 // Type Definitions
@@ -656,11 +657,11 @@ export function SlotFormatter({ slot, currentSlot }: { slot: number; currentSlot
   
   return (
     <div className="error-formatter slot-formatter">
-      <span className="slot-value">{slot.toLocaleString()}</span>
+      <SlotWithTooltip slot={slot} className="slot-value" />
       <span className="slot-epoch">(epoch ~{epoch})</span>
       {currentSlot !== undefined && (
         <span className={`slot-diff ${slot > currentSlot ? "future" : "past"}`}>
-          {slot > currentSlot 
+          {slot > currentSlot
             ? `+${(slot - currentSlot).toLocaleString()} slots ahead`
             : `${(currentSlot - slot).toLocaleString()} slots ago`
           }
