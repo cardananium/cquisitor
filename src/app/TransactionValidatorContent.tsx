@@ -37,6 +37,7 @@ import { decode_specific_type, extract_hashes_from_transaction_js } from "@carda
 import type { ExtractedHashes } from "@cardananium/cquisitor-lib";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
+import { normalizeHexOrBase64 } from "@/utils/inputNormalization";
 import {
   useTransactionValidator,
   type DecodedTransaction,
@@ -56,34 +57,6 @@ import type {
 const VIEW_MODE_STORAGE_KEY = "cquisitor_tx_validator_view_mode";
 const VIEW_MODE_SELECTED_KEY = "cquisitor_tx_validator_view_mode_selected";
 
-// Check if string is valid hex
-function isValidHex(str: string): boolean {
-  const trimmed = str.trim();
-  if (trimmed.length === 0) return false;
-  return /^[0-9a-fA-F]+$/.test(trimmed);
-}
-
-// Check if string is valid base64
-function isValidBase64(str: string): boolean {
-  const trimmed = str.trim();
-  if (trimmed.length === 0) return false;
-  // Check base64 format: alphanumeric, +, /, and optional padding =
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(trimmed)) return false;
-  if (trimmed.length % 4 !== 0) return false;
-  try {
-    const decoded = Buffer.from(trimmed, "base64");
-    // Verify it's actually valid by re-encoding
-    return decoded.length > 0 && Buffer.from(decoded).toString("base64") === trimmed;
-  } catch {
-    return false;
-  }
-}
-
-// Convert base64 to hex
-function base64ToHex(base64: string): string {
-  return Buffer.from(base64.trim(), "base64").toString("hex");
-}
-
 function formatRelativeAge(epochMs: number): string {
   const diff = Math.max(0, Date.now() - epochMs);
   const s = Math.floor(diff / 1000);
@@ -96,23 +69,7 @@ function formatRelativeAge(epochMs: number): string {
   return `${d}d ago`;
 }
 
-// Process input: convert base64 to hex if needed
-function processTransactionInput(input: string): { hex: string; wasBase64: boolean } {
-  const trimmed = input.trim();
-  
-  // If it's already valid hex, return as is
-  if (isValidHex(trimmed)) {
-    return { hex: trimmed, wasBase64: false };
-  }
-  
-  // Try to convert from base64
-  if (isValidBase64(trimmed)) {
-    return { hex: base64ToHex(trimmed), wasBase64: true };
-  }
-  
-  // Return as-is (will fail validation with proper error)
-  return { hex: trimmed, wasBase64: false };
-}
+const processTransactionInput = normalizeHexOrBase64;
 
 type DiagnosticSeverity = "error" | "warning" | "info" | "success";
 

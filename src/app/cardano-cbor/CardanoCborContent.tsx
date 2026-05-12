@@ -25,30 +25,11 @@ import {
   buildValidatorUrl,
   openExternalUrl,
 } from "@/utils/externalApps";
+import { isValidBase64, base64ToHex, stripWhitespace } from "@/utils/inputNormalization";
 
 // Types that require DecodingParams
 const TYPES_WITH_PLUTUS_SCRIPT_VERSION = ["PlutusScript"];
 const TYPES_WITH_PLUTUS_DATA_SCHEMA = ["PlutusData"];
-
-// Check if string is valid base64
-function isValidBase64(str: string): boolean {
-  const trimmed = str.trim();
-  if (trimmed.length === 0) return false;
-  // Check base64 format: alphanumeric, +, /, and optional padding =
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(trimmed)) return false;
-  if (trimmed.length % 4 !== 0) return false;
-  try {
-    const decoded = Buffer.from(trimmed, "base64");
-    // Verify it's actually valid by re-encoding
-    return decoded.length > 0 && Buffer.from(decoded).toString("base64") === trimmed;
-  } catch {
-    return false;
-  }
-}
-
-function base64ToHex(base64: string): string {
-  return Buffer.from(base64.trim(), "base64").toString("hex");
-}
 
 // Result of trying to detect types
 interface DetectionResult {
@@ -77,28 +58,28 @@ function filterTypes(types: string[]): string[] {
 
 // Try to detect types for input, with fallback to base64 conversion
 function detectTypesWithFallback(rawInput: string): DetectionResult {
-  const trimmed = rawInput.trim();
-  
-  // First, try the original input directly
+  const normalized = stripWhitespace(rawInput);
+
+  // First, try the normalized input directly
   // This handles: hex, bech32, base58, and potentially base64 if decoder supports it
   try {
-    const rawTypes = get_possible_types_for_input(trimmed);
+    const rawTypes = get_possible_types_for_input(normalized);
     const types = filterTypes(rawTypes);
     if (types.length > 0) {
       return {
         types,
-        processedInput: trimmed,
+        processedInput: normalized,
         notification: null,
       };
     }
   } catch {
     // Continue to fallback
   }
-  
+
   // If original input didn't work and it could be base64, try converting to hex
-  if (isValidBase64(trimmed)) {
+  if (isValidBase64(normalized)) {
     try {
-      const hexFromBase64 = base64ToHex(trimmed);
+      const hexFromBase64 = base64ToHex(normalized);
       const rawTypes = get_possible_types_for_input(hexFromBase64);
       const types = filterTypes(rawTypes);
       if (types.length > 0) {
@@ -112,11 +93,11 @@ function detectTypesWithFallback(rawInput: string): DetectionResult {
       // Base64 conversion failed
     }
   }
-  
+
   // Nothing worked
   return {
     types: [],
-    processedInput: trimmed,
+    processedInput: normalized,
     notification: null,
   };
 }

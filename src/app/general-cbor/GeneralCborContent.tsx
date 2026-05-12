@@ -13,29 +13,22 @@ import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 import { cborErrorToLocation } from "@/utils/cborError";
+import { base64ToHex, stripWhitespace } from "@/utils/inputNormalization";
 
-function isValidBase64(str: string): boolean {
+// Heuristic base64 check that intentionally rejects pure-hex input so we don't
+// mis-route hex through a base64 decode. Caller must pass whitespace-stripped
+// input. Differs from the strict isValidBase64 in inputNormalization, which
+// considers plain hex (e.g. "deadbeef") a valid base64 string.
+function looksLikeBase64(input: string): boolean {
+  if (input.length === 0) return false;
+  if (!/^[A-Za-z0-9+/]+=*$/.test(input)) return false;
+  if (!/[g-zG-Z+/=]/.test(input)) return false;
   try {
-    const trimmed = str.trim();
-    if (trimmed.length === 0) return false;
-    // Check if it looks like base64 (contains non-hex chars that are valid base64)
-    if (/^[A-Za-z0-9+/]+=*$/.test(trimmed) && /[g-zG-Z+/=]/i.test(trimmed)) {
-      atob(trimmed);
-      return true;
-    }
-    return false;
+    atob(input);
+    return true;
   } catch {
     return false;
   }
-}
-
-function base64ToHex(base64: string): string {
-  const binary = atob(base64.trim());
-  let hex = "";
-  for (let i = 0; i < binary.length; i++) {
-    hex += binary.charCodeAt(i).toString(16).padStart(2, "0");
-  }
-  return hex;
 }
 
 export default function GeneralCborContent() {
@@ -73,8 +66,11 @@ export default function GeneralCborContent() {
 
     // Debounce decode to avoid cursor jumping
     debounceRef.current = setTimeout(() => {
+      // Strip whitespace upfront so wrapped/column-formatted pastes parse correctly.
+      let hex = stripWhitespace(input);
+
       // Clear if empty
-      if (!input.trim()) {
+      if (hex.length === 0) {
         setHexValue("");
         setDecodedJson(null);
         setError(null);
@@ -83,18 +79,15 @@ export default function GeneralCborContent() {
         return;
       }
 
-      let hex = input.trim();
-
       // Check if it's base64
-      if (isValidBase64(hex)) {
+      if (looksLikeBase64(hex)) {
         hex = base64ToHex(hex);
         setNotification("Base64 → hex");
       } else {
         setNotification(null);
       }
 
-      // Clean up hex (whitespace-only, preserve everything else for the lib to diagnose)
-      hex = hex.replace(/\s/g, "").toLowerCase();
+      hex = hex.toLowerCase();
 
       // Decode CBOR — the new API never throws; errors come as { ok: false, ... }.
       const raw = cbor_to_json(hex) as CborDecodeResult;
