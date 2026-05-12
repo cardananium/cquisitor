@@ -125,6 +125,26 @@ interface DiagnosticItem {
   phase?: string;
   errorType?: string;
   errorData?: Record<string, unknown>;
+  traces?: string[];
+}
+
+// Pull UPLC traces from eval_redeemer_results for any redeemer index referenced
+// in `locations` (e.g. "transaction.witness_set.redeemers.2"). The
+// eval_redeemer_results array is parallel to witness_set.redeemers.
+function findTracesForLocations(
+  locations: string[] | undefined,
+  evalResults: EvalRedeemerResult[] | undefined,
+): string[] | undefined {
+  if (!locations || !evalResults || evalResults.length === 0) return undefined;
+  const collected: string[] = [];
+  for (const loc of locations) {
+    const m = loc.match(/witness_set\.redeemers\.(\d+)/);
+    if (!m) continue;
+    const idx = Number(m[1]);
+    const result = evalResults[idx];
+    if (result?.logs?.length) collected.push(...result.logs);
+  }
+  return collected.length > 0 ? collected : undefined;
 }
 
 function extractErrorInfo(error: unknown): { errorType?: string; errorData?: Record<string, unknown> } {
@@ -155,7 +175,10 @@ function formatPhase1Error(err: ValidationPhase1Error): DiagnosticItem {
   };
 }
 
-function formatPhase2Error(err: ValidationPhase2Error): DiagnosticItem {
+function formatPhase2Error(
+  err: ValidationPhase2Error,
+  evalResults?: EvalRedeemerResult[],
+): DiagnosticItem {
   const { errorType, errorData } = extractErrorInfo(err.error);
   return {
     severity: "error",
@@ -165,6 +188,7 @@ function formatPhase2Error(err: ValidationPhase2Error): DiagnosticItem {
     phase: "Phase 2",
     errorType,
     errorData,
+    traces: findTracesForLocations(err.locations, evalResults),
   };
 }
 
@@ -181,7 +205,10 @@ function formatPhase1Warning(warn: ValidationPhase1Warning): DiagnosticItem {
   };
 }
 
-function formatPhase2Warning(warn: ValidationPhase2Warning): DiagnosticItem {
+function formatPhase2Warning(
+  warn: ValidationPhase2Warning,
+  evalResults?: EvalRedeemerResult[],
+): DiagnosticItem {
   const { errorType, errorData } = extractErrorInfo(warn.warning);
   return {
     severity: "warning",
@@ -191,6 +218,7 @@ function formatPhase2Warning(warn: ValidationPhase2Warning): DiagnosticItem {
     phase: "Phase 2",
     errorType,
     errorData,
+    traces: findTracesForLocations(warn.locations, evalResults),
   };
 }
 
@@ -282,8 +310,8 @@ function DiagnosticsList({ items, onLocationClick }: {
             ? getCleanedErrorMessage(item.message, item.errorType, item.errorData)
             : item.message;
           
-          // Content under cut: errorData structures, details, hint, locations
-          const hasExpandableContent = item.errorData || item.details || item.hint || (item.locations && item.locations.length > 0);
+          // Content under cut: errorData structures, details, hint, locations, traces
+          const hasExpandableContent = item.errorData || item.details || item.hint || (item.locations && item.locations.length > 0) || (item.traces && item.traces.length > 0);
           
           return (
             <Accordion.Item 
@@ -326,7 +354,7 @@ function DiagnosticsList({ items, onLocationClick }: {
                         <span className="diagnostic-detail-label">Location{item.locations.length > 1 ? 's' : ''}:</span>
                         <div className="diagnostic-locations-list">
                           {item.locations.map((loc, locIndex) => (
-                            <button 
+                            <button
                               key={locIndex}
                               className="diagnostic-location-chip"
                               onClick={(e) => {
@@ -339,6 +367,21 @@ function DiagnosticsList({ items, onLocationClick }: {
                               {loc}
                             </button>
                           ))}
+                        </div>
+                      </div>
+                    )}
+                    {item.traces && item.traces.length > 0 && (
+                      <div className="diagnostic-detail-row">
+                        <div className="plutus-traces">
+                          <div className="plutus-traces-label">
+                            <span className="diagnostic-detail-label">Traces</span>
+                            <span className="plutus-traces-count">({item.traces.length})</span>
+                          </div>
+                          <div className="plutus-traces-body">
+                            {item.traces.map((line, i) => (
+                              <div key={i} className="plutus-trace-line">{line}</div>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -454,17 +497,17 @@ function PlutusScriptResults({ results }: { results: EvalRedeemerResult[] }) {
               <div className="plutus-accordion-body">
                 {result.success ? (
                   <div className="exunit-progress-container">
-                    <ExUnitProgress 
-                      label="Memory" 
-                      used={calculatedMem} 
-                      total={providedMem} 
-                      unit="mem" 
+                    <ExUnitProgress
+                      label="Memory"
+                      used={calculatedMem}
+                      total={providedMem}
+                      unit="mem"
                     />
-                    <ExUnitProgress 
-                      label="CPU Steps" 
-                      used={calculatedSteps} 
-                      total={providedSteps} 
-                      unit="steps" 
+                    <ExUnitProgress
+                      label="CPU Steps"
+                      used={calculatedSteps}
+                      total={providedSteps}
+                      unit="steps"
                     />
                   </div>
                 ) : (
@@ -481,6 +524,19 @@ function PlutusScriptResults({ results }: { results: EvalRedeemerResult[] }) {
                       </div>
                     )}
                   </>
+                )}
+                {result.logs.length > 0 && (
+                  <div className="plutus-traces">
+                    <div className="plutus-traces-label">
+                      <span className="plutus-ex-label">Traces</span>
+                      <span className="plutus-traces-count">({result.logs.length})</span>
+                    </div>
+                    <div className="plutus-traces-body">
+                      {result.logs.map((line, i) => (
+                        <div key={i} className="plutus-trace-line">{line}</div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             </Accordion.Content>
@@ -781,17 +837,17 @@ export default function TransactionValidatorContent() {
     
     // Phase 2 errors
     result.phase2_errors.forEach(err => {
-      diagnostics.push(formatPhase2Error(err));
+      diagnostics.push(formatPhase2Error(err, result.eval_redeemer_results));
     });
-    
+
     // Phase 1 warnings
     result.warnings.forEach(warn => {
       diagnostics.push(formatPhase1Warning(warn));
     });
-    
+
     // Phase 2 warnings
     result.phase2_warnings.forEach(warn => {
-      diagnostics.push(formatPhase2Warning(warn));
+      diagnostics.push(formatPhase2Warning(warn, result.eval_redeemer_results));
     });
   }
 
