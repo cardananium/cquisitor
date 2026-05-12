@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect } from "react";
+import JSONBig from "json-bigint";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { UtxoRef } from "../../UtxoRef";
 import { OutputCard } from "./OutputCard";
@@ -53,8 +54,9 @@ function koiosUtxoToTransactionOutput(utxoInfo: KoiosUtxoInfo): TransactionOutpu
   let plutus_data: TransactionOutput['plutus_data'] = undefined;
   
   if (utxoInfo.inline_datum) {
-    // Inline datum - store as Data with JSON string
-    plutus_data = { Data: JSON.stringify(utxoInfo.inline_datum.value) };
+    // Plutus int datums can exceed MAX_SAFE_INTEGER, so the parsed value
+    // may contain BigInts that native JSON.stringify rejects.
+    plutus_data = { Data: JSONBig({ useNativeBigInt: true }).stringify(utxoInfo.inline_datum.value) };
   } else if (utxoInfo.datum_hash) {
     // Just a datum hash
     plutus_data = { DataHash: utxoInfo.datum_hash };
