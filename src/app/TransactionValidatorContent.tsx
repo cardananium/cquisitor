@@ -454,17 +454,17 @@ function PlutusScriptResults({ results }: { results: EvalRedeemerResult[] }) {
               <div className="plutus-accordion-body">
                 {result.success ? (
                   <div className="exunit-progress-container">
-                    <ExUnitProgress 
-                      label="Memory" 
-                      used={calculatedMem} 
-                      total={providedMem} 
-                      unit="mem" 
+                    <ExUnitProgress
+                      label="Memory"
+                      used={calculatedMem}
+                      total={providedMem}
+                      unit="mem"
                     />
-                    <ExUnitProgress 
-                      label="CPU Steps" 
-                      used={calculatedSteps} 
-                      total={providedSteps} 
-                      unit="steps" 
+                    <ExUnitProgress
+                      label="CPU Steps"
+                      used={calculatedSteps}
+                      total={providedSteps}
+                      unit="steps"
                     />
                   </div>
                 ) : (
@@ -481,6 +481,19 @@ function PlutusScriptResults({ results }: { results: EvalRedeemerResult[] }) {
                       </div>
                     )}
                   </>
+                )}
+                {result.logs.length > 0 && (
+                  <div className="plutus-traces">
+                    <div className="plutus-traces-label">
+                      <span className="plutus-ex-label">Traces</span>
+                      <span className="plutus-traces-count">({result.logs.length})</span>
+                    </div>
+                    <div className="plutus-traces-body">
+                      {result.logs.map((line, i) => (
+                        <div key={i} className="plutus-trace-line">{line}</div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             </Accordion.Content>

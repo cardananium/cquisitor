@@ -4104,6 +4104,46 @@ input, textarea, select, button {
   white-space: pre-wrap;
 }
 
+.plutus-traces {
+  margin-top: 8px;
+}
+
+.plutus-traces-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.plutus-traces-count {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.plutus-traces-body {
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #334155;
+  font-family: 'IBM Plex Mono', monospace;
+  line-height: 1.5;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.plutus-trace-line {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.plutus-trace-line + .plutus-trace-line {
+  margin-top: 2px;
+}
+
 .plutus-empty-state {
   flex: 1;
   display: flex;
