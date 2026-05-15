@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ResizablePanels from "@/components/ResizablePanels";
 import ValidationJsonViewer, { type ValidationDiagnostic } from "@/components/ValidationJsonViewer";
+import JsonViewer from "@/components/JsonViewer";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Accordion from "@radix-ui/react-accordion";
@@ -442,16 +443,50 @@ function ExUnitProgress({
   );
 }
 
-function ScriptContextSection({ bytes }: { bytes: string }) {
+type ScriptContextView = "json" | "hex";
+
+function ScriptContextSection({
+  bytes,
+  json,
+}: {
+  bytes: string | null | undefined;
+  json: string | null | undefined;
+}) {
+  // Parse once. If parsing fails (shouldn't, but be defensive), fall back to
+  // treating the JSON view as unavailable and showing only hex.
+  const parsedJson = useMemo(() => {
+    if (!json) return null;
+    try {
+      return JSON.parse(json) as unknown;
+    } catch {
+      return null;
+    }
+  }, [json]);
+
+  const hasJson = parsedJson !== null;
+  const hasHex = !!bytes;
+  const [view, setView] = useState<ScriptContextView>(hasJson ? "json" : "hex");
   const [copied, setCopied] = useState(false);
-  const byteCount = Math.floor(bytes.length / 2);
+
+  if (!hasJson && !hasHex) return null;
+
+  const byteCount = hasHex ? Math.floor(bytes!.length / 2) : null;
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    navigator.clipboard.writeText(bytes);
+    const text = view === "json" && hasJson
+      ? JSON.stringify(parsedJson, null, 2)
+      : (bytes ?? "");
+    navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const switchView = (next: ScriptContextView) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setView(next);
   };
 
   return (
@@ -460,21 +495,51 @@ function ScriptContextSection({ bytes }: { bytes: string }) {
         <Collapsible.Trigger className="plutus-script-context-trigger">
           <ChevronDownIcon size={12} className="plutus-script-context-chevron" />
           <span className="plutus-ex-label">Script Context</span>
-          <span className="plutus-script-context-size">({byteCount.toLocaleString()} bytes)</span>
+          {byteCount !== null && (
+            <span className="plutus-script-context-size">({byteCount.toLocaleString()} bytes)</span>
+          )}
         </Collapsible.Trigger>
+        {hasJson && hasHex && (
+          <div className="plutus-script-context-toggle" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "json"}
+              className={`plutus-script-context-toggle-btn ${view === "json" ? "active" : ""}`}
+              onClick={switchView("json")}
+            >
+              JSON
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "hex"}
+              className={`plutus-script-context-toggle-btn ${view === "hex" ? "active" : ""}`}
+              onClick={switchView("hex")}
+            >
+              Hex
+            </button>
+          </div>
+        )}
         <span
           role="button"
           tabIndex={0}
           className={`plutus-script-context-copy ${copied ? "copied" : ""}`}
           onClick={handleCopy}
           onKeyDown={(e) => e.key === "Enter" && handleCopy(e as unknown as React.MouseEvent)}
-          title={copied ? "Copied!" : "Copy hex"}
+          title={copied ? "Copied!" : view === "json" ? "Copy JSON" : "Copy hex"}
         >
           {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
         </span>
       </div>
       <Collapsible.Content>
-        <div className="plutus-script-context-body">{bytes}</div>
+        {view === "json" && hasJson ? (
+          <div className="plutus-script-context-body plutus-script-context-body-json">
+            <JsonViewer data={parsedJson} expanded={2} />
+          </div>
+        ) : (
+          <div className="plutus-script-context-body">{bytes}</div>
+        )}
       </Collapsible.Content>
     </Collapsible.Root>
   );
@@ -577,8 +642,11 @@ function PlutusScriptResults({ results }: { results: EvalRedeemerResult[] }) {
                     </div>
                   </div>
                 )}
-                {result.script_context_bytes && (
-                  <ScriptContextSection bytes={result.script_context_bytes} />
+                {(result.script_context_bytes || result.script_context) && (
+                  <ScriptContextSection
+                    bytes={result.script_context_bytes}
+                    json={result.script_context}
+                  />
                 )}
               </div>
             </Accordion.Content>

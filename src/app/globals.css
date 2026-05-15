@@ -4220,6 +4220,52 @@ input, textarea, select, button {
   overflow-wrap: anywhere;
 }
 
+.plutus-script-context-body-json {
+  font-family: inherit;
+  font-size: 12px;
+  word-break: normal;
+  overflow-wrap: normal;
+  max-height: 360px;
+}
+
+.plutus-script-context-toggle {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.plutus-script-context-toggle-btn {
+  background: none;
+  border: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: #64748b;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.plutus-script-context-toggle-btn + .plutus-script-context-toggle-btn {
+  border-left: 1px solid #e2e8f0;
+}
+
+.plutus-script-context-toggle-btn:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.plutus-script-context-toggle-btn.active {
+  background: #e2e8f0;
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.plutus-script-context-toggle ~ .plutus-script-context-copy {
+  margin-left: 6px;
+}
+
 .plutus-empty-state {
   flex: 1;
   display: flex;
