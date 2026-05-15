@@ -4144,6 +4144,82 @@ input, textarea, select, button {
   margin-top: 2px;
 }
 
+.plutus-script-context {
+  margin-top: 8px;
+}
+
+.plutus-script-context-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.plutus-script-context-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.plutus-script-context-chevron {
+  color: #94a3b8;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+}
+
+.plutus-script-context-trigger[data-state="open"] .plutus-script-context-chevron {
+  transform: rotate(0deg);
+}
+
+.plutus-script-context-size {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.plutus-script-context-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  margin-left: auto;
+  color: #94a3b8;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.plutus-script-context-copy:hover {
+  color: #475569;
+  background: #e2e8f0;
+}
+
+.plutus-script-context-copy.copied {
+  color: #16a34a;
+}
+
+.plutus-script-context-body {
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #334155;
+  font-family: 'IBM Plex Mono', monospace;
+  line-height: 1.5;
+  max-height: 240px;
+  overflow-y: auto;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
 .plutus-empty-state {
   flex: 1;
   display: flex;
@@ -6385,6 +6461,42 @@ input, textarea, select, button {
 .tcv-summary-stat {
   font-size: 11px;
   color: #64748b;
+}
+
+.tcv-summary-budget {
+  font-variant-numeric: tabular-nums;
+}
+
+.tcv-summary-budget-label {
+  font-weight: 600;
+  color: #475569;
+}
+
+.tcv-summary-budget-pct {
+  color: #94a3b8;
+}
+
+.tcv-summary-budget.over-budget {
+  color: #dc2626;
+}
+
+.tcv-summary-budget.over-budget .tcv-summary-budget-label,
+.tcv-summary-budget.over-budget .tcv-summary-budget-pct {
+  color: #dc2626;
+}
+
+:root.dark .tcv-summary-budget-label {
+  color: #cbd5e1;
+}
+
+:root.dark .tcv-summary-budget-pct {
+  color: #64748b;
+}
+
+:root.dark .tcv-summary-budget.over-budget,
+:root.dark .tcv-summary-budget.over-budget .tcv-summary-budget-label,
+:root.dark .tcv-summary-budget.over-budget .tcv-summary-budget-pct {
+  color: #f87171;
 }
 
 .tcv-summary-errors {
