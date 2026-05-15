@@ -390,6 +390,20 @@ export interface TransactionCardViewProps {
   extractedHashes?: ExtractedHashes | null;
   /** Fetched UTxO info for transaction inputs from Koios */
   inputUtxoInfoMap?: InputUtxoInfoMap | null;
+  /** Raw transaction CBOR hex, used to display tx size in the summary */
+  txCborHex?: string | null;
+  /** Protocol limits used to render per-tx budget percentages in the summary */
+  protocolMaxes?: {
+    maxTxSize?: number;
+    maxTxExUnits?: { mem: bigint; steps: bigint };
+  } | null;
+  /**
+   * Sum of script-eval `calculated_ex_units` (the *actual* cost computed by
+   * running scripts), populated only after Validate has run. The redeemer's
+   * declared budget can over-estimate this; surfacing both lets the user spot
+   * over-declared budgets that waste fee.
+   */
+  actualExUnits?: { mem: bigint; steps: bigint } | null;
 }
 
 // Transaction types

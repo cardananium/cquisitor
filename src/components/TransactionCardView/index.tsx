@@ -42,6 +42,111 @@ export type {
   CardanoNetwork 
 } from "./types";
 
+// Compact number formatter for large execution-unit counts (e.g. "1.2B").
+const compactFmt = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 2 });
+
+function formatNum(value: bigint | number, compact: boolean): string {
+  if (compact) return compactFmt.format(typeof value === "bigint" ? value : BigInt(value));
+  return (typeof value === "bigint" ? value : BigInt(value)).toLocaleString();
+}
+
+function toBig(v: bigint | number): bigint {
+  return typeof v === "bigint" ? v : BigInt(v);
+}
+
+// Percentage of `value` against `max`, with one decimal place. Returns null
+// when max is missing or zero so callers can omit the "(x%)" suffix entirely
+// rather than printing a misleading "0.0%".
+function pctOf(value: bigint, max: bigint | null): number | null {
+  if (max === null || max <= BigInt(0)) return null;
+  return Number((value * BigInt(10000)) / max) / 100;
+}
+
+function BudgetStat({
+  label,
+  used,
+  max,
+  unit,
+  compact,
+}: {
+  label: string;
+  used: bigint | number;
+  max: bigint | number | undefined;
+  unit?: string;
+  compact: boolean;
+}) {
+  const usedBig = toBig(used);
+  const maxBig = max !== undefined && max !== null ? toBig(max) : null;
+  const overBudget = maxBig !== null && maxBig > BigInt(0) && usedBig > maxBig;
+  const pct = pctOf(usedBig, maxBig);
+
+  return (
+    <span className={`tcv-summary-stat tcv-summary-budget${overBudget ? " over-budget" : ""}`}>
+      <span className="tcv-summary-budget-label">{label}:</span>{" "}
+      {formatNum(usedBig, compact)}
+      {maxBig !== null && (
+        <>
+          {" / "}
+          {formatNum(maxBig, compact)}
+        </>
+      )}
+      {unit ? ` ${unit}` : ""}
+      {pct !== null && (
+        <span className="tcv-summary-budget-pct"> ({pct.toFixed(1)}%)</span>
+      )}
+    </span>
+  );
+}
+
+// Three-value stat: `actual (%) / declared (%) / max`, where each percentage
+// is against `max`. The actual segment is hidden until validation has run;
+// the max segment / percentages are hidden until protocol params are loaded.
+function ExUnitTripleStat({
+  label,
+  actual,
+  declared,
+  max,
+}: {
+  label: string;
+  actual: bigint | null;
+  declared: bigint;
+  max: bigint | null;
+}) {
+  const overBudget = max !== null && max > BigInt(0) && declared > max;
+  const actualPct = actual !== null ? pctOf(actual, max) : null;
+  const declaredPct = pctOf(declared, max);
+  const compact = true;
+
+  return (
+    <span className={`tcv-summary-stat tcv-summary-budget${overBudget ? " over-budget" : ""}`}>
+      <span className="tcv-summary-budget-label">{label}:</span>{" "}
+      {actual !== null && (
+        <>
+          <span title="Actual execution units calculated by running the scripts">
+            {formatNum(actual, compact)}
+            {actualPct !== null && (
+              <span className="tcv-summary-budget-pct"> ({actualPct.toFixed(1)}%)</span>
+            )}
+          </span>
+          {" / "}
+        </>
+      )}
+      <span title="Sum of ex_units declared on the redeemers (what gets charged in fees)">
+        {formatNum(declared, compact)}
+        {declaredPct !== null && (
+          <span className="tcv-summary-budget-pct"> ({declaredPct.toFixed(1)}%)</span>
+        )}
+      </span>
+      {max !== null && (
+        <>
+          {" / "}
+          <span title="Protocol per-tx maximum">{formatNum(max, compact)}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
 // Top-level section block component
 interface TopLevelSectionProps {
   title: string;
@@ -181,6 +286,9 @@ export default function TransactionCardView({
   focusedPath,
   extractedHashes,
   inputUtxoInfoMap,
+  txCborHex,
+  protocolMaxes,
+  actualExUnits,
 }: TransactionCardViewProps): React.ReactElement {
   const diagnosticsMap = useMemo(() => buildDiagnosticsMap(diagnostics), [diagnostics]);
   const sundaeCtx = useMemo(() => {
@@ -231,6 +339,26 @@ export default function TransactionCardView({
   
   const inputCount = body.inputs?.length ?? 0;
   const outputCount = body.outputs?.length ?? 0;
+
+  // Tx size in bytes derived from the raw CBOR hex (2 hex chars per byte).
+  const txSize = txCborHex ? Math.floor(txCborHex.length / 2) : null;
+
+  // Sum of all redeemer-declared budgets; these are what gets charged against
+  // the protocol-level per-tx execution unit caps.
+  const { totalMem, totalSteps } = useMemo(() => {
+    let mem = BigInt(0);
+    let steps = BigInt(0);
+    for (const r of tx.witness_set.redeemers ?? []) {
+      try { mem += BigInt(r.ex_units.mem); } catch { /* ignore malformed */ }
+      try { steps += BigInt(r.ex_units.steps); } catch { /* ignore malformed */ }
+    }
+    return { totalMem: mem, totalSteps: steps };
+  }, [tx.witness_set.redeemers]);
+
+  const maxTxSize = protocolMaxes?.maxTxSize;
+  const maxMem = protocolMaxes?.maxTxExUnits?.mem;
+  const maxSteps = protocolMaxes?.maxTxExUnits?.steps;
+
   const certCount = body.certs?.length ?? 0;
   const vkeyCount = witnessSet.vkeys?.length ?? 0;
   const redeemerCount = witnessSet.redeemers?.length ?? 0;
@@ -279,6 +407,25 @@ export default function TransactionCardView({
             <span className="tcv-summary-stat">{inputCount} inputs</span>
             <span className="tcv-summary-stat">{outputCount} outputs</span>
             <span className="tcv-summary-stat">Fee: ₳ {formatAda(body.fee)}</span>
+            {txSize !== null && (
+              <BudgetStat label="Size" used={txSize} max={maxTxSize} unit="B" compact={false} />
+            )}
+            {(tx.witness_set.redeemers?.length ?? 0) > 0 && (
+              <>
+                <ExUnitTripleStat
+                  label="CPU"
+                  actual={actualExUnits ? actualExUnits.steps : null}
+                  declared={totalSteps}
+                  max={maxSteps ?? null}
+                />
+                <ExUnitTripleStat
+                  label="Mem"
+                  actual={actualExUnits ? actualExUnits.mem : null}
+                  declared={totalMem}
+                  max={maxMem ?? null}
+                />
+              </>
+            )}
           </div>
         </div>
         

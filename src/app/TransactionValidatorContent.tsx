@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ResizablePanels from "@/components/ResizablePanels";
 import ValidationJsonViewer, { type ValidationDiagnostic } from "@/components/ValidationJsonViewer";
+import JsonViewer from "@/components/JsonViewer";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Accordion from "@radix-ui/react-accordion";
+import * as Collapsible from "@radix-ui/react-collapsible";
 import * as Progress from "@radix-ui/react-progress";
 import Select from "@/components/Select";
 import {
@@ -398,6 +400,108 @@ function ExUnitProgress({
   );
 }
 
+type ScriptContextView = "json" | "hex";
+
+function ScriptContextSection({
+  bytes,
+  json,
+}: {
+  bytes: string | null | undefined;
+  json: string | null | undefined;
+}) {
+  // Parse once. If parsing fails (shouldn't, but be defensive), fall back to
+  // treating the JSON view as unavailable and showing only hex.
+  const parsedJson = useMemo(() => {
+    if (!json) return null;
+    try {
+      return JSON.parse(json) as unknown;
+    } catch {
+      return null;
+    }
+  }, [json]);
+
+  const hasJson = parsedJson !== null;
+  const hasHex = !!bytes;
+  const [view, setView] = useState<ScriptContextView>(hasJson ? "json" : "hex");
+  const [copied, setCopied] = useState(false);
+
+  if (!hasJson && !hasHex) return null;
+
+  const byteCount = hasHex ? Math.floor(bytes!.length / 2) : null;
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const text = view === "json" && hasJson
+      ? JSON.stringify(parsedJson, null, 2)
+      : (bytes ?? "");
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const switchView = (next: ScriptContextView) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setView(next);
+  };
+
+  return (
+    <Collapsible.Root className="plutus-script-context">
+      <div className="plutus-script-context-header">
+        <Collapsible.Trigger className="plutus-script-context-trigger">
+          <ChevronDownIcon size={12} className="plutus-script-context-chevron" />
+          <span className="plutus-ex-label">Script Context</span>
+          {byteCount !== null && (
+            <span className="plutus-script-context-size">({byteCount.toLocaleString()} bytes)</span>
+          )}
+        </Collapsible.Trigger>
+        {hasJson && hasHex && (
+          <div className="plutus-script-context-toggle" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "json"}
+              className={`plutus-script-context-toggle-btn ${view === "json" ? "active" : ""}`}
+              onClick={switchView("json")}
+            >
+              JSON
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "hex"}
+              className={`plutus-script-context-toggle-btn ${view === "hex" ? "active" : ""}`}
+              onClick={switchView("hex")}
+            >
+              Hex
+            </button>
+          </div>
+        )}
+        <span
+          role="button"
+          tabIndex={0}
+          className={`plutus-script-context-copy ${copied ? "copied" : ""}`}
+          onClick={handleCopy}
+          onKeyDown={(e) => e.key === "Enter" && handleCopy(e as unknown as React.MouseEvent)}
+          title={copied ? "Copied!" : view === "json" ? "Copy JSON" : "Copy hex"}
+        >
+          {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+        </span>
+      </div>
+      <Collapsible.Content>
+        {view === "json" && hasJson ? (
+          <div className="plutus-script-context-body plutus-script-context-body-json">
+            <JsonViewer data={parsedJson} expanded={2} />
+          </div>
+        ) : (
+          <div className="plutus-script-context-body">{bytes}</div>
+        )}
+      </Collapsible.Content>
+    </Collapsible.Root>
+  );
+}
+
 // Plutus Script Results component with Accordion
 function PlutusScriptResults({ results }: { results: EvalRedeemerResult[] }) {
   if (results.length === 0) {
@@ -495,6 +599,12 @@ function PlutusScriptResults({ results }: { results: EvalRedeemerResult[] }) {
                     </div>
                   </div>
                 )}
+                {(result.script_context_bytes || result.script_context) && (
+                  <ScriptContextSection
+                    bytes={result.script_context_bytes}
+                    json={result.script_context}
+                  />
+                )}
               </div>
             </Accordion.Content>
           </Accordion.Item>
@@ -549,6 +659,34 @@ export default function TransactionValidatorContent() {
   
   const focusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [copiedDiagnostics, setCopiedDiagnostics] = useState(false);
+
+  // Raw CBOR hex of the current input, used by the card view to show tx size.
+  // Memoized so we don't re-scan a large base64 blob on every parent render.
+  const txCborHex = useMemo(() => {
+    const trimmed = txInput.trim();
+    if (!trimmed) return null;
+    return processTransactionInput(txInput).hex;
+  }, [txInput]);
+
+  // Actual (calculated) tx-wide ex units, summed from successful script evals.
+  // Failed evals don't contribute a meaningful calculated_ex_units, so we skip
+  // them rather than zero them — the failure surfaces elsewhere in the UI.
+  const actualExUnits = useMemo(() => {
+    const evals = result?.eval_redeemer_results;
+    if (!evals || evals.length === 0) return null;
+    let mem = BigInt(0);
+    let steps = BigInt(0);
+    let any = false;
+    for (const r of evals) {
+      if (!r.success) continue;
+      try {
+        mem += BigInt(r.calculated_ex_units.mem);
+        steps += BigInt(r.calculated_ex_units.steps);
+        any = true;
+      } catch { /* ignore malformed */ }
+    }
+    return any ? { mem, steps } : null;
+  }, [result]);
   
   // View mode state - load from localStorage if available
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -1292,6 +1430,16 @@ export default function TransactionValidatorContent() {
             focusedPath={focusedPath}
             extractedHashes={extractedHashes}
             inputUtxoInfoMap={inputUtxoInfoMap}
+            txCborHex={txCborHex}
+            protocolMaxes={
+              fetchedContext
+                ? {
+                    maxTxSize: fetchedContext.protocolParameters.maxTransactionSize,
+                    maxTxExUnits: fetchedContext.protocolParameters.maxTxExecutionUnits,
+                  }
+                : null
+            }
+            actualExUnits={actualExUnits}
           />
         ) : (
           <ValidationJsonViewer 
