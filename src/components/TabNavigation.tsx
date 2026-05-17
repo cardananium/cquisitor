@@ -2,17 +2,29 @@
 
 import * as Tabs from "@radix-ui/react-tabs";
 
-export type TabId = "transaction-validator" | "cardano-cbor" | "general-cbor" | "cddl-validator";
+export type TabId =
+  | "transaction-validator"
+  | "cardano-cbor"
+  | "general-cbor"
+  | "cddl-validator"
+  | "json-viewer";
 
-// CDDL Validator is intentionally omitted from the visible nav for now
-// (still mounted on direct `#cddl-validator` hash for internal use).
+// CDDL Validator and JSON viewer are intentionally omitted from the visible
+// nav — they are reached only via their direct `#cddl-validator` /
+// `#json-viewer` hashes.
 const tabs: { name: string; id: TabId }[] = [
   { name: "General CBOR", id: "general-cbor" },
   { name: "Cardano CBOR", id: "cardano-cbor" },
   { name: "Transaction Validator", id: "transaction-validator" },
 ];
 
-const VALID_TABS: TabId[] = ["general-cbor", "cardano-cbor", "cddl-validator", "transaction-validator"];
+const VALID_TABS: TabId[] = [
+  "general-cbor",
+  "cardano-cbor",
+  "cddl-validator",
+  "transaction-validator",
+  "json-viewer",
+];
 
 function stripQuery(hashPart: string): string {
   const qIdx = hashPart.indexOf("?");

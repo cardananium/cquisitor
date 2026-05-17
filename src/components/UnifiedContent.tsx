@@ -75,6 +75,18 @@ const CddlValidatorContent = dynamic(
   }
 );
 
+const JsonViewerContent = dynamic(
+  () => import("@/app/json-viewer/JsonViewerContent"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin w-8 h-8 border-4 border-[#3182ce] border-t-transparent rounded-full" />
+      </div>
+    ),
+  }
+);
+
 // CDDL Validator is intentionally omitted from the visible nav / fallback
 // list for now (still mounted on direct `#cddl-validator` hash).
 const tabs = [
@@ -183,6 +195,12 @@ export default function UnifiedContent() {
   // Safety check - should not happen but TypeScript needs it
   if (activeTab === null) {
     return <InvalidHashError invalidHash="" />;
+  }
+
+  // The JSON viewer is a focused, full-page view — rendered outside the
+  // tabbed shell, reached only via the `#json-viewer` hash.
+  if (activeTab === "json-viewer") {
+    return <JsonViewerContent />;
   }
 
   return (
