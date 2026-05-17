@@ -23,7 +23,8 @@ import {
   CheckIcon,
   ExternalLinkIcon,
 } from "@/components/Icons";
-import { buildTxStudioUrl, openExternalUrl } from "@/utils/externalApps";
+import { buildCardanoCborUrl, buildTxStudioUrl, openExternalUrl } from "@/utils/externalApps";
+import { buildJsonViewerUrl } from "@/utils/jsonViewerHandoff";
 import { ErrorDataDetails, getCleanedErrorMessage, DecompositionModalProvider } from "@/components/ErrorDataFormatters";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
@@ -446,6 +447,19 @@ function ScriptContextSection({
     setView(next);
   };
 
+  // Open the active representation in a dedicated browser tab: the JSON view
+  // goes to the standalone /json-viewer page, the hex view to the Cardano
+  // CBOR decoder (where it parses as Plutus data).
+  const handleOpenExternal = (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (view === "json" && hasJson) {
+      openExternalUrl(buildJsonViewerUrl({ title: "Script Context", json: json ?? "" }));
+    } else if (hasHex) {
+      openExternalUrl(buildCardanoCborUrl(bytes!, "PlutusData"));
+    }
+  };
+
   return (
     <Collapsible.Root className="plutus-script-context">
       <div className="plutus-script-context-header">
@@ -478,6 +492,20 @@ function ScriptContextSection({
             </button>
           </div>
         )}
+        <span
+          role="button"
+          tabIndex={0}
+          className="plutus-script-context-open"
+          onClick={handleOpenExternal}
+          onKeyDown={(e) => e.key === "Enter" && handleOpenExternal(e)}
+          title={
+            view === "json"
+              ? "Open JSON in a new tab"
+              : "Open hex in the Cardano CBOR decoder"
+          }
+        >
+          <ExternalLinkIcon size={12} />
+        </span>
         <span
           role="button"
           tabIndex={0}
