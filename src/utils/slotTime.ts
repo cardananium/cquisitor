@@ -25,16 +25,19 @@ export function formatSlotDate(slot: number | bigint, network: NetworkType): str
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`;
 }
 
-export function formatSlotRelative(slot: number | bigint, network: NetworkType, now: Date = new Date()): string {
-  const target = slotToDate(slot, network).getTime();
-  const diffSec = Math.round((target - now.getTime()) / 1000);
-  const abs = Math.abs(diffSec);
-  const future = diffSec >= 0;
-  const fmt = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"} ${future ? "from now" : "ago"}`;
+export function formatDurationSeconds(sec: number): string {
+  const abs = Math.abs(sec);
+  const fmt = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
   if (abs < 60) return fmt(abs, "second");
   if (abs < 3600) return fmt(Math.round(abs / 60), "minute");
   if (abs < 86400) return fmt(Math.round(abs / 3600), "hour");
   if (abs < 86400 * 30) return fmt(Math.round(abs / 86400), "day");
   if (abs < 86400 * 365) return fmt(Math.round(abs / (86400 * 30)), "month");
   return fmt(Math.round(abs / (86400 * 365)), "year");
+}
+
+export function formatSlotRelative(slot: number | bigint, network: NetworkType, now: Date = new Date()): string {
+  const target = slotToDate(slot, network).getTime();
+  const diffSec = Math.round((target - now.getTime()) / 1000);
+  return `${formatDurationSeconds(diffSec)} ${diffSec >= 0 ? "from now" : "ago"}`;
 }

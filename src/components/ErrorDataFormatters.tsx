@@ -7,6 +7,7 @@ import { AddressWithTooltip } from "./AddressWithTooltip";
 import { CopyIcon, CheckIcon, XCircleIcon } from "./Icons";
 import { AssetsTable, type AssetRow } from "./AssetsTable";
 import { SlotWithTooltip } from "./TransactionCardView/components/SlotWithTooltip";
+import { formatDurationSeconds } from "@/utils/slotTime";
 
 // ============================================================================
 // Type Definitions
@@ -163,6 +164,25 @@ const ERROR_TYPE_MESSAGES: Record<string, (data?: Record<string, unknown>) => st
       return `Fee too small: ${Number(actualFee).toLocaleString()} < ${Number(minFee).toLocaleString()} lovelace required`;
     }
     return "Fee too small for this transaction";
+  },
+  OutsideValidityIntervalUTxO: (data) => {
+    const current = data?.current_slot ?? data?.currentSlot;
+    const start = data?.interval_start ?? data?.intervalStart;
+    const end = data?.interval_end ?? data?.intervalEnd;
+    if (current === undefined || start === undefined || end === undefined) {
+      return "Current slot is outside the transaction's validity interval";
+    }
+    const cur = BigInt(current as bigint | number | string);
+    const s = BigInt(start as bigint | number | string);
+    const e = BigInt(end as bigint | number | string);
+    const interval = `[${s.toString()}..${e.toString()}]`;
+    if (cur < s) {
+      return `Transaction validity interval ${interval} means the transaction won't become valid for ${formatDurationSeconds(Number(s - cur))}`;
+    }
+    if (cur > e) {
+      return `Transaction validity interval ${interval} means the transaction expired ${formatDurationSeconds(Number(cur - e))} ago`;
+    }
+    return `Transaction validity interval ${interval} contains current slot ${cur.toString()}`;
   },
   DelegationToRetiringPool: (data) => {
     const poolId = data?.pool_id ?? data?.poolId;
