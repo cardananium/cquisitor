@@ -49,6 +49,18 @@ export interface BlockchainDataClient {
   getLastEnactedProposals(proposalTypes: string[]): Promise<KoiosProposal[]>;
   getEpochParams(epochNo?: number): Promise<KoiosEpochParams[]>;
   getTxCbor(txHashes: string[]): Promise<KoiosTxCborResponse[]>;
+  submitTransaction(txHex: string): Promise<string>;
+}
+
+function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
+  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+  if (clean.length % 2 !== 0) throw new Error('Invalid hex: odd length');
+  const buf = new ArrayBuffer(clean.length / 2);
+  const out = new Uint8Array(buf);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(clean.substr(i * 2, 2), 16);
+  }
+  return out;
 }
 
 /**
@@ -269,6 +281,28 @@ export class KoiosClient implements BlockchainDataClient {
       _tx_hashes: txHashes,
     };
     return this.post<KoiosTxCborResponse[], KoiosTxHashesRequest>('/tx_cbor', body);
+  }
+
+  async submitTransaction(txHex: string): Promise<string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/cbor',
+      Accept: 'application/json',
+    };
+    if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
+    const bytes = hexToBytes(txHex);
+    const response = await fetch(`${this.baseUrl}/submit/tx`, {
+      method: 'POST',
+      headers,
+      body: new Blob([bytes], { type: 'application/cbor' }),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(
+        `Koios submit error: ${response.status} ${response.statusText}${body ? ` — ${body}` : ''}`
+      );
+    }
+    const txHash = await response.json();
+    return typeof txHash === 'string' ? txHash : String(txHash);
   }
 }
 
