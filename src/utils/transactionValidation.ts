@@ -119,6 +119,20 @@ function mapToKoiosNetwork(network: NetworkType): KoiosNetworkType {
   return network;
 }
 
+export interface SubmitTransactionConfig {
+  txHex: string;
+  network: NetworkType;
+  provider: DataProvider;
+  apiKey: string;
+}
+
+export async function submitTransaction(
+  config: SubmitTransactionConfig
+): Promise<string> {
+  const client = makeClient(config.provider, mapToKoiosNetwork(config.network), config.apiKey);
+  return client.submitTransaction(config.txHex);
+}
+
 // ============================================================================
 // UTxO Conversion Functions
 // ============================================================================

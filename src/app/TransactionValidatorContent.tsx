@@ -23,7 +23,7 @@ import {
   CheckIcon,
   ExternalLinkIcon,
 } from "@/components/Icons";
-import { buildCardanoCborUrl, buildTxStudioUrl, openExternalUrl } from "@/utils/externalApps";
+import { buildCardanoCborUrl, buildExplorerTxUrl, buildTxStudioUrl, openExternalUrl } from "@/utils/externalApps";
 import { buildJsonViewerUrl } from "@/utils/jsonViewerHandoff";
 import { ErrorDataDetails, getCleanedErrorMessage, DecompositionModalProvider } from "@/components/ErrorDataFormatters";
 import HintBanner from "@/components/HintBanner";
@@ -31,9 +31,11 @@ import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
 import {
+  submitTransaction,
   validateTransaction,
   validateTransactionWithContext,
   buildValidationContext,
+  type DataProvider,
   type NetworkType,
 } from "@/utils/transactionValidation";
 import { decode_specific_type, extract_hashes_from_transaction_js } from "@cardananium/cquisitor-lib";
@@ -639,6 +641,128 @@ function PlutusScriptResults({ results }: { results: EvalRedeemerResult[] }) {
         );
       })}
     </Accordion.Root>
+  );
+}
+
+interface SubmitPanelProps {
+  txHex: string;
+  network: NetworkType;
+  provider: DataProvider;
+  apiKey: string;
+}
+
+function SubmitTransactionPanel({ txHex, network, provider, apiKey }: SubmitPanelProps) {
+  type Status = "idle" | "confirming" | "submitting" | "success" | "error";
+  const [status, setStatus] = useState<Status>("idle");
+  const [submittedHash, setSubmittedHash] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const confirmTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => () => {
+    if (confirmTimeoutRef.current) clearTimeout(confirmTimeoutRef.current);
+  }, []);
+
+  const providerLabel = provider === "blockfrost" ? "Blockfrost" : "Koios";
+  const networkLabel = network.charAt(0).toUpperCase() + network.slice(1);
+  const hasKey = !!apiKey.trim();
+
+  const handleClick = async () => {
+    if (status === "submitting") return;
+    if (status === "idle" || status === "error") {
+      setSubmitError(null);
+      setStatus("confirming");
+      if (confirmTimeoutRef.current) clearTimeout(confirmTimeoutRef.current);
+      confirmTimeoutRef.current = setTimeout(() => {
+        setStatus((s) => (s === "confirming" ? "idle" : s));
+      }, 5000);
+      return;
+    }
+    if (status === "confirming") {
+      if (confirmTimeoutRef.current) clearTimeout(confirmTimeoutRef.current);
+      setStatus("submitting");
+      try {
+        const hash = await submitTransaction({ txHex, network, provider, apiKey: apiKey.trim() });
+        setSubmittedHash(hash);
+        setStatus("success");
+      } catch (e) {
+        setSubmitError(e instanceof Error ? e.message : "Submission failed");
+        setStatus("error");
+      }
+    }
+  };
+
+  const handleCopyHash = async () => {
+    if (!submittedHash) return;
+    try {
+      await navigator.clipboard.writeText(submittedHash);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* ignore */ }
+  };
+
+  if (status === "success" && submittedHash) {
+    return (
+      <div className="submit-panel submit-panel-success">
+        <div className="submit-panel-header">
+          <SuccessIcon />
+          <span>Submitted to {networkLabel} via {providerLabel}</span>
+        </div>
+        <div className="submit-panel-hash-row">
+          <code className="submit-panel-hash">{submittedHash}</code>
+          <button
+            className="submit-panel-copy-btn"
+            onClick={handleCopyHash}
+            title="Copy transaction hash"
+          >
+            {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+            {copied ? "Copied!" : "Copy"}
+          </button>
+          <button
+            className="submit-panel-explorer-btn"
+            onClick={() => openExternalUrl(buildExplorerTxUrl(submittedHash, network))}
+            title="Open in Cardanoscan"
+          >
+            <ExternalLinkIcon size={12} />
+            Explorer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const buttonLabel =
+    status === "submitting"
+      ? "Submitting..."
+      : status === "confirming"
+        ? `Click again to confirm submission to ${networkLabel}`
+        : `Submit to ${networkLabel} via ${providerLabel}`;
+
+  return (
+    <div className={`submit-panel ${status === "confirming" ? "submit-panel-confirming" : ""}`}>
+      <button
+        className={`submit-panel-btn ${status === "confirming" ? "confirming" : ""}`}
+        onClick={handleClick}
+        disabled={!hasKey || status === "submitting"}
+        title={hasKey ? undefined : `Enter a ${providerLabel} API key to submit`}
+      >
+        {status === "submitting" ? (
+          <SpinnerIcon size={16} className="animate-spin" />
+        ) : (
+          <CheckCircleIcon size={16} />
+        )}
+        <span>{buttonLabel}</span>
+      </button>
+      {!hasKey && (
+        <p className="submit-panel-hint">Enter a {providerLabel} API key above to enable submission.</p>
+      )}
+      {submitError && (
+        <div className="submit-panel-error">
+          <DiagnosticIcon severity="error" />
+          <span>{submitError}</span>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1378,7 +1502,18 @@ export default function TransactionValidatorContent() {
 
         <Tabs.Content value="validation" className="validator-tab-content">
           {result ? (
-            <DiagnosticsList items={diagnostics} onLocationClick={handleLocationClick} />
+            <>
+              <DiagnosticsList items={diagnostics} onLocationClick={handleLocationClick} />
+              {result.errors.length === 0 && result.phase2_errors.length === 0 && txCborHex && (
+                <SubmitTransactionPanel
+                  key={`${txCborHex}|${network}|${provider}`}
+                  txHex={txCborHex}
+                  network={network}
+                  provider={provider}
+                  apiKey={apiKey}
+                />
+              )}
+            </>
           ) : (
             <div className="empty-state">
               <p className="empty-hint">

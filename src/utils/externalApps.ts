@@ -36,6 +36,16 @@ export function buildCardanoCborUrl(cborHex: string, type?: string): string {
   return `${window.location.origin}${path}/#cardano-cbor?${params.toString()}`;
 }
 
+const CARDANOSCAN_HOSTS: Record<NetworkType, string> = {
+  mainnet: "https://cardanoscan.io",
+  preview: "https://preview.cardanoscan.io",
+  preprod: "https://preprod.cardanoscan.io",
+};
+
+export function buildExplorerTxUrl(txHash: string, network: NetworkType): string {
+  return `${CARDANOSCAN_HOSTS[network]}/transaction/${txHash}`;
+}
+
 export function openExternalUrl(url: string): void {
   if (typeof window === "undefined") return;
   window.open(url, "_blank", "noopener,noreferrer");

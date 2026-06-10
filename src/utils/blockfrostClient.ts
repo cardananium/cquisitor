@@ -48,6 +48,17 @@ export interface BlockfrostClientConfig {
 
 const PREDEFINED_DREPS = new Set(["AlwaysAbstain", "AlwaysNoConfidence"]);
 
+function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+  if (clean.length % 2 !== 0) throw new Error("Invalid hex: odd length");
+  const buf = new ArrayBuffer(clean.length / 2);
+  const out = new Uint8Array(buf);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(clean.substr(i * 2, 2), 16);
+  }
+  return out;
+}
+
 // --- Raw Blockfrost shapes (only what we consume) ------------------------
 
 interface BfBlock {
@@ -791,6 +802,27 @@ export class BlockfrostClient implements BlockchainDataClient {
       )
     );
     return results.filter((r): r is KoiosTxCborResponse => r !== null);
+  }
+
+  async submitTransaction(txHex: string): Promise<string> {
+    const bytes = hexToBytes(txHex);
+    const response = await fetch(`${this.baseUrl}/tx/submit`, {
+      method: "POST",
+      headers: {
+        project_id: this.apiKey,
+        "Content-Type": "application/cbor",
+        Accept: "application/json",
+      },
+      body: new Blob([bytes], { type: "application/cbor" }),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(
+        `Blockfrost submit error: ${response.status} ${response.statusText}${body ? ` — ${body}` : ""}`
+      );
+    }
+    const txHash = await response.json();
+    return typeof txHash === "string" ? txHash : String(txHash);
   }
 
   // --- Helpers shared across methods --------------------------------------
