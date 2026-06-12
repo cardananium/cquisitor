@@ -3673,6 +3673,130 @@ input, textarea, select, button {
   gap: 8px;
 }
 
+/* Inline "add a signature" panel shown under a missing-vkey-witness error */
+.add-witness-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--primary, #3182ce);
+  background: transparent;
+  border: 1px dashed var(--primary, #3182ce);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.add-witness-toggle:hover {
+  background: rgba(49, 130, 206, 0.08);
+}
+
+.add-witness-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+}
+
+.add-witness-input {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px;
+  color: var(--foreground, #1a202c);
+  background: var(--background, #fff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 6px;
+  word-break: break-all;
+}
+
+.add-witness-input:focus {
+  outline: none;
+  border-color: var(--primary, #3182ce);
+}
+
+.add-witness-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.add-witness-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, #3182ce, #2b6cb0);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.add-witness-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2b6cb0, #2c5282);
+}
+
+.add-witness-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.add-witness-cancel {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted, #6b7280);
+  background: transparent;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.add-witness-cancel:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.add-witness-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  word-break: break-word;
+}
+
+.add-witness-feedback-success {
+  color: #15803d;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+}
+
+.add-witness-feedback-warning {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+}
+
+.add-witness-feedback-error {
+  color: #991b1b;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
 .submit-panel-btn {
   display: inline-flex;
   align-items: center;
