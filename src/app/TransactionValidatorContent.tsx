@@ -44,6 +44,14 @@ import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
 import { normalizeHexOrBase64 } from "@/utils/inputNormalization";
 import {
+  parseWitnessInput,
+  addVkeyWitnesses,
+  txBodyHash,
+  verifySignature,
+  vkeyHash,
+  WitnessParseError,
+} from "@/utils/witnessInsertion";
+import {
   useTransactionValidator,
   type DecodedTransaction,
   type InputUtxoInfoMap,
@@ -237,9 +245,154 @@ function formatDiagnosticsToMarkdown(items: DiagnosticItem[]): string {
   return md.trim();
 }
 
-function DiagnosticsList({ items, onLocationClick }: { 
-  items: DiagnosticItem[]; 
+// Inline panel for resolving a "missing vkey witness" error: paste a signature
+// in any common format and it's verified against the transaction and spliced
+// into the witness set (the body bytes — and therefore the tx hash — are left
+// untouched, so existing signatures stay valid).
+interface AddWitnessPanelProps {
+  txHex: string;
+  missingKeyHash?: string;
+  onWitnessAdded: (newHex: string) => void;
+}
+
+function AddWitnessPanel({ txHex, missingKeyHash, onWitnessAdded }: AddWitnessPanelProps) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const [feedback, setFeedback] = useState<
+    { kind: "success" | "error" | "warning"; text: string } | null
+  >(null);
+
+  const handleAdd = () => {
+    setFeedback(null);
+
+    let witnesses;
+    try {
+      witnesses = parseWitnessInput(value);
+    } catch (e) {
+      setFeedback({
+        kind: "error",
+        text: e instanceof WitnessParseError ? e.message : "Could not parse the pasted witness.",
+      });
+      return;
+    }
+
+    let bodyHash: Uint8Array;
+    try {
+      bodyHash = txBodyHash(txHex);
+    } catch {
+      setFeedback({ kind: "error", text: "Could not read the transaction body to verify the signature." });
+      return;
+    }
+
+    // Cryptographically verify every signature against this transaction.
+    const verified = witnesses.map((w) => ({ w, ok: verifySignature(bodyHash, w) }));
+    const valid = verified.filter((v) => v.ok).map((v) => v.w);
+    const invalidCount = verified.length - valid.length;
+
+    if (valid.length === 0) {
+      setFeedback({
+        kind: "error",
+        text:
+          "Signature does not match this transaction — it was signed for a different transaction, or by a different key.",
+      });
+      return;
+    }
+
+    let result;
+    try {
+      result = addVkeyWitnesses(txHex, valid);
+    } catch (e) {
+      setFeedback({ kind: "error", text: e instanceof Error ? e.message : "Failed to insert the witness." });
+      return;
+    }
+
+    if (result.added === 0) {
+      setFeedback({
+        kind: "warning",
+        text:
+          result.duplicates > 0
+            ? "That signature is already in the witness set."
+            : "No new signatures to add.",
+      });
+      return;
+    }
+
+    const addedHashes = valid.map((w) => vkeyHash(w.vkey));
+    const matchesThis = missingKeyHash ? addedHashes.includes(missingKeyHash.toLowerCase()) : true;
+
+    const parts = [`Added ${result.added} signature${result.added > 1 ? "s" : ""}.`];
+    if (result.duplicates > 0) parts.push(`${result.duplicates} already present.`);
+    if (invalidCount > 0) parts.push(`${invalidCount} skipped (didn't match this transaction).`);
+    if (missingKeyHash && !matchesThis) {
+      parts.push("Note: this isn't the key this error needs — re-validate to see what's still required.");
+    }
+    setFeedback({ kind: matchesThis ? "success" : "warning", text: parts.join(" ") });
+    setValue("");
+    onWitnessAdded(result.txHex);
+  };
+
+  if (!open) {
+    return (
+      <button
+        className="add-witness-toggle"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
+      >
+        <CheckCircleIcon size={13} />
+        Add a signature for this key
+      </button>
+    );
+  }
+
+  return (
+    <div className="add-witness-panel" onClick={(e) => e.stopPropagation()}>
+      <textarea
+        className="add-witness-input"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={'Paste a witness — raw hex/base64, a cardano-cli witness file ({ "type": …, "cborHex": … }), or a full witness set'}
+        spellCheck={false}
+        rows={3}
+      />
+      <div className="add-witness-actions">
+        <button className="add-witness-btn" onClick={handleAdd} disabled={!value.trim()}>
+          <CheckCircleIcon size={14} />
+          Add to witness set
+        </button>
+        <button
+          className="add-witness-cancel"
+          onClick={() => {
+            setOpen(false);
+            setValue("");
+            setFeedback(null);
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+      {feedback && (
+        <div className={`add-witness-feedback add-witness-feedback-${feedback.kind}`}>
+          {feedback.kind === "success" ? (
+            <SuccessIcon size={14} />
+          ) : feedback.kind === "warning" ? (
+            <WarningIcon size={14} />
+          ) : (
+            <XCircleIcon size={14} />
+          )}
+          <span>{feedback.text}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DiagnosticsList({ items, onLocationClick, txHex, onWitnessAdded }: {
+  items: DiagnosticItem[];
   onLocationClick?: (locations: string[]) => void;
+  txHex?: string | null;
+  onWitnessAdded?: (newHex: string) => void;
 }) {
   if (items.length === 0) {
     return (
@@ -298,6 +451,17 @@ function DiagnosticsList({ items, onLocationClick }: {
                   <div className="diagnostic-details">
                     {item.errorData && (
                       <ErrorDataDetails error={item.errorData} hint={item.hint} />
+                    )}
+                    {item.errorType === "MissingVKeyWitnesses" && txHex && onWitnessAdded && (
+                      <AddWitnessPanel
+                        txHex={txHex}
+                        missingKeyHash={
+                          typeof item.errorData?.missing_key_hash === "string"
+                            ? item.errorData.missing_key_hash
+                            : undefined
+                        }
+                        onWitnessAdded={onWitnessAdded}
+                      />
                     )}
                     {item.details && (
                       <div className="diagnostic-detail-row">
@@ -1074,6 +1238,26 @@ export default function TransactionValidatorContent() {
   const handleValidate = useCallback(() => runValidation(false), [runValidation]);
   const handleRefetch = useCallback(() => runValidation(true), [runValidation]);
 
+  // Called after a witness is spliced into the transaction. Adding a signature
+  // leaves the body bytes (and tx hash) unchanged, so the already-fetched
+  // validation context is still valid — re-run validation against it locally,
+  // with no extra API calls, so the resolved error disappears immediately.
+  const handleWitnessAdded = useCallback(
+    (newHex: string) => {
+      setTxInput(newHex);
+      if (fetchedContext) {
+        try {
+          const ctx = buildValidationContext(fetchedContext, network);
+          setResult(validateTransactionWithContext(newHex, ctx));
+        } catch {
+          // If local re-validation fails for any reason, the input is still
+          // updated — the user can click Validate to re-run normally.
+        }
+      }
+    },
+    [setTxInput, setResult, fetchedContext, network]
+  );
+
   // Build diagnostics list from validation result (excluding redeemer results)
   const diagnostics: DiagnosticItem[] = [];
   if (result) {
@@ -1503,7 +1687,12 @@ export default function TransactionValidatorContent() {
         <Tabs.Content value="validation" className="validator-tab-content">
           {result ? (
             <>
-              <DiagnosticsList items={diagnostics} onLocationClick={handleLocationClick} />
+              <DiagnosticsList
+                items={diagnostics}
+                onLocationClick={handleLocationClick}
+                txHex={txCborHex}
+                onWitnessAdded={handleWitnessAdded}
+              />
               {result.errors.length === 0 && result.phase2_errors.length === 0 && txCborHex && (
                 <SubmitTransactionPanel
                   key={`${txCborHex}|${network}|${provider}`}
