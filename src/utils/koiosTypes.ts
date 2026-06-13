@@ -137,7 +137,8 @@ export interface KoiosDrepInfo {
   drep_id: string;
   hex: string;
   has_script: boolean;
-  registered: boolean;
+  /** Koios returns a status string ("registered" / "deregistered"), not a boolean. */
+  drep_status: string;
   deposit: string | null;
   active: boolean;
   expires_epoch_no: number | null;
@@ -163,6 +164,16 @@ export interface KoiosCommitteeInfo {
   quorum_numerator: number;
   quorum_denominator: number;
   members: KoiosCommitteeMember[];
+}
+
+// Current constitution. Koios has no REST endpoint for this; it is served via
+// the Ogmios passthrough (queryLedgerState/constitution). `guardrailScriptHash`
+// is the guardrails (a.k.a. constitution policy) script hash — null when the
+// constitution carries no guardrails script.
+export interface KoiosConstitution {
+  anchorUrl: string;
+  anchorDataHash: string;
+  guardrailScriptHash: string | null;
 }
 
 // Proposal (Governance Action) Response

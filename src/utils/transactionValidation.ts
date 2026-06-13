@@ -17,6 +17,7 @@ import {
   type PoolInputContext,
   type GovActionInputContext,
   type CommitteeInputContext,
+  type ConstitutionContext,
   type UTxO,
   type TxInput,
   type TxOutput,
@@ -60,6 +61,16 @@ export type NetworkType = 'mainnet' | 'preview' | 'preprod';
 export type DataProvider = 'koios' | 'blockfrost';
 
 /**
+ * Well-known Cardano guardrails (constitution policy) script hash. Identical on
+ * mainnet, preprod and preview (a Plutus script hash is network-independent),
+ * and unchanged across every enacted constitution to date. Used as a fallback
+ * when the provider can't supply the live constitution (e.g. Blockfrost has no
+ * constitution endpoint), so the guardrails-policy-hash check still runs.
+ */
+const FALLBACK_GUARDRAIL_SCRIPT_HASH =
+  'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64';
+
+/**
  * Configuration for transaction validation
  */
 export interface TransactionValidationConfig {
@@ -94,6 +105,7 @@ export interface FetchedValidationData {
   lastEnactedGovAction: GovActionInputContext[];
   currentCommitteeMembers: CommitteeInputContext[];
   potentialCommitteeMembers: CommitteeInputContext[];
+  constitution: ConstitutionContext;
   protocolParameters: ProtocolParameters;
   slot: bigint;
   treasuryValue: bigint;
@@ -299,7 +311,7 @@ function koiosAccountToAccountContext(
 function koiosDrepToDrepContext(drep: KoiosDrepInfo): DrepInputContext {
   return {
     bech32Drep: drep.drep_id,
-    isRegistered: drep.registered,
+    isRegistered: drep.drep_status === 'registered',
     payedDeposit: drep.deposit ? parseInt(drep.deposit, 10) : null,
   };
 }
@@ -537,6 +549,7 @@ export async function fetchValidationData(
     committeeInfoResult,
     proposalsByRefsResult,
     lastEnactedProposalsResult,
+    constitutionResult,
   ] = await Promise.all([
     client.getTip(),
     client.getTotals(),
@@ -546,6 +559,9 @@ export async function fetchValidationData(
     client.getProposalsByRefs(govActionRefs).catch(() => []),
     // Only fetch last enacted proposals for the types needed by the transaction
     client.getLastEnactedProposals(lastEnactedProposalTypes).catch(() => []),
+    // Current constitution — supplies the guardrails policy hash that
+    // ParameterChange/TreasuryWithdrawals proposals are validated against.
+    client.getConstitution().catch(() => null),
   ]);
 
   // Get current slot and treasury value
@@ -740,6 +756,14 @@ export async function fetchValidationData(
     }
   }
 
+  // Build the constitution context from the live fetch. When the provider
+  // supplied a constitution, trust its guardrails hash (even if null — that
+  // means "no guardrails script"); only fall back to the well-known hash when
+  // there is no result at all (e.g. Blockfrost has no constitution endpoint).
+  const constitution: ConstitutionContext = constitutionResult
+    ? { guardrailScriptHash: constitutionResult.guardrailScriptHash }
+    : { guardrailScriptHash: FALLBACK_GUARDRAIL_SCRIPT_HASH };
+
   return {
     utxoSet,
     accountContexts,
@@ -749,6 +773,7 @@ export async function fetchValidationData(
     lastEnactedGovAction,
     currentCommitteeMembers,
     potentialCommitteeMembers,
+    constitution,
     protocolParameters,
     slot,
     treasuryValue,
@@ -805,6 +830,7 @@ export async function validateTransaction(
     lastEnactedGovAction: fetchedData.lastEnactedGovAction,
     currentCommitteeMembers: fetchedData.currentCommitteeMembers,
     potentialCommitteeMembers: fetchedData.potentialCommitteeMembers,
+    constitution: fetchedData.constitution,
     treasuryValue: fetchedData.treasuryValue,
     networkType: network,
   };
@@ -855,6 +881,7 @@ export function buildValidationContext(
     lastEnactedGovAction: fetchedData.lastEnactedGovAction,
     currentCommitteeMembers: fetchedData.currentCommitteeMembers,
     potentialCommitteeMembers: fetchedData.potentialCommitteeMembers,
+    constitution: fetchedData.constitution,
     treasuryValue: fetchedData.treasuryValue,
     networkType: network,
   };

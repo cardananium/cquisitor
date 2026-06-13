@@ -30,6 +30,7 @@ import {
   KoiosPoolInfo,
   KoiosDrepInfo,
   KoiosCommitteeInfo,
+  KoiosConstitution,
   KoiosProposal,
   KoiosEpochParams,
   KoiosTxCborResponse,
@@ -607,7 +608,7 @@ export class BlockfrostClient implements BlockchainDataClient {
         drep_id: id,
         hex: data.hex,
         has_script: data.has_script,
-        registered: !data.retired,
+        drep_status: data.retired ? 'deregistered' : 'registered',
         deposit: null,
         active: data.active,
         expires_epoch_no: null,
@@ -636,6 +637,15 @@ export class BlockfrostClient implements BlockchainDataClient {
       quorum_denominator: 1,
       members: [],
     };
+  }
+
+  async getConstitution(): Promise<KoiosConstitution | null> {
+    // KNOWN LIMITATION: the public Blockfrost API has no constitution endpoint
+    // (verified against blockfrost/openapi.json — only /governance/committee,
+    // /dreps and /proposals exist). Return null so callers can fall back to the
+    // well-known per-network guardrails script hash. Koios serves this via its
+    // Ogmios passthrough; switch to a real fetch here if Blockfrost adds one.
+    return null;
   }
 
   async getProposalsByRefs(refs: GovActionRef[]): Promise<KoiosProposal[]> {

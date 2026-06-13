@@ -8,6 +8,7 @@ import { CopyIcon, CheckIcon, XCircleIcon } from "./Icons";
 import { AssetsTable, type AssetRow } from "./AssetsTable";
 import { SlotWithTooltip } from "./TransactionCardView/components/SlotWithTooltip";
 import { formatDurationSeconds } from "@/utils/slotTime";
+import { encodeDRepId, encodeCCHotId, poolIdHexToBech32 } from "@/utils/cip129";
 
 // ============================================================================
 // Type Definitions
@@ -154,6 +155,37 @@ function bytesToHex(bytes: number[]): string {
  * Human-readable messages for known error types
  * Used when the original message is JSON or not user-friendly
  */
+/**
+ * Formats a validator `Voter` payload (a single-key object like
+ * `{ dRepKeyHash: "2cc1f9..." }`, where the value is a bare hex hash) as a
+ * CIP-129 governance id with a human label. Returns null for unknown shapes.
+ */
+function formatVoterCip129(voter: unknown): string | null {
+  if (!voter || typeof voter !== "object") return null;
+  const entries = Object.entries(voter as Record<string, unknown>);
+  if (entries.length !== 1) return null;
+  const [kind, hash] = entries[0];
+  if (typeof hash !== "string") return null;
+  try {
+    switch (kind) {
+      case "dRepKeyHash":
+        return `DRep ${encodeDRepId(hash, false)}`;
+      case "dRepScriptHash":
+        return `DRep ${encodeDRepId(hash, true)}`;
+      case "constitutionalCommitteeHotKeyHash":
+        return `Committee hot ${encodeCCHotId(hash, false)}`;
+      case "constitutionalCommitteeHotScriptHash":
+        return `Committee hot ${encodeCCHotId(hash, true)}`;
+      case "stakingPoolKeyHash":
+        return `Stake pool ${poolIdHexToBech32(hash)}`;
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
 const ERROR_TYPE_MESSAGES: Record<string, (data?: Record<string, unknown>) => string> = {
   // Phase 1 errors
   ValueNotConservedUTxO: () => "Value not conserved — inputs don't match outputs + fee",
@@ -197,6 +229,27 @@ const ERROR_TYPE_MESSAGES: Record<string, (data?: Record<string, unknown>) => st
     const drepStr = drepId ? ` ${String(drepId)}` : "";
     const suffix = certIndex !== undefined ? ` (certificate #${Number(certIndex)})` : "";
     return `Delegation target DRep${drepStr} is not registered${suffix}`;
+  },
+  VoterDoNotExist: (data) => {
+    const voter = data?.missing_voter ?? data?.missingVoter;
+    const formatted = formatVoterCip129(voter);
+    return formatted
+      ? `${formatted} is not a registered voter`
+      : "Voter is not registered in the ledger state";
+  },
+  InvalidConstitutionPolicyHash: (data) => {
+    const supplied = data?.supplied_hash ?? data?.suppliedHash;
+    const expected = data?.expected_hash ?? data?.expectedHash;
+    if (expected && !supplied) {
+      return `Missing guardrails script — this proposal must reference the constitution guardrails script (${String(expected)})`;
+    }
+    if (expected && supplied) {
+      return `Guardrails script hash mismatch — proposal references ${String(supplied)} but the constitution requires ${String(expected)}`;
+    }
+    if (supplied && !expected) {
+      return `Unexpected guardrails script ${String(supplied)} — the constitution defines no guardrails script`;
+    }
+    return "Invalid constitution guardrails (policy) script hash";
   },
 };
 

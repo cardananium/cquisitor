@@ -13,6 +13,7 @@ import {
   KoiosPoolInfo,
   KoiosDrepInfo,
   KoiosCommitteeInfo,
+  KoiosConstitution,
   KoiosProposal,
   KoiosEpochParams,
   KoiosUtxoRefsRequest,
@@ -31,6 +32,20 @@ export interface GovActionRef {
   index: number;
 }
 
+/** Ogmios JSON-RPC request (Koios serves these via its /ogmios passthrough). */
+interface OgmiosRequest {
+  jsonrpc: '2.0';
+  method: string;
+}
+
+/** Shape of the `queryLedgerState/constitution` Ogmios result. */
+interface OgmiosConstitutionResponse {
+  result?: {
+    metadata?: { url?: string; hash?: string };
+    guardrails?: { hash?: string } | null;
+  };
+}
+
 /**
  * The cross-provider surface the validator needs. Both KoiosClient and
  * BlockfrostClient satisfy this — pick whichever, the rest of the pipeline
@@ -45,6 +60,8 @@ export interface BlockchainDataClient {
   getPoolInfo(poolIds: string[]): Promise<KoiosPoolInfo[]>;
   getDrepInfo(drepIds: string[]): Promise<KoiosDrepInfo[]>;
   getCommitteeInfo(): Promise<KoiosCommitteeInfo>;
+  /** Current on-chain constitution, or null if the provider can't supply it. */
+  getConstitution(): Promise<KoiosConstitution | null>;
   getProposalsByRefs(refs: GovActionRef[]): Promise<KoiosProposal[]>;
   getLastEnactedProposals(proposalTypes: string[]): Promise<KoiosProposal[]>;
   getEpochParams(epochNo?: number): Promise<KoiosEpochParams[]>;
@@ -203,6 +220,29 @@ export class KoiosClient implements BlockchainDataClient {
    */
   async getCommitteeInfo(): Promise<KoiosCommitteeInfo> {
     return this.get<KoiosCommitteeInfo>('/committee_info');
+  }
+
+  /**
+   * Get the current on-chain constitution.
+   *
+   * Koios exposes no REST endpoint for this; it proxies Ogmios, whose
+   * `queryLedgerState/constitution` method returns the anchor + guardrails
+   * script hash. Verified live for mainnet/preprod/preview.
+   */
+  async getConstitution(): Promise<KoiosConstitution | null> {
+    const resp = await this.post<OgmiosConstitutionResponse, OgmiosRequest>(
+      '/ogmios',
+      { jsonrpc: '2.0', method: 'queryLedgerState/constitution' }
+    );
+    const result = resp?.result;
+    if (!result) {
+      return null;
+    }
+    return {
+      anchorUrl: result.metadata?.url ?? '',
+      anchorDataHash: result.metadata?.hash ?? '',
+      guardrailScriptHash: result.guardrails?.hash ?? null,
+    };
   }
 
   /**
