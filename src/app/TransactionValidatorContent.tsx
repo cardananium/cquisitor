@@ -43,14 +43,7 @@ import type { ExtractedHashes } from "@cardananium/cquisitor-lib";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
 import { normalizeHexOrBase64 } from "@/utils/inputNormalization";
-import {
-  parseWitnessInput,
-  addVkeyWitnesses,
-  txBodyHash,
-  verifySignature,
-  vkeyHash,
-  WitnessParseError,
-} from "@/utils/witnessInsertion";
+import { add_witnesses_to_tx_with_report } from "@cardananium/cquisitor-lib";
 import {
   useTransactionValidator,
   type DecodedTransaction,
@@ -265,70 +258,54 @@ function AddWitnessPanel({ txHex, missingKeyHash, onWitnessAdded }: AddWitnessPa
   const handleAdd = () => {
     setFeedback(null);
 
-    let witnesses;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      setFeedback({ kind: "error", text: "Nothing to add — paste a witness first." });
+      return;
+    }
+
+    // The lib parses every supported format, verifies each signature against
+    // this transaction's body, inserts the valid non-duplicate ones (preserving
+    // the body bytes), and reports what happened.
+    let report;
     try {
-      witnesses = parseWitnessInput(value);
+      report = add_witnesses_to_tx_with_report(txHex, [trimmed]);
     } catch (e) {
       setFeedback({
         kind: "error",
-        text: e instanceof WitnessParseError ? e.message : "Could not parse the pasted witness.",
+        text: e instanceof Error ? e.message : "Could not parse the pasted witness.",
       });
       return;
     }
 
-    let bodyHash: Uint8Array;
-    try {
-      bodyHash = txBodyHash(txHex);
-    } catch {
-      setFeedback({ kind: "error", text: "Could not read the transaction body to verify the signature." });
+    if (report.added === 0) {
+      if (report.invalid > 0 && report.duplicates === 0) {
+        setFeedback({
+          kind: "error",
+          text:
+            "Signature does not match this transaction — it was signed for a different transaction, or by a different key.",
+        });
+      } else if (report.duplicates > 0) {
+        setFeedback({ kind: "warning", text: "That signature is already in the witness set." });
+      } else {
+        setFeedback({ kind: "warning", text: "No new signatures to add." });
+      }
       return;
     }
 
-    // Cryptographically verify every signature against this transaction.
-    const verified = witnesses.map((w) => ({ w, ok: verifySignature(bodyHash, w) }));
-    const valid = verified.filter((v) => v.ok).map((v) => v.w);
-    const invalidCount = verified.length - valid.length;
+    const matchesThis = missingKeyHash
+      ? report.added_key_hashes.includes(missingKeyHash.toLowerCase())
+      : true;
 
-    if (valid.length === 0) {
-      setFeedback({
-        kind: "error",
-        text:
-          "Signature does not match this transaction — it was signed for a different transaction, or by a different key.",
-      });
-      return;
-    }
-
-    let result;
-    try {
-      result = addVkeyWitnesses(txHex, valid);
-    } catch (e) {
-      setFeedback({ kind: "error", text: e instanceof Error ? e.message : "Failed to insert the witness." });
-      return;
-    }
-
-    if (result.added === 0) {
-      setFeedback({
-        kind: "warning",
-        text:
-          result.duplicates > 0
-            ? "That signature is already in the witness set."
-            : "No new signatures to add.",
-      });
-      return;
-    }
-
-    const addedHashes = valid.map((w) => vkeyHash(w.vkey));
-    const matchesThis = missingKeyHash ? addedHashes.includes(missingKeyHash.toLowerCase()) : true;
-
-    const parts = [`Added ${result.added} signature${result.added > 1 ? "s" : ""}.`];
-    if (result.duplicates > 0) parts.push(`${result.duplicates} already present.`);
-    if (invalidCount > 0) parts.push(`${invalidCount} skipped (didn't match this transaction).`);
+    const parts = [`Added ${report.added} signature${report.added > 1 ? "s" : ""}.`];
+    if (report.duplicates > 0) parts.push(`${report.duplicates} already present.`);
+    if (report.invalid > 0) parts.push(`${report.invalid} skipped (didn't match this transaction).`);
     if (missingKeyHash && !matchesThis) {
       parts.push("Note: this isn't the key this error needs — re-validate to see what's still required.");
     }
     setFeedback({ kind: matchesThis ? "success" : "warning", text: parts.join(" ") });
     setValue("");
-    onWitnessAdded(result.txHex);
+    onWitnessAdded(report.tx_hex);
   };
 
   if (!open) {
