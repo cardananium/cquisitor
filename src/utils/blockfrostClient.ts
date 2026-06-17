@@ -462,19 +462,27 @@ export class BlockfrostClient implements BlockchainDataClient {
       list.push(index);
       refsByTx.set(hash, list);
     }
-    const all = await Promise.all(
-      Array.from(refsByTx.entries()).map(async ([txHash, indices]) => {
-        const utxos = await this.getRaw<BfTxUtxos>(`/txs/${txHash}/utxos`, { allow404: true });
-        if (!utxos) return [];
-        const wanted = new Set(indices);
-        return Promise.all(
-          utxos.outputs
-            .filter((o) => wanted.has(o.output_index))
-            .map((o) => this.bfOutputToKoios(txHash, o))
-        );
-      })
-    );
-    return all.flat();
+    // A token-heavy tx can reference 100+ distinct txs; cap concurrency so we
+    // don't fire 100+ /txs/{hash}/utxos GETs at once and trip the rate limit.
+    const entries = Array.from(refsByTx.entries());
+    const CONCURRENCY = 10;
+    const out: KoiosUtxoInfo[] = [];
+    for (let i = 0; i < entries.length; i += CONCURRENCY) {
+      const batch = await Promise.all(
+        entries.slice(i, i + CONCURRENCY).map(async ([txHash, indices]) => {
+          const utxos = await this.getRaw<BfTxUtxos>(`/txs/${txHash}/utxos`, { allow404: true });
+          if (!utxos) return [];
+          const wanted = new Set(indices);
+          return Promise.all(
+            utxos.outputs
+              .filter((o) => wanted.has(o.output_index))
+              .map((o) => this.bfOutputToKoios(txHash, o))
+          );
+        })
+      );
+      out.push(...batch.flat());
+    }
+    return out;
   }
 
   private async bfOutputToKoios(txHash: string, o: BfTxOutput): Promise<KoiosUtxoInfo> {

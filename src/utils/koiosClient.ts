@@ -205,11 +205,21 @@ export class KoiosClient implements BlockchainDataClient {
     if (utxoRefs.length === 0) {
       return [];
     }
-    const body: KoiosUtxoRefsRequest = {
-      _utxo_refs: utxoRefs,
-      _extended: true,
-    };
-    return this.post<KoiosUtxoInfo[], KoiosUtxoRefsRequest>('/utxo_info', body);
+    // A tx can spend/reference 100+ UTxOs; one big `_utxo_refs` POST exceeds
+    // Koios's request-size limit (HTTP 413). Split into chunks that run
+    // concurrently (kept all-or-nothing — this feeds validation).
+    const CHUNK = 40;
+    const chunks: string[][] = [];
+    for (let i = 0; i < utxoRefs.length; i += CHUNK) chunks.push(utxoRefs.slice(i, i + CHUNK));
+    const results = await Promise.all(
+      chunks.map((chunk) =>
+        this.post<KoiosUtxoInfo[], KoiosUtxoRefsRequest>('/utxo_info', {
+          _utxo_refs: chunk,
+          _extended: true,
+        }),
+      ),
+    );
+    return results.flat();
   }
 
   /**
