@@ -3,23 +3,28 @@
 import React, { useRef, useEffect } from "react";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { CollapsibleDataItem } from "./CollapsibleDataItem";
+import { DeUplcButton, DEUPLC_ENABLED } from "./DeUplcButton";
 import { getPathDiagnostics } from "../utils";
 import type { Redeemer, ValidationDiagnostic } from "../types";
+import type { DeUplcResolved } from "@/utils/deUplcLink";
 
 interface RedeemerCardProps {
   redeemer: Redeemer;
   path: string;
   diagnosticsMap: Map<string, ValidationDiagnostic[]>;
   focusedPath?: string[] | null;
+  /** "Open in de-uplc-web" link for this redeemer (null until Validate has run). */
+  deUplcLink?: DeUplcResolved | null;
 }
 
 const REDEEMER_ACCENT = "#f97316"; // orange
 
-export function RedeemerCard({ 
-  redeemer, 
+export function RedeemerCard({
+  redeemer,
   path,
   diagnosticsMap,
-  focusedPath
+  focusedPath,
+  deUplcLink,
 }: RedeemerCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
@@ -43,6 +48,11 @@ export function RedeemerCard({
         <span className="tcv-redeemer-tag">{redeemer.tag}</span>
         <span className="tcv-redeemer-index">[{redeemer.index}]</span>
         <DiagnosticBadge diagnostics={diagnostics} />
+        {DEUPLC_ENABLED && (
+          <span className="tcv-deuplc-slot">
+            <DeUplcButton link={deUplcLink} />
+          </span>
+        )}
       </div>
       <div className="tcv-exunits-bar">
         <div className="tcv-exunit">

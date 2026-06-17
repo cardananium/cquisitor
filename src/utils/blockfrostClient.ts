@@ -12,7 +12,7 @@
  */
 import { decode_specific_type } from "@cardananium/cquisitor-lib";
 import { convertSerdeNumbers } from "./serdeNumbers";
-import type { GovActionRef, BlockchainDataClient } from "./koiosClient";
+import type { GovActionRef, BlockchainDataClient, AssetMetadata } from "./koiosClient";
 import {
   PLUTUS_V1_ORDER,
   PLUTUS_V2_ORDER,
@@ -262,6 +262,43 @@ interface BfScriptInfo {
   serialised_size: number | null;
 }
 
+// GET /assets/{asset}. `metadata` = cardano-token-registry (CIP-26);
+// `onchain_metadata` = CIP-25/68. We only read the fields we render.
+interface BfAsset {
+  asset: string;
+  policy_id: string;
+  asset_name: string | null; // hex
+  fingerprint: string;
+  quantity: string;
+  metadata?: {
+    name?: string;
+    description?: string;
+    ticker?: string;
+    url?: string;
+    logo?: string; // base64 PNG
+    decimals?: number;
+  } | null;
+  onchain_metadata?: { name?: string; decimals?: number } | null;
+}
+
+function bfAssetToMetadata(unit: string, a: BfAsset): AssetMetadata {
+  const m = a.metadata;
+  const o = a.onchain_metadata;
+  return {
+    unit: unit.toLowerCase(),
+    policyId: a.policy_id,
+    assetNameHex: a.asset_name ?? unit.slice(56),
+    fingerprint: a.fingerprint ?? null,
+    decimals: m?.decimals ?? o?.decimals ?? null,
+    ticker: m?.ticker ?? null,
+    name: m?.name ?? o?.name ?? null,
+    description: m?.description ?? null,
+    url: m?.url ?? null,
+    logo: m?.logo ?? null,
+    totalSupply: a.quantity ?? null,
+  };
+}
+
 // --- Helpers --------------------------------------------------------------
 
 function parseUnit(unit: string): { policy_id: string; asset_name: string } {
@@ -425,19 +462,27 @@ export class BlockfrostClient implements BlockchainDataClient {
       list.push(index);
       refsByTx.set(hash, list);
     }
-    const all = await Promise.all(
-      Array.from(refsByTx.entries()).map(async ([txHash, indices]) => {
-        const utxos = await this.getRaw<BfTxUtxos>(`/txs/${txHash}/utxos`, { allow404: true });
-        if (!utxos) return [];
-        const wanted = new Set(indices);
-        return Promise.all(
-          utxos.outputs
-            .filter((o) => wanted.has(o.output_index))
-            .map((o) => this.bfOutputToKoios(txHash, o))
-        );
-      })
-    );
-    return all.flat();
+    // A token-heavy tx can reference 100+ distinct txs; cap concurrency so we
+    // don't fire 100+ /txs/{hash}/utxos GETs at once and trip the rate limit.
+    const entries = Array.from(refsByTx.entries());
+    const CONCURRENCY = 10;
+    const out: KoiosUtxoInfo[] = [];
+    for (let i = 0; i < entries.length; i += CONCURRENCY) {
+      const batch = await Promise.all(
+        entries.slice(i, i + CONCURRENCY).map(async ([txHash, indices]) => {
+          const utxos = await this.getRaw<BfTxUtxos>(`/txs/${txHash}/utxos`, { allow404: true });
+          if (!utxos) return [];
+          const wanted = new Set(indices);
+          return Promise.all(
+            utxos.outputs
+              .filter((o) => wanted.has(o.output_index))
+              .map((o) => this.bfOutputToKoios(txHash, o))
+          );
+        })
+      );
+      out.push(...batch.flat());
+    }
+    return out;
   }
 
   private async bfOutputToKoios(txHash: string, o: BfTxOutput): Promise<KoiosUtxoInfo> {
@@ -812,6 +857,27 @@ export class BlockfrostClient implements BlockchainDataClient {
       )
     );
     return results.filter((r): r is KoiosTxCborResponse => r !== null);
+  }
+
+  async getAssetInfo(units: string[]): Promise<AssetMetadata[]> {
+    if (units.length === 0) return [];
+    // Blockfrost has no bulk asset endpoint — fan out one GET per asset
+    // (memoised by getRaw; 404 ⇒ unknown asset, skipped). A token-heavy tx has
+    // 100+ assets, so cap concurrency to respect the rate limit, and tolerate a
+    // failing request (429/etc.) without dropping the rest of the batch.
+    const CONCURRENCY = 10;
+    const out: AssetMetadata[] = [];
+    for (let i = 0; i < units.length; i += CONCURRENCY) {
+      const settled = await Promise.allSettled(
+        units.slice(i, i + CONCURRENCY).map((u) =>
+          this.getRaw<BfAsset>(`/assets/${u}`, { allow404: true }).then((d) =>
+            d ? bfAssetToMetadata(u, d) : null
+          )
+        )
+      );
+      for (const r of settled) if (r.status === 'fulfilled' && r.value) out.push(r.value);
+    }
+    return out;
   }
 
   async submitTransaction(txHex: string): Promise<string> {

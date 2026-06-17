@@ -22,18 +22,22 @@ const datumJson = JSONBig({
   protoAction: "preserve",
 });
 import { SectionCard, InputCard, OutputCard, VKeyCard, RedeemerCard, MintSection, DiagnosticBadge, CertificateCard, WithdrawalCard, AuxiliaryDataSection, BootstrapWitnessCard, NativeScriptCard, TransactionDetailsSection, RequiredSignersCard, VotingProcedureCard, VotingProposalCard, PlutusScriptCard, PlutusDataCard, SundaeScoopBanner } from "./components";
+import { AssetInfoProvider } from "./AssetInfoContext";
 import {
   buildDiagnosticsMap,
   formatAda,
   isTransactionData
 } from "./utils";
-import { buildSundaeTxContext } from "@/utils/sundae";
+import { buildSundaeTxContext } from "@/utils/protocols/sundae";
+import { buildDexTxContext } from "@/utils/protocols/dex";
+import "@/utils/protocols/dex/adapters";
 import type { 
   TransactionCardViewProps, 
   TransactionData,
   ValidationDiagnostic
 } from "./types";
 import type { PlutusScriptInfo } from "@cardananium/cquisitor-lib";
+import type { DeUplcLinkMaps } from "@/utils/deUplcLink";
 
 // Re-export types for external usage
 export type { 
@@ -289,11 +293,26 @@ export default function TransactionCardView({
   txCborHex,
   protocolMaxes,
   actualExUnits,
+  deUplcLinks,
+  deUplcProgramUrls,
+  provider,
+  apiKey,
 }: TransactionCardViewProps): React.ReactElement {
   const diagnosticsMap = useMemo(() => buildDiagnosticsMap(diagnostics), [diagnostics]);
   const sundaeCtx = useMemo(() => {
     if (!data.transaction || !isTransactionData(data.transaction)) return null;
     return buildSundaeTxContext(
+      data.transaction.body,
+      data.transaction.witness_set.redeemers,
+      network,
+      inputUtxoInfoMap ?? null
+    );
+  }, [data.transaction, network, inputUtxoInfoMap]);
+
+  // Generic DEX per-tx context (Minswap, WingRiders, Splash, …) for input badges.
+  const dexCtx = useMemo(() => {
+    if (!data.transaction || !isTransactionData(data.transaction)) return null;
+    return buildDexTxContext(
       data.transaction.body,
       data.transaction.witness_set.redeemers,
       network,
@@ -308,7 +327,7 @@ export default function TransactionCardView({
     const elems = data.transaction.witness_set.plutus_data?.elems;
     const hashes = extractedHashes?.witness_datum_hashes;
     if (!elems || !hashes) return null;
-    const map = new Map<string, import("@/utils/sundae/plutusData").PD>();
+    const map = new Map<string, import("@/utils/protocols/sundae/plutusData").PD>();
     for (let i = 0; i < elems.length; i++) {
       const hash = hashes[i];
       const raw = elems[i];
@@ -324,6 +343,49 @@ export default function TransactionCardView({
     }
     return map;
   }, [data.transaction, extractedHashes]);
+
+  // Centrally collect every asset (policyId+assetNameHex) held anywhere in the
+  // decoded tx — output values, collateral-return, and resolved input /
+  // collateral / reference UTxOs — so the provider prefetches them all in one
+  // batch instead of one request per rendered cell. (Mint/burn tokens are
+  // covered transitively: they appear in an output or a spent input.)
+  const assetUnits = useMemo<ReadonlySet<string>>(() => {
+    const units = new Set<string>();
+    const addMultiasset = (ma: Record<string, Record<string, string>> | null | undefined) => {
+      if (!ma) return;
+      for (const [policy, names] of Object.entries(ma)) {
+        for (const name of Object.keys(names)) units.add((policy + name).toLowerCase());
+      }
+    };
+    if (data.transaction && isTransactionData(data.transaction)) {
+      const b = data.transaction.body;
+      for (const o of b.outputs ?? []) addMultiasset(o.amount?.multiasset);
+      if (b.collateral_return) addMultiasset(b.collateral_return.amount?.multiasset);
+    }
+    if (inputUtxoInfoMap) {
+      for (const u of inputUtxoInfoMap.values()) {
+        for (const a of u.asset_list ?? []) units.add((a.policy_id + a.asset_name).toLowerCase());
+      }
+    }
+    units.delete("");
+    return units;
+  }, [data.transaction, inputUtxoInfoMap]);
+
+  // Sum of all redeemer-declared budgets; these are what gets charged against
+  // the protocol-level per-tx execution unit caps. Kept ABOVE the early return
+  // below so the hook order stays stable when the tx becomes (in)valid.
+  const { totalMem, totalSteps } = useMemo(() => {
+    let mem = BigInt(0);
+    let steps = BigInt(0);
+    const t = data.transaction;
+    if (t && isTransactionData(t)) {
+      for (const r of t.witness_set.redeemers ?? []) {
+        try { mem += BigInt(r.ex_units.mem); } catch { /* ignore malformed */ }
+        try { steps += BigInt(r.ex_units.steps); } catch { /* ignore malformed */ }
+      }
+    }
+    return { totalMem: mem, totalSteps: steps };
+  }, [data.transaction]);
 
   if (!data.transaction || !isTransactionData(data.transaction)) {
     return (
@@ -342,18 +404,6 @@ export default function TransactionCardView({
 
   // Tx size in bytes derived from the raw CBOR hex (2 hex chars per byte).
   const txSize = txCborHex ? Math.floor(txCborHex.length / 2) : null;
-
-  // Sum of all redeemer-declared budgets; these are what gets charged against
-  // the protocol-level per-tx execution unit caps.
-  const { totalMem, totalSteps } = useMemo(() => {
-    let mem = BigInt(0);
-    let steps = BigInt(0);
-    for (const r of tx.witness_set.redeemers ?? []) {
-      try { mem += BigInt(r.ex_units.mem); } catch { /* ignore malformed */ }
-      try { steps += BigInt(r.ex_units.steps); } catch { /* ignore malformed */ }
-    }
-    return { totalMem: mem, totalSteps: steps };
-  }, [tx.witness_set.redeemers]);
 
   const maxTxSize = protocolMaxes?.maxTxSize;
   const maxMem = protocolMaxes?.maxTxExUnits?.mem;
@@ -389,6 +439,7 @@ export default function TransactionCardView({
     (witnessSet.plutus_data?.elems?.length ?? 0);
 
   return (
+    <AssetInfoProvider provider={provider} apiKey={apiKey} network={network} units={assetUnits}>
     <div className="tcv-wrapper">
       <div className="tcv-container">
         {/* Transaction Summary */}
@@ -468,6 +519,7 @@ export default function TransactionCardView({
                   focusedPath={focusedPath}
                   utxoInfo={inputUtxoInfoMap?.get(`${input.transaction_id}#${input.index}`)}
                   sundaeDetection={sundaeCtx?.inputs.get(i)}
+                  dexDetection={dexCtx?.inputs.get(i)}
                   witnessDatums={witnessDatums}
                 />
               ))}
@@ -532,15 +584,16 @@ export default function TransactionCardView({
             >
               <div className="tcv-items-grid">
                 {body.collateral!.map((input, i) => (
-                  <InputCard 
-                    key={`${input.transaction_id}#${input.index}`} 
-                    input={input} 
-                    index={i} 
+                  <InputCard
+                    key={`${input.transaction_id}#${input.index}`}
+                    input={input}
+                    index={i}
                     network={network}
                     path={`transaction.body.collateral.${i}`}
                     diagnosticsMap={diagnosticsMap}
                     focusedPath={focusedPath}
                     utxoInfo={inputUtxoInfoMap?.get(`${input.transaction_id}#${input.index}`)}
+                    witnessDatums={witnessDatums}
                   />
                 ))}
               </div>
@@ -578,15 +631,16 @@ export default function TransactionCardView({
             >
               <div className="tcv-items-grid">
                 {body.reference_inputs!.map((input, i) => (
-                  <InputCard 
-                    key={`${input.transaction_id}#${input.index}`} 
-                    input={input} 
-                    index={i} 
+                  <InputCard
+                    key={`${input.transaction_id}#${input.index}`}
+                    input={input}
+                    index={i}
                     network={network}
                     path={`transaction.body.reference_inputs.${i}`}
                     diagnosticsMap={diagnosticsMap}
                     focusedPath={focusedPath}
                     utxoInfo={inputUtxoInfoMap?.get(`${input.transaction_id}#${input.index}`)}
+                    witnessDatums={witnessDatums}
                   />
                 ))}
               </div>
@@ -765,12 +819,13 @@ export default function TransactionCardView({
               >
                 <div className="tcv-items-grid">
                   {witnessSet.redeemers!.map((redeemer, i) => (
-                    <RedeemerCard 
-                      key={i} 
-                      redeemer={redeemer} 
+                    <RedeemerCard
+                      key={i}
+                      redeemer={redeemer}
                       path={`transaction.witness_set.redeemers.${i}`}
                       diagnosticsMap={diagnosticsMap}
                       focusedPath={focusedPath}
+                      deUplcLink={deUplcLinks?.byRedeemer.get(i) ?? null}
                     />
                   ))}
                 </div>
@@ -788,12 +843,14 @@ export default function TransactionCardView({
                 focusedPath={focusedPath}
                 defaultExpanded={true}
               >
-                <ScriptsList 
+                <ScriptsList
                   scripts={witnessSet.plutus_scripts!}
                   path="transaction.witness_set.plutus_scripts"
                   diagnosticsMap={diagnosticsMap}
                   focusedPath={focusedPath}
                   plutusScriptsInfo={extractedHashes?.witness_plutus_scripts}
+                  deUplcByScript={deUplcLinks?.byScript}
+                  deUplcProgramUrls={deUplcProgramUrls}
                 />
               </SectionCard>
             )}
@@ -890,23 +947,28 @@ export default function TransactionCardView({
         )}
       </div>
     </div>
+    </AssetInfoProvider>
   );
 }
 
 // Helper wrapper components for lists
 
-function ScriptsList({ 
-  scripts, 
-  path, 
-  diagnosticsMap, 
+function ScriptsList({
+  scripts,
+  path,
+  diagnosticsMap,
   focusedPath,
-  plutusScriptsInfo
-}: { 
-  scripts: string[]; 
+  plutusScriptsInfo,
+  deUplcByScript,
+  deUplcProgramUrls,
+}: {
+  scripts: string[];
   path: string;
   diagnosticsMap: Map<string, ValidationDiagnostic[]>;
   focusedPath?: string[] | null;
   plutusScriptsInfo?: (PlutusScriptInfo | null)[];
+  deUplcByScript?: DeUplcLinkMaps["byScript"];
+  deUplcProgramUrls?: (string | null)[] | null;
 }) {
   return (
     <div className="tcv-scripts-list">
@@ -919,6 +981,8 @@ function ScriptsList({
           diagnosticsMap={diagnosticsMap}
           focusedPath={focusedPath}
           scriptInfo={plutusScriptsInfo?.[i]}
+          deUplcLink={deUplcByScript?.[i] ?? null}
+          deUplcProgramUrl={deUplcProgramUrls?.[i] ?? null}
         />
       ))}
     </div>

@@ -41,16 +41,12 @@ function DetailField({
   linkUrl
 }: DetailFieldProps) {
   const fieldRef = useRef<HTMLDivElement>(null);
-  
-  if (value === null || value === undefined) return null;
-  
-  const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
-  const hasError = diagnostics.some(d => d.severity === 'error');
-  const hasWarning = diagnostics.some(d => d.severity === 'warning');
-  
-  // Scroll into view when focused - using conditional hook pattern
-  // eslint-disable-next-line react-hooks/rules-of-hooks
+
+  // Scroll into view when focused. Hooks must run unconditionally on every
+  // render, so the ref + effect live ABOVE the `value == null` early return —
+  // otherwise switching to a tx where this field is absent renders fewer hooks
+  // and React throws "rendered fewer hooks than expected".
   useEffect(() => {
     if (isFocused && fieldRef.current) {
       setTimeout(() => {
@@ -58,6 +54,12 @@ function DetailField({
       }, 100);
     }
   }, [isFocused]);
+
+  if (value === null || value === undefined) return null;
+
+  const diagnostics = getPathDiagnostics(path, diagnosticsMap);
+  const hasError = diagnostics.some(d => d.severity === 'error');
+  const hasWarning = diagnostics.some(d => d.severity === 'warning');
   
   let displayValue: React.ReactNode = String(value);
   

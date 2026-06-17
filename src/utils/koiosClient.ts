@@ -22,7 +22,29 @@ import {
   KoiosDrepIdsRequest,
   KoiosTxCborResponse,
   KoiosTxHashesRequest,
+  KoiosAssetInfo,
+  KoiosAssetListRequest,
 } from './koiosTypes';
+
+/**
+ * Normalized, cross-provider asset metadata (Koios `asset_info` /
+ * Blockfrost `/assets/{asset}`). `unit` is the lowercase policyId+assetNameHex.
+ */
+export interface AssetMetadata {
+  unit: string;
+  policyId: string;
+  assetNameHex: string;
+  fingerprint: string | null;
+  /** Token-registry decimals (CIP-26); null when unknown. */
+  decimals: number | null;
+  ticker: string | null;
+  name: string | null;
+  description: string | null;
+  url: string | null;
+  /** base64 PNG logo, or null. */
+  logo: string | null;
+  totalSupply: string | null;
+}
 
 /**
  * Represents a governance action reference for querying
@@ -67,6 +89,29 @@ export interface BlockchainDataClient {
   getEpochParams(epochNo?: number): Promise<KoiosEpochParams[]>;
   getTxCbor(txHashes: string[]): Promise<KoiosTxCborResponse[]>;
   submitTransaction(txHex: string): Promise<string>;
+  /**
+   * Metadata for the given assets (each a lowercase policyId+assetNameHex unit).
+   * Returns one entry per asset that exists; unknown assets are omitted.
+   */
+  getAssetInfo(units: string[]): Promise<AssetMetadata[]>;
+}
+
+/** Normalize a Koios asset_info row into the cross-provider shape. */
+export function koiosAssetToMetadata(a: KoiosAssetInfo): AssetMetadata {
+  const r = a.token_registry_metadata;
+  return {
+    unit: (a.policy_id + a.asset_name).toLowerCase(),
+    policyId: a.policy_id,
+    assetNameHex: a.asset_name,
+    fingerprint: a.fingerprint ?? null,
+    decimals: r?.decimals ?? null,
+    ticker: r?.ticker ?? null,
+    name: r?.name ?? null,
+    description: r?.description ?? null,
+    url: r?.url ?? null,
+    logo: r?.logo ?? null,
+    totalSupply: a.total_supply ?? null,
+  };
 }
 
 function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
@@ -160,11 +205,21 @@ export class KoiosClient implements BlockchainDataClient {
     if (utxoRefs.length === 0) {
       return [];
     }
-    const body: KoiosUtxoRefsRequest = {
-      _utxo_refs: utxoRefs,
-      _extended: true,
-    };
-    return this.post<KoiosUtxoInfo[], KoiosUtxoRefsRequest>('/utxo_info', body);
+    // A tx can spend/reference 100+ UTxOs; one big `_utxo_refs` POST exceeds
+    // Koios's request-size limit (HTTP 413). Split into chunks that run
+    // concurrently (kept all-or-nothing — this feeds validation).
+    const CHUNK = 40;
+    const chunks: string[][] = [];
+    for (let i = 0; i < utxoRefs.length; i += CHUNK) chunks.push(utxoRefs.slice(i, i + CHUNK));
+    const results = await Promise.all(
+      chunks.map((chunk) =>
+        this.post<KoiosUtxoInfo[], KoiosUtxoRefsRequest>('/utxo_info', {
+          _utxo_refs: chunk,
+          _extended: true,
+        }),
+      ),
+    );
+    return results.flat();
   }
 
   /**
@@ -321,6 +376,30 @@ export class KoiosClient implements BlockchainDataClient {
       _tx_hashes: txHashes,
     };
     return this.post<KoiosTxCborResponse[], KoiosTxHashesRequest>('/tx_cbor', body);
+  }
+
+  /**
+   * Bulk asset metadata via POST /asset_info. The request is split into chunks:
+   * a token-heavy tx can hold 100+ assets, and one big `_asset_list` exceeds
+   * Koios's request-size limit (HTTP 413). Chunks run concurrently and a single
+   * failing chunk doesn't drop the rest.
+   * @param units lowercase policyId+assetNameHex strings.
+   */
+  async getAssetInfo(units: string[]): Promise<AssetMetadata[]> {
+    if (units.length === 0) return [];
+    const CHUNK = 40;
+    const chunks: string[][] = [];
+    for (let i = 0; i < units.length; i += CHUNK) chunks.push(units.slice(i, i + CHUNK));
+    const settled = await Promise.allSettled(
+      chunks.map((chunk) =>
+        this.post<KoiosAssetInfo[], KoiosAssetListRequest>('/asset_info', {
+          _asset_list: chunk.map((u) => [u.slice(0, 56), u.slice(56)]),
+        }),
+      ),
+    );
+    return settled
+      .filter((r): r is PromiseFulfilledResult<KoiosAssetInfo[]> => r.status === 'fulfilled')
+      .flatMap((r) => r.value.map(koiosAssetToMetadata));
   }
 
   async submitTransaction(txHex: string): Promise<string> {

@@ -61,16 +61,6 @@ export type NetworkType = 'mainnet' | 'preview' | 'preprod';
 export type DataProvider = 'koios' | 'blockfrost';
 
 /**
- * Well-known Cardano guardrails (constitution policy) script hash. Identical on
- * mainnet, preprod and preview (a Plutus script hash is network-independent),
- * and unchanged across every enacted constitution to date. Used as a fallback
- * when the provider can't supply the live constitution (e.g. Blockfrost has no
- * constitution endpoint), so the guardrails-policy-hash check still runs.
- */
-const FALLBACK_GUARDRAIL_SCRIPT_HASH =
-  'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64';
-
-/**
  * Configuration for transaction validation
  */
 export interface TransactionValidationConfig {
@@ -91,6 +81,25 @@ function makeClient(
     return new BlockfrostClient({ network, apiKey });
   }
   return new KoiosClient({ network, apiKey });
+}
+
+/**
+ * Fetch a transaction's raw CBOR (hex) by its hash from the chosen provider
+ * (Koios `tx_cbor` / Blockfrost `/txs/{hash}/cbor`). Throws if not found.
+ */
+export async function fetchTxCbor(
+  txHash: string,
+  opts: { provider: DataProvider; network: NetworkType; apiKey?: string }
+): Promise<string> {
+  const hash = txHash.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hash)) {
+    throw new Error("Enter a 64-character hex transaction hash");
+  }
+  const client = makeClient(opts.provider, opts.network, opts.apiKey);
+  const res = await client.getTxCbor([hash]);
+  const cbor = res[0]?.cbor;
+  if (!cbor) throw new Error("Transaction not found on this network/provider");
+  return cbor;
 }
 
 /**
@@ -756,13 +765,13 @@ export async function fetchValidationData(
     }
   }
 
-  // Build the constitution context from the live fetch. When the provider
-  // supplied a constitution, trust its guardrails hash (even if null — that
-  // means "no guardrails script"); only fall back to the well-known hash when
-  // there is no result at all (e.g. Blockfrost has no constitution endpoint).
-  const constitution: ConstitutionContext = constitutionResult
-    ? { guardrailScriptHash: constitutionResult.guardrailScriptHash }
-    : { guardrailScriptHash: FALLBACK_GUARDRAIL_SCRIPT_HASH };
+  // Build the constitution context from the live fetch. Trust the provider's
+  // guardrails hash when it supplied a constitution (even if null — that means
+  // "no guardrails script"). When there is no result at all (e.g. Blockfrost has
+  // no constitution endpoint), leave it null rather than guessing a hash.
+  const constitution: ConstitutionContext = {
+    guardrailScriptHash: constitutionResult?.guardrailScriptHash ?? null,
+  };
 
   return {
     utxoSet,

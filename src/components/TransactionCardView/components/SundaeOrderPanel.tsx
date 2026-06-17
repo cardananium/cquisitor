@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { CopyButton } from "./CopyButton";
 import { HashWithTooltip } from "./HashWithTooltip";
+import { AssetNameWithTooltip } from "./AssetNameWithTooltip";
 import { SlotWithTooltip } from "./SlotWithTooltip";
 import { formatAda, formatAssetName, truncateHash } from "../utils";
 import {
@@ -14,7 +15,7 @@ import {
   estimateStableswapSwap,
   estimateStableswapDeposit,
   estimateStableswapWithdraw,
-} from "@/utils/sundae";
+} from "@/utils/protocols/sundae";
 import type {
   SundaeOutputDetection,
   SundaePoolInfo,
@@ -23,7 +24,7 @@ import type {
   DepositEstimate,
   WithdrawEstimate,
   StableswapEstimate,
-} from "@/utils/sundae";
+} from "@/utils/protocols/sundae";
 import type {
   V3OrderDatum,
   V3Order,
@@ -32,7 +33,7 @@ import type {
   V3AssetAmount,
   SundaeIssue,
   SundaePoolDatum,
-} from "@/utils/sundae";
+} from "@/utils/protocols/sundae";
 
 interface SundaeOrderPanelProps {
   detection: SundaeOutputDetection;
@@ -125,17 +126,19 @@ function formatAssetAmount(
   const amountText = decimals > 0
     ? formatWithDecimals(asset.amount, decimals)
     : asset.amount.toLocaleString();
-  const symbol = meta?.ticker
-    || meta?.name
-    || formatAssetName(asset.assetName).display
-    || "(unnamed)";
+  // Prefer the pool's authoritative ticker as the label; the shared component
+  // adds the rich tooltip (hex, policy, decimals, fingerprint, registry, …) and
+  // falls back to its own decode when the pool has no ticker.
+  const label = meta?.ticker || meta?.name || undefined;
   return (
     <span className="tcv-sundae-asset">
       <span className="tcv-sundae-asset-amount">{amountText}</span>
-      <span className="tcv-sundae-asset-symbol">{symbol}</span>
-      <span className="tcv-sundae-asset-policy" title={`${asset.policyId}.${asset.assetName}`}>
-        {truncateHash(asset.policyId, 6, 4)}
-      </span>
+      <AssetNameWithTooltip
+        policyId={asset.policyId}
+        assetName={asset.assetName}
+        className="tcv-sundae-asset-symbol"
+        label={label}
+      />
     </span>
   );
 }
@@ -678,7 +681,6 @@ function PoolBody({ datum }: { datum: SundaePoolDatum }) {
   const bDecimals = pool?.assetB.decimals ?? 0;
   const aLabel = aSym || formatAssetName(datum.assetA.assetName).display || "A";
   const bLabel = bSym || formatAssetName(datum.assetB.assetName).display || "B";
-  const isStable = datum.kind === "Stableswap";
   return (
     <>
       <div className="tcv-sundae-header-row">
@@ -700,7 +702,16 @@ function PoolBody({ datum }: { datum: SundaePoolDatum }) {
           <span className="tcv-sundae-leg-label">Circulating LP</span>
           <span>{formatWithDecimals(datum.circulatingLp, pool?.assetLP.decimals ?? 0)}</span>
         </div>
-        {isStable ? (
+        {datum.kind === "V1" ? (
+          <div className="tcv-sundae-row">
+            <span className="tcv-sundae-leg-label">Swap fee</span>
+            <span>
+              {datum.feeNumerator.toString()} / {datum.feeDenominator.toString()}
+              {datum.feeDenominator > BigInt(0) &&
+                ` (${((Number(datum.feeNumerator) / Number(datum.feeDenominator)) * 100).toFixed(2)}%)`}
+            </span>
+          </div>
+        ) : datum.kind === "Stableswap" ? (
           <>
             <div className="tcv-sundae-row">
               <span className="tcv-sundae-leg-label">A factor</span>
@@ -728,6 +739,10 @@ function PoolBody({ datum }: { datum: SundaePoolDatum }) {
                 flat ₳ {formatAda(datum.protocolFeesFlat.toString())} · A {formatWithDecimals(datum.protocolFeesA, aDecimals)} {aLabel} · B {formatWithDecimals(datum.protocolFeesB, bDecimals)} {bLabel}
               </span>
             </div>
+            <div className="tcv-sundae-row">
+              <span className="tcv-sundae-leg-label">Market opens</span>
+              <span className="tcv-sundae-mono">slot <SlotWithTooltip slot={datum.marketOpenSlot.toString()} /></span>
+            </div>
           </>
         ) : (
           <>
@@ -743,12 +758,12 @@ function PoolBody({ datum }: { datum: SundaePoolDatum }) {
               <span className="tcv-sundae-leg-label">Accumulated fees</span>
               <span>₳ {formatAda(datum.protocolFees.toString())}</span>
             </div>
+            <div className="tcv-sundae-row">
+              <span className="tcv-sundae-leg-label">Market opens</span>
+              <span className="tcv-sundae-mono">slot <SlotWithTooltip slot={datum.marketOpenSlot.toString()} /></span>
+            </div>
           </>
         )}
-        <div className="tcv-sundae-row">
-          <span className="tcv-sundae-leg-label">Market opens</span>
-          <span className="tcv-sundae-mono">slot <SlotWithTooltip slot={datum.marketOpenSlot.toString()} /></span>
-        </div>
       </div>
     </>
   );

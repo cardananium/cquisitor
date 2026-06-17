@@ -124,3 +124,38 @@ export function formatAssetName(hex: string): { display: string; decoded: string
   };
 }
 
+// CIP-67/68 asset-name label prefixes (the first 4 bytes = 8 hex chars). The
+// readable token name follows the prefix; the prefix itself is binary so a
+// CIP-68 name never decodes as text on its own (e.g. USDM = 0014df10·5553444d).
+// https://cips.cardano.org/cip/CIP-68
+const CIP68_LABELS: Record<string, string> = {
+  "000643b0": "100", // reference NFT
+  "000de140": "222", // NFT
+  "0014df10": "333", // fungible token
+  "001bc280": "444", // rich fungible token
+};
+
+/**
+ * Like {@link formatAssetName} but also decodes CIP-68 names: when the raw bytes
+ * are not text yet start with a known CIP-67/68 label prefix, the name after the
+ * prefix is decoded and `standard` is set (e.g. "333"). `decoded` is the
+ * human-readable name (plain or CIP-68 inner), or null when truly binary.
+ */
+export function decodeAssetName(hex: string): {
+  display: string;
+  decoded: string | null;
+  standard: string | null;
+  hex: string;
+} {
+  const plain = hexToString(hex);
+  if (plain) return { display: plain, decoded: plain, standard: null, hex };
+  if (hex.length >= 8) {
+    const standard = CIP68_LABELS[hex.slice(0, 8).toLowerCase()];
+    if (standard) {
+      const inner = hexToString(hex.slice(8));
+      if (inner) return { display: inner, decoded: inner, standard, hex };
+    }
+  }
+  return { display: hex, decoded: null, standard: null, hex };
+}
+

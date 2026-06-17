@@ -3,6 +3,8 @@
 import React from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { CopyIcon, CheckIcon } from "./Icons";
+// Reuse the shared CIP-68-aware decoder so this table matches the rest of the UI.
+import { decodeAssetName as formatAssetName } from "./TransactionCardView/utils";
 
 // ============================================================================
 // Types
@@ -27,35 +29,6 @@ interface AssetsTableProps {
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-function hexToString(hex: string): string | null {
-  if (hex.length === 0 || hex.length % 2 !== 0) return null;
-  
-  try {
-    const bytes = new Uint8Array(hex.length / 2);
-    for (let i = 0; i < hex.length; i += 2) {
-      bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
-    }
-    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    // Check if result contains printable characters (allow Unicode, not just ASCII)
-    // Reject if it contains control characters (except common whitespace) or replacement chars
-    if (decoded.length > 0 && !/[\x00-\x1F\x7F\uFFFD]/.test(decoded)) {
-      return decoded;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function formatAssetName(hex: string): { display: string; decoded: string | null; hex: string } {
-  const decoded = hexToString(hex);
-  return {
-    display: decoded || hex || "(empty)",
-    decoded,
-    hex
-  };
-}
 
 // ============================================================================
 // Sub-Components

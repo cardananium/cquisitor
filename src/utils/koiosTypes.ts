@@ -296,3 +296,30 @@ export interface KoiosPoolIdsRequest {
 export interface KoiosDrepIdsRequest {
   _drep_ids: string[];
 }
+
+// --- Asset metadata (asset_info) -----------------------------------------
+
+/** cardano-token-registry (CIP-26) metadata as returned inside asset_info. */
+export interface KoiosTokenRegistryMetadata {
+  name?: string | null;
+  description?: string | null;
+  ticker?: string | null;
+  url?: string | null;
+  logo?: string | null; // base64 PNG
+  decimals?: number | null;
+}
+
+/** Subset of POST /asset_info we consume (one entry per requested asset). */
+export interface KoiosAssetInfo {
+  policy_id: string;
+  asset_name: string; // hex
+  asset_name_ascii?: string | null;
+  fingerprint?: string | null;
+  total_supply?: string | null;
+  token_registry_metadata?: KoiosTokenRegistryMetadata | null;
+}
+
+export interface KoiosAssetListRequest {
+  // Array of [policy_id, asset_name_hex] pairs.
+  _asset_list: string[][];
+}
