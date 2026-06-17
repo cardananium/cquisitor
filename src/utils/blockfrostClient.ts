@@ -854,15 +854,22 @@ export class BlockfrostClient implements BlockchainDataClient {
   async getAssetInfo(units: string[]): Promise<AssetMetadata[]> {
     if (units.length === 0) return [];
     // Blockfrost has no bulk asset endpoint — fan out one GET per asset
-    // (memoised by getRaw; 404 ⇒ unknown asset, skipped).
-    const results = await Promise.all(
-      units.map((u) =>
-        this.getRaw<BfAsset>(`/assets/${u}`, { allow404: true }).then((d) =>
-          d ? bfAssetToMetadata(u, d) : null
+    // (memoised by getRaw; 404 ⇒ unknown asset, skipped). A token-heavy tx has
+    // 100+ assets, so cap concurrency to respect the rate limit, and tolerate a
+    // failing request (429/etc.) without dropping the rest of the batch.
+    const CONCURRENCY = 10;
+    const out: AssetMetadata[] = [];
+    for (let i = 0; i < units.length; i += CONCURRENCY) {
+      const settled = await Promise.allSettled(
+        units.slice(i, i + CONCURRENCY).map((u) =>
+          this.getRaw<BfAsset>(`/assets/${u}`, { allow404: true }).then((d) =>
+            d ? bfAssetToMetadata(u, d) : null
+          )
         )
-      )
-    );
-    return results.filter((x): x is AssetMetadata => x !== null);
+      );
+      for (const r of settled) if (r.status === 'fulfilled' && r.value) out.push(r.value);
+    }
+    return out;
   }
 
   async submitTransaction(txHex: string): Promise<string> {

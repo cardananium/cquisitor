@@ -369,16 +369,27 @@ export class KoiosClient implements BlockchainDataClient {
   }
 
   /**
-   * Bulk asset metadata via POST /asset_info (one request for the whole batch).
+   * Bulk asset metadata via POST /asset_info. The request is split into chunks:
+   * a token-heavy tx can hold 100+ assets, and one big `_asset_list` exceeds
+   * Koios's request-size limit (HTTP 413). Chunks run concurrently and a single
+   * failing chunk doesn't drop the rest.
    * @param units lowercase policyId+assetNameHex strings.
    */
   async getAssetInfo(units: string[]): Promise<AssetMetadata[]> {
     if (units.length === 0) return [];
-    const body: KoiosAssetListRequest = {
-      _asset_list: units.map((u) => [u.slice(0, 56), u.slice(56)]),
-    };
-    const raw = await this.post<KoiosAssetInfo[], KoiosAssetListRequest>('/asset_info', body);
-    return raw.map(koiosAssetToMetadata);
+    const CHUNK = 40;
+    const chunks: string[][] = [];
+    for (let i = 0; i < units.length; i += CHUNK) chunks.push(units.slice(i, i + CHUNK));
+    const settled = await Promise.allSettled(
+      chunks.map((chunk) =>
+        this.post<KoiosAssetInfo[], KoiosAssetListRequest>('/asset_info', {
+          _asset_list: chunk.map((u) => [u.slice(0, 56), u.slice(56)]),
+        }),
+      ),
+    );
+    return settled
+      .filter((r): r is PromiseFulfilledResult<KoiosAssetInfo[]> => r.status === 'fulfilled')
+      .flatMap((r) => r.value.map(koiosAssetToMetadata));
   }
 
   async submitTransaction(txHex: string): Promise<string> {
