@@ -371,6 +371,22 @@ export default function TransactionCardView({
     return units;
   }, [data.transaction, inputUtxoInfoMap]);
 
+  // Sum of all redeemer-declared budgets; these are what gets charged against
+  // the protocol-level per-tx execution unit caps. Kept ABOVE the early return
+  // below so the hook order stays stable when the tx becomes (in)valid.
+  const { totalMem, totalSteps } = useMemo(() => {
+    let mem = BigInt(0);
+    let steps = BigInt(0);
+    const t = data.transaction;
+    if (t && isTransactionData(t)) {
+      for (const r of t.witness_set.redeemers ?? []) {
+        try { mem += BigInt(r.ex_units.mem); } catch { /* ignore malformed */ }
+        try { steps += BigInt(r.ex_units.steps); } catch { /* ignore malformed */ }
+      }
+    }
+    return { totalMem: mem, totalSteps: steps };
+  }, [data.transaction]);
+
   if (!data.transaction || !isTransactionData(data.transaction)) {
     return (
       <div className="tcv-wrapper">
@@ -388,18 +404,6 @@ export default function TransactionCardView({
 
   // Tx size in bytes derived from the raw CBOR hex (2 hex chars per byte).
   const txSize = txCborHex ? Math.floor(txCborHex.length / 2) : null;
-
-  // Sum of all redeemer-declared budgets; these are what gets charged against
-  // the protocol-level per-tx execution unit caps.
-  const { totalMem, totalSteps } = useMemo(() => {
-    let mem = BigInt(0);
-    let steps = BigInt(0);
-    for (const r of tx.witness_set.redeemers ?? []) {
-      try { mem += BigInt(r.ex_units.mem); } catch { /* ignore malformed */ }
-      try { steps += BigInt(r.ex_units.steps); } catch { /* ignore malformed */ }
-    }
-    return { totalMem: mem, totalSteps: steps };
-  }, [tx.witness_set.redeemers]);
 
   const maxTxSize = protocolMaxes?.maxTxSize;
   const maxMem = protocolMaxes?.maxTxExUnits?.mem;
