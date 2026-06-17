@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import type { SundaeScoopInfo, V3Order } from "@/utils/sundae";
+import type { SundaeScoopInfo, V3Order } from "@/utils/protocols/sundae";
 
 interface SundaeScoopBannerProps {
   scoop: SundaeScoopInfo;

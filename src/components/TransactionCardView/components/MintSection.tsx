@@ -4,7 +4,8 @@ import React, { useRef, useEffect } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
-import { getPathDiagnostics, formatAssetName } from "../utils";
+import { getPathDiagnostics } from "../utils";
+import { AssetNameWithTooltip, AssetAmount } from "./AssetNameWithTooltip";
 import type { ValidationDiagnostic } from "../types";
 
 interface MintSectionProps {
@@ -36,43 +37,7 @@ function AutoTruncateWithTooltip({ value }: { value: string }) {
   );
 }
 
-// Asset name with decoded string and hex in tooltip
-function AssetNameWithTooltip({ assetName }: { assetName: string }) {
-  const formatted = formatAssetName(assetName);
-  
-  return (
-    <Tooltip.Provider delayDuration={200}>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          <span className={`tcv-auto-truncate ${formatted.decoded ? 'tcv-decoded' : ''}`}>
-            {formatted.display}
-          </span>
-        </Tooltip.Trigger>
-        <Tooltip.Portal>
-          <Tooltip.Content className="tcv-hash-tooltip" sideOffset={5} side="top">
-            <div className="tcv-asset-tooltip-content">
-              {formatted.decoded && (
-                <div className="tcv-tooltip-row">
-                  <span className="tcv-tooltip-label">String:</span>
-                  <span className="tcv-tooltip-value">{formatted.decoded}</span>
-                  <CopyButton text={formatted.decoded} className="tcv-tooltip-copy-sm" />
-                </div>
-              )}
-              <div className="tcv-tooltip-row">
-                <span className="tcv-tooltip-label">Hex:</span>
-                <span className="tcv-tooltip-value tcv-tooltip-hex">{formatted.hex}</span>
-                <CopyButton text={formatted.hex} className="tcv-tooltip-copy-sm" />
-              </div>
-            </div>
-            <Tooltip.Arrow className="tcv-tooltip-arrow" />
-          </Tooltip.Content>
-        </Tooltip.Portal>
-      </Tooltip.Root>
-    </Tooltip.Provider>
-  );
-}
-
-export function MintSection({ 
+export function MintSection({
   mint, 
   path,
   diagnosticsMap,
@@ -134,7 +99,11 @@ export function MintSection({
                 </td>
                 <td className="tcv-table-asset">
                   {row.assetName ? (
-                    <AssetNameWithTooltip assetName={row.assetName} />
+                    <AssetNameWithTooltip
+                      policyId={row.policyId}
+                      assetName={row.assetName}
+                      className="tcv-auto-truncate"
+                    />
                   ) : (
                     <span className="tcv-empty-name">(empty)</span>
                   )}
@@ -145,7 +114,12 @@ export function MintSection({
                   </span>
                 </td>
                 <td className={`tcv-table-qty ${row.isMint ? 'mint' : 'burn'}`}>
-                  {row.isMint ? '+' : ''}{row.quantity.toLocaleString()}
+                  <AssetAmount
+                    policyId={row.policyId}
+                    assetName={row.assetName}
+                    raw={row.quantity}
+                    prefix={row.isMint ? '+' : ''}
+                  />
                   {rowDiagnostics.length > 0 && (
                     <DiagnosticBadge diagnostics={rowDiagnostics} />
                   )}

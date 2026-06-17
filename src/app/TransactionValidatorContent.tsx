@@ -25,11 +25,13 @@ import {
 } from "@/components/Icons";
 import { buildCardanoCborUrl, buildExplorerTxUrl, buildTxStudioUrl, openExternalUrl } from "@/utils/externalApps";
 import { buildJsonViewerUrl } from "@/utils/jsonViewerHandoff";
+import { buildAllDeUplcLinks, fieldsToUrl, programFields, type DeUplcLinkMaps } from "@/utils/deUplcLink";
 import { ErrorDataDetails, getCleanedErrorMessage, DecompositionModalProvider } from "@/components/ErrorDataFormatters";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
+import OnChainTxModal from "@/components/OnChainTxModal";
 import {
   submitTransaction,
   validateTransaction,
@@ -961,6 +963,66 @@ export default function TransactionValidatorContent() {
     return processTransactionInput(txInput).hex;
   }, [txInput]);
 
+  // Bytecode-only "Open in de-uplc-web" program links per witness plutus_scripts index.
+  // Needs only the script hex + version, so it's available without running Validate. Async because
+  // a large validator's link is gzip-compressed (fieldsToUrl: plain if small, else compressed).
+  const [deUplcProgramUrls, setDeUplcProgramUrls] = useState<(string | null)[] | null>(null);
+  useEffect(() => {
+    const scripts = decodedTx?.transaction?.witness_set?.plutus_scripts;
+    const infos = extractedHashes?.witness_plutus_scripts;
+    if (!scripts) {
+      setDeUplcProgramUrls(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const urls = await Promise.all(
+          scripts.map(async (s, i) => {
+            const info = infos?.[i];
+            return info ? await fieldsToUrl(programFields(s, info.version)) : null;
+          }),
+        );
+        if (!cancelled) setDeUplcProgramUrls(urls);
+      } catch {
+        if (!cancelled) setDeUplcProgramUrls(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [decodedTx, extractedHashes]);
+
+  // Contextful per-redeemer / per-script "Open in de-uplc-web" links. Built after Validate (they need
+  // the resolved script context + utxos) and async because large links are gzip-compressed.
+  const [deUplcLinks, setDeUplcLinks] = useState<DeUplcLinkMaps | null>(null);
+  useEffect(() => {
+    const tx = decodedTx?.transaction;
+    if (!tx || !result?.eval_redeemer_results?.length || !fetchedContext) {
+      setDeUplcLinks(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const utxoSet = buildValidationContext(fetchedContext, network).utxoSet;
+        const maps = await buildAllDeUplcLinks({
+          body: tx.body,
+          witnessSet: tx.witness_set,
+          extractedHashes,
+          evalResults: result.eval_redeemer_results,
+          utxoSet,
+        });
+        if (!cancelled) setDeUplcLinks(maps);
+      } catch {
+        if (!cancelled) setDeUplcLinks(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [decodedTx, result, fetchedContext, extractedHashes, network]);
+
   // Actual (calculated) tx-wide ex units, summed from successful script evals.
   // Failed evals don't contribute a meaningful calculated_ex_units, so we skip
   // them rather than zero them — the failure surfaces elsewhere in the UI.
@@ -1002,6 +1064,7 @@ export default function TransactionValidatorContent() {
   
   // Modal visibility state
   const [showViewModeModal, setShowViewModeModal] = useState(false);
+  const [showOnChainModal, setShowOnChainModal] = useState(false);
 
   // Blockfrost coverage note: dismissable, persisted in localStorage.
   const [showBlockfrostNote, setShowBlockfrostNote] = useState(() => {
@@ -1352,6 +1415,19 @@ export default function TransactionValidatorContent() {
             };
           }}
         />
+        <button
+          type="button"
+          className="external-link-btn"
+          title="Fetch a transaction's CBOR from the chain by hash"
+          onClick={() => setShowOnChainModal(true)}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          <span>Load on-chain</span>
+        </button>
         {decodedTx && txInput.trim() && (
           <button
             type="button"
@@ -1769,6 +1845,10 @@ export default function TransactionValidatorContent() {
                 : null
             }
             actualExUnits={actualExUnits}
+            deUplcLinks={deUplcLinks}
+            deUplcProgramUrls={deUplcProgramUrls}
+            provider={provider}
+            apiKey={apiKey}
           />
         ) : (
           <ValidationJsonViewer 
@@ -1805,6 +1885,16 @@ export default function TransactionValidatorContent() {
           maxLeftWidth={70}
         />
         
+        {/* Load on-chain tx by hash */}
+        <OnChainTxModal
+          isOpen={showOnChainModal}
+          onClose={() => setShowOnChainModal(false)}
+          onLoaded={(cbor) => setTxInput(cbor)}
+          provider={provider}
+          network={network}
+          apiKey={apiKey}
+        />
+
         {/* View mode selection modal - shown on first decode */}
         <ViewModeSelectionModal
           isOpen={showViewModeModal}

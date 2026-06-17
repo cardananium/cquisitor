@@ -2159,6 +2159,87 @@ input, textarea, select, button {
   color: #64748b;
 }
 
+/* --- Load on-chain tx modal --- */
+.onchain-tx-modal {
+  max-width: 520px;
+  width: 92vw;
+}
+.onchain-tx-field {
+  padding: 8px 20px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.onchain-tx-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #64748b;
+}
+.onchain-tx-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px;
+  color: #0f172a;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  outline: none;
+}
+.onchain-tx-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+.onchain-tx-input:disabled {
+  opacity: 0.6;
+}
+.onchain-tx-error {
+  margin: 8px 20px 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+}
+.onchain-tx-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px 18px;
+}
+.onchain-tx-cancel,
+.onchain-tx-submit {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.onchain-tx-cancel {
+  background: #f1f5f9;
+  color: #334155;
+  border-color: #e2e8f0;
+}
+.onchain-tx-cancel:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+.onchain-tx-submit {
+  background: #4f46e5;
+  color: #fff;
+}
+.onchain-tx-submit:hover:not(:disabled) {
+  background: #4338ca;
+}
+.onchain-tx-submit:disabled,
+.onchain-tx-cancel:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .modal-types-list {
   padding: 8px 12px 16px;
   display: flex;
@@ -2774,6 +2855,30 @@ input, textarea, select, button {
   background: #0f172a;
   color: #475569;
   border-color: #1e293b;
+}
+
+/* "Open in de-uplc-web" buttons on redeemer / plutus-script cards */
+.tcv-script-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tcv-script-header > .tcv-cdi-trigger {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tcv-deuplc-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.tcv-deuplc-btn {
+  height: 20px;
+  padding: 0 8px;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .share-btn:hover:not(:disabled) {
@@ -8442,6 +8547,257 @@ a.tcv-hash-truncate:hover {
   flex-shrink: 0;
 }
 
+/* --- Generic DEX tag + order/pool panel (Minswap, WingRiders, Splash, …) --- */
+/* Every shade derives from a single per-protocol --dex-accent (set via the
+   data-dex attribute below); the default is the original teal. */
+.tcv-tag.tcv-tag-dex {
+  --dex-accent: #14b8a6;
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--dex-accent) 42%, white) 0%,
+    color-mix(in srgb, var(--dex-accent) 26%, white) 100%);
+  color: color-mix(in srgb, var(--dex-accent) 80%, black);
+  border: 1px solid color-mix(in srgb, var(--dex-accent) 38%, white);
+}
+
+.tcv-dex-panel {
+  --dex-accent: #14b8a6;
+  margin: 10px 0;
+  border: 1px solid color-mix(in srgb, var(--dex-accent) 45%, white);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dex-accent) 6%, white);
+  overflow: hidden;
+}
+
+.tcv-dex-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--dex-accent) 24%, white) 0%,
+    color-mix(in srgb, var(--dex-accent) 13%, white) 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--dex-accent) 40%, white);
+  font-size: 12px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--dex-accent) 78%, black);
+}
+
+.tcv-dex-icon {
+  font-size: 14px;
+}
+
+.tcv-dex-role {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  background: rgba(255, 255, 255, 0.6);
+  color: color-mix(in srgb, var(--dex-accent) 72%, black);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.tcv-dex-status {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+.tcv-dex-status.ok {
+  background: #d1fae5;
+  color: #065f46;
+}
+.tcv-dex-status.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+.tcv-dex-status.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.tcv-dex-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 0;
+}
+
+.tcv-dex-order-kind {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: color-mix(in srgb, var(--dex-accent) 28%, white);
+  color: color-mix(in srgb, var(--dex-accent) 80%, black);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+/* Per-protocol accent. Applies to the panel and the input/output badge. */
+.tcv-dex-panel[data-dex="minswap"], .tcv-tag-dex[data-dex="minswap"] { --dex-accent: #2e7be4; }
+.tcv-dex-panel[data-dex="wingriders"], .tcv-tag-dex[data-dex="wingriders"] { --dex-accent: #8b5cf6; }
+.tcv-dex-panel[data-dex="splash"], .tcv-tag-dex[data-dex="splash"] { --dex-accent: #ec4899; }
+.tcv-dex-panel[data-dex="muesliswap"], .tcv-tag-dex[data-dex="muesliswap"] { --dex-accent: #f97316; }
+.tcv-dex-panel[data-dex="geniusyield"], .tcv-tag-dex[data-dex="geniusyield"] { --dex-accent: #eab308; }
+.tcv-dex-panel[data-dex="danogo"], .tcv-tag-dex[data-dex="danogo"] { --dex-accent: #14b8a6; }
+.tcv-dex-panel[data-dex="vyfinance"], .tcv-tag-dex[data-dex="vyfinance"] { --dex-accent: #6366f1; }
+.tcv-dex-panel[data-dex="saturnswap"], .tcv-tag-dex[data-dex="saturnswap"] { --dex-accent: #b45309; }
+.tcv-dex-panel[data-dex="liqwid"], .tcv-tag-dex[data-dex="liqwid"] { --dex-accent: #2563eb; }
+.tcv-dex-panel[data-dex="lenfi"], .tcv-tag-dex[data-dex="lenfi"] { --dex-accent: #4338ca; }
+.tcv-dex-panel[data-dex="fluidtokens"], .tcv-tag-dex[data-dex="fluidtokens"] { --dex-accent: #06b6d4; }
+.tcv-dex-panel[data-dex="levvy"], .tcv-tag-dex[data-dex="levvy"] { --dex-accent: #65a30d; }
+.tcv-dex-panel[data-dex="indigo"], .tcv-tag-dex[data-dex="indigo"] { --dex-accent: #4f46e5; }
+.tcv-dex-panel[data-dex="butane"], .tcv-tag-dex[data-dex="butane"] { --dex-accent: #ef4444; }
+.tcv-dex-panel[data-dex="djed"], .tcv-tag-dex[data-dex="djed"] { --dex-accent: #0f766e; }
+.tcv-dex-panel[data-dex="optim"], .tcv-tag-dex[data-dex="optim"] { --dex-accent: #10b981; }
+.tcv-dex-panel[data-dex="strike"], .tcv-tag-dex[data-dex="strike"] { --dex-accent: #e11d48; }
+.tcv-dex-panel[data-dex="charli3"], .tcv-tag-dex[data-dex="charli3"] { --dex-accent: #0d9488; }
+.tcv-dex-panel[data-dex="orcfax"], .tcv-tag-dex[data-dex="orcfax"] { --dex-accent: #0369a1; }
+.tcv-dex-panel[data-dex="jpgstore"], .tcv-tag-dex[data-dex="jpgstore"] { --dex-accent: #d946ef; }
+
+.tcv-dex-section {
+  padding: 8px 12px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--dex-accent) 28%, white);
+}
+.tcv-dex-section:last-child {
+  border-bottom: none;
+}
+
+.tcv-dex-meta {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.tcv-dex-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+/* Meta rows: lay them out as a 2-column grid so every value lines up in one
+   column (the label column auto-sizes to the widest label). Each row uses
+   display:contents so its label/value become direct grid items. */
+.tcv-dex-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.tcv-dex-meta .tcv-dex-row {
+  display: contents;
+}
+.tcv-dex-meta .tcv-dex-row > * {
+  padding: 3px 0;
+  min-width: 0;
+}
+
+/* The shared HashWithTooltip defaults to a block indigo pill; inside the DEX
+   panel render it inline and tinted to the protocol accent so it fits the rows
+   and the asset "policy.name" stays on one line. */
+.tcv-dex-panel .tcv-hash-truncate {
+  display: inline-block;
+  max-width: 260px;
+  vertical-align: bottom;
+  font-size: 11px;
+  padding: 1px 6px;
+  color: color-mix(in srgb, var(--dex-accent) 78%, black);
+  background: color-mix(in srgb, var(--dex-accent) 9%, white);
+}
+
+.tcv-dex-leg-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: color-mix(in srgb, var(--dex-accent) 62%, black);
+  flex-shrink: 0;
+  min-width: 120px;
+}
+
+.tcv-dex-mono {
+  font-family: monospace;
+  font-size: 11px;
+  color: #1f2937;
+}
+
+.tcv-dex-asset {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tcv-dex-asset-amount {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+/* Human-readable (decoded) asset name, e.g. "MIN" / "USDM". */
+.tcv-dex-asset-name {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--dex-accent) 80%, black);
+}
+
+/* The policy-id chip after the name (themed via the shared hash component). */
+.tcv-dex-panel .tcv-hash-truncate.tcv-dex-asset-policy-chip {
+  max-width: 160px;
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+/* Binary asset-name hash chip in the dex panel (distinct size from the policy). */
+.tcv-dex-panel .tcv-hash-truncate.tcv-dex-asset-name-hex {
+  max-width: 200px;
+  font-size: 11px;
+}
+
+/* Small CIP-68 standard-label badge next to a decoded asset name (both the dex
+   panel and the asset table). */
+.tcv-asset-std,
+.tcv-dex-asset-std {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.5;
+  vertical-align: middle;
+  border-radius: 3px;
+  cursor: help;
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+}
+.tcv-dex-asset-std {
+  background: color-mix(in srgb, var(--dex-accent) 14%, white);
+  color: color-mix(in srgb, var(--dex-accent) 65%, black);
+}
+
+.tcv-dex-asset-policy {
+  font-family: monospace;
+  font-size: 10px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.tcv-dex-issue {
+  font-size: 11px;
+  padding: 3px 0;
+}
+.tcv-dex-issue.error {
+  color: #991b1b;
+}
+.tcv-dex-issue.warning {
+  color: #92400e;
+}
+.tcv-dex-issue.info {
+  color: #1e40af;
+}
+
 /* Assets Section */
 .tcv-assets-section {
   margin-top: 10px;
@@ -8677,6 +9033,192 @@ a.tcv-hash-truncate:hover {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   min-width: 200px;
   max-width: 450px;
+}
+
+/* Token-registry logo at the top of an asset tooltip. */
+.tcv-asset-tooltip-logo {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 2px;
+}
+.tcv-asset-tooltip-logo img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Registry URL link inside the tooltip. */
+.tcv-tooltip-link {
+  color: #93c5fd;
+  text-decoration: underline;
+  word-break: break-all;
+}
+.tcv-tooltip-desc .tcv-tooltip-value {
+  font-style: italic;
+  opacity: 0.85;
+  white-space: normal;
+}
+
+/* Asset tooltips have longer labels (Fingerprint/Decimals/Registry/Policy) than
+   the default 45px column and values that wrap (fingerprint, policy), so widen
+   the label column and top-align the row so wrapping values don't overlap. */
+.tcv-asset-tooltip-content .tcv-tooltip-row {
+  align-items: flex-start;
+}
+.tcv-asset-tooltip-content .tcv-tooltip-label {
+  width: 92px;
+}
+.tcv-asset-tooltip-content .tcv-tooltip-value {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Registry ticker shown beside a decoded name (when it differs). */
+.tcv-asset-ticker {
+  margin-left: 4px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 3px;
+  vertical-align: middle;
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
+/* --- Asset metadata tooltip (header + rows) --- */
+.tcv-asset-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  min-width: 230px;
+  max-width: 460px;
+}
+.tcv-asset-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.tcv-asset-tip-logo {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.tcv-asset-tip-headtext {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tcv-asset-tip-name {
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.25;
+}
+.tcv-asset-tip-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tcv-asset-tip-ticker {
+  font-weight: 700;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+}
+.tcv-asset-tip-dim {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.tcv-asset-tip-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.tcv-asset-tip-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.tcv-asset-tip-key {
+  width: 82px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.tcv-asset-tip-val {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+.tcv-asset-tip-mono {
+  opacity: 0.92;
+}
+.tcv-asset-tip-desc {
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.45;
+  opacity: 0.8;
+  white-space: normal;
+}
+
+/* --- Decimals-aware amount + formatted/raw badge --- */
+.tcv-amt {
+  white-space: nowrap;
+}
+.tcv-amt-tag {
+  margin-left: 4px;
+  padding: 0 3px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  border-radius: 3px;
+  vertical-align: super;
+  cursor: help;
+}
+.tcv-amt-fmt {
+  background: rgba(59, 130, 246, 0.16);
+  color: #3b82f6;
+}
+.tcv-amt-raw {
+  background: rgba(148, 163, 184, 0.16);
+  color: #94a3b8;
+}
+
+/* Amount tooltip body (Radix, same shell as the hash tooltip). */
+.tcv-amt-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  min-width: 200px;
+  max-width: 340px;
+}
+.tcv-amt-tip-title {
+  font-weight: 700;
+  font-size: 12px;
+}
+.tcv-amt-tip-body {
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: normal;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .tcv-tooltip-row {

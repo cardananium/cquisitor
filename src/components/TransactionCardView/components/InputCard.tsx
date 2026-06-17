@@ -7,7 +7,9 @@ import { UtxoRef } from "../../UtxoRef";
 import { OutputCard } from "./OutputCard";
 import { getPathDiagnostics, getTransactionLink } from "../utils";
 import type { TransactionInput, TransactionOutput, ValidationDiagnostic, CardanoNetwork, KoiosUtxoInfo } from "../types";
-import type { SundaeInputDetection } from "@/utils/sundae";
+import { detectSundaeOutput, type SundaeInputDetection } from "@/utils/protocols/sundae";
+import { detectDexOutput, formatDexRole, dexThemeKey, type DexInputDetection } from "@/utils/protocols/dex";
+import "@/utils/protocols/dex/adapters";
 
 interface InputCardProps {
   input: TransactionInput;
@@ -20,8 +22,10 @@ interface InputCardProps {
   utxoInfo?: KoiosUtxoInfo;
   /** Pre-computed sundae context for this input (Cancel / Scoop, etc.) */
   sundaeDetection?: SundaeInputDetection;
+  /** Pre-computed generic DEX context for this input (Apply / Cancel, etc.) */
+  dexDetection?: DexInputDetection;
   /** Witness-set datum lookup map (forwarded to the wrapped OutputCard). */
-  witnessDatums?: Map<string, import("@/utils/sundae/plutusData").PD> | null;
+  witnessDatums?: Map<string, import("@/utils/protocols/sundae/plutusData").PD> | null;
 }
 
 /**
@@ -117,6 +121,22 @@ function SundaeInputBadge({ detection }: { detection: SundaeInputDetection }) {
   );
 }
 
+function DexInputBadge({ detection }: { detection: DexInputDetection }) {
+  const roleLabel = formatDexRole(detection.role);
+  const title = `${detection.label} ${roleLabel}${detection.redeemer ? ` · ${detection.redeemer}` : ""}`;
+  const isCancel = detection.redeemer?.toLowerCase().includes("cancel");
+  return (
+    <span
+      className={`tcv-tag ${isCancel ? "tcv-tag-sundae-cancel" : "tcv-tag-dex"}`}
+      data-dex={dexThemeKey(detection.adapterId)}
+      title={title}
+    >
+      {detection.label} {roleLabel}
+      {detection.redeemer ? ` · ${detection.redeemer}` : ""}
+    </span>
+  );
+}
+
 export function InputCard({
   input,
   index,
@@ -126,6 +146,7 @@ export function InputCard({
   focusedPath,
   utxoInfo,
   sundaeDetection,
+  dexDetection,
   witnessDatums = null,
 }: InputCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
@@ -156,6 +177,7 @@ export function InputCard({
             />
           </div>
           {sundaeDetection && <SundaeInputBadge detection={sundaeDetection} />}
+          {dexDetection && <DexInputBadge detection={dexDetection} />}
           <DiagnosticBadge diagnostics={diagnostics} />
         </div>
       </div>
@@ -165,6 +187,17 @@ export function InputCard({
   // With UTxO info - convert to TransactionOutput and use OutputCard
   const output = koiosUtxoToTransactionOutput(utxoInfo);
   const isSpent = utxoInfo.is_spent;
+
+  // Spending inputs get a precomputed detection (with redeemer) from the tx
+  // context. Collateral and reference inputs do NOT, so self-detect from the
+  // resolved UTxO to still surface a protocol badge for them. The wrapped
+  // OutputCard renders the full decoded panel either way.
+  const selfDex = !dexDetection ? detectDexOutput(output, network, witnessDatums) : null;
+  const selfSundae = !sundaeDetection ? detectSundaeOutput(output, network, witnessDatums) : null;
+  const badgeDex: DexInputDetection | undefined =
+    dexDetection ?? (selfDex ? { adapterId: selfDex.adapterId, label: selfDex.label, role: selfDex.role } : undefined);
+  const badgeSundae: SundaeInputDetection | undefined =
+    sundaeDetection ?? (selfSundae ? { match: selfSundae.match } : undefined);
 
   // For inline datum, datum_hash from Koios is already its hash
   const inlineDatumHash = utxoInfo.inline_datum ? utxoInfo.datum_hash : null;
@@ -189,7 +222,8 @@ export function InputCard({
           />
         </div>
         {isSpent && <span className="tcv-tag tcv-tag-spent">Spent</span>}
-        {sundaeDetection && <SundaeInputBadge detection={sundaeDetection} />}
+        {badgeSundae && <SundaeInputBadge detection={badgeSundae} />}
+        {badgeDex && <DexInputBadge detection={badgeDex} />}
         <DiagnosticBadge diagnostics={diagnostics} />
       </div>
       

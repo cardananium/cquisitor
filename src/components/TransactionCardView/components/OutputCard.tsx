@@ -7,10 +7,14 @@ import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { HashWithTooltip } from "./HashWithTooltip";
 import { SundaeOrderPanel } from "./SundaeOrderPanel";
+import { DexOrderPanel } from "./DexOrderPanel";
 import { AddressWithTooltip } from "../../AddressWithTooltip";
-import { getPathDiagnostics, getAddressLink, formatAda, formatAssetName } from "../utils";
-import { detectSundaeOutput } from "@/utils/sundae";
-import type { PD as SundaePD } from "@/utils/sundae/plutusData";
+import { getPathDiagnostics, getAddressLink, formatAda } from "../utils";
+import { AssetNameWithTooltip, AssetAmount } from "./AssetNameWithTooltip";
+import { detectSundaeOutput } from "@/utils/protocols/sundae";
+import { detectDexOutput, formatDexRole, dexThemeKey } from "@/utils/protocols/dex";
+import "@/utils/protocols/dex/adapters";
+import type { PD as SundaePD } from "@/utils/protocols/sundae/plutusData";
 import type { TransactionOutput, ValidationDiagnostic, CardanoNetwork, DataOption } from "../types";
 import type { InlineScriptInfo } from "@cardananium/cquisitor-lib";
 
@@ -62,41 +66,7 @@ function AutoTruncateWithTooltip({ value }: { value: string }) {
   );
 }
 
-// Asset name with decoded string and hex in tooltip
-function AssetNameWithTooltip({ assetName }: { assetName: string }) {
-  const formatted = formatAssetName(assetName);
-  
-  return (
-    <Tooltip.Provider delayDuration={200}>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          <span className={`tcv-auto-truncate ${formatted.decoded ? 'tcv-decoded' : ''}`}>
-            {formatted.display}
-          </span>
-        </Tooltip.Trigger>
-        <Tooltip.Portal>
-          <Tooltip.Content className="tcv-hash-tooltip" sideOffset={5} side="top">
-            <div className="tcv-asset-tooltip-content">
-              {formatted.decoded && (
-                <div className="tcv-tooltip-row">
-                  <span className="tcv-tooltip-label">String:</span>
-                  <span className="tcv-tooltip-value">{formatted.decoded}</span>
-                  <CopyButton text={formatted.decoded} className="tcv-tooltip-copy-sm" />
-                </div>
-              )}
-              <div className="tcv-tooltip-row">
-                <span className="tcv-tooltip-label">Hex:</span>
-                <span className="tcv-tooltip-value tcv-tooltip-hex">{formatted.hex}</span>
-                <CopyButton text={formatted.hex} className="tcv-tooltip-copy-sm" />
-              </div>
-            </div>
-            <Tooltip.Arrow className="tcv-tooltip-arrow" />
-          </Tooltip.Content>
-        </Tooltip.Portal>
-      </Tooltip.Root>
-    </Tooltip.Provider>
-  );
-}
+// Asset name (decoded/CIP-68/registry) + metadata tooltip — shared component.
 
 // Format any value to string for display
 function formatValue(value: unknown): { text: string; isJson: boolean } {
@@ -206,6 +176,13 @@ export function OutputCard({
     [output, network, witnessDatums]
   );
 
+  // Generic DEX detection (Minswap, WingRiders, Splash, …) — matches the output
+  // address against every registered adapter. Disjoint from Sundae's own table.
+  const dexDetection = useMemo(
+    () => detectDexOutput(output, network, witnessDatums),
+    [output, network, witnessDatums]
+  );
+
   // Parse plutus data to determine type
   const plutusDataInfo = parseDataOption(output.plutus_data);
   const isDatumHash = plutusDataInfo.type === 'hash';
@@ -262,6 +239,11 @@ export function OutputCard({
               <span className="tcv-tag tcv-tag-sundae">
                 Sundae {sundaeDetection.match.protocol}{" "}
                 {sundaeDetection.match.role === "order" ? "Order" : "Pool"}
+              </span>
+            )}
+            {dexDetection && (
+              <span className="tcv-tag tcv-tag-dex" data-dex={dexThemeKey(dexDetection.adapterId)}>
+                {dexDetection.label} {formatDexRole(dexDetection.role)}
               </span>
             )}
           </div>
@@ -358,6 +340,7 @@ export function OutputCard({
       )}
       
       {sundaeDetection && <SundaeOrderPanel detection={sundaeDetection} />}
+      {dexDetection && <DexOrderPanel detection={dexDetection} />}
 
       <div className="tcv-item-row tcv-ada-row">
         <span className="tcv-item-label">ADA</span>
@@ -384,13 +367,21 @@ export function OutputCard({
                     </td>
                     <td className="tcv-table-asset">
                       {asset.assetName ? (
-                        <AssetNameWithTooltip assetName={asset.assetName} />
+                        <AssetNameWithTooltip
+                          policyId={asset.policyId}
+                          assetName={asset.assetName}
+                          className="tcv-auto-truncate"
+                        />
                       ) : (
                         <span className="tcv-empty-name">(empty)</span>
                       )}
                     </td>
                     <td className="tcv-table-qty">
-                      {BigInt(asset.quantity).toLocaleString()}
+                      <AssetAmount
+                        policyId={asset.policyId}
+                        assetName={asset.assetName}
+                        raw={BigInt(asset.quantity)}
+                      />
                     </td>
                   </tr>
                 ))}

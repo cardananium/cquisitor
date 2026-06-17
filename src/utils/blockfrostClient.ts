@@ -12,7 +12,7 @@
  */
 import { decode_specific_type } from "@cardananium/cquisitor-lib";
 import { convertSerdeNumbers } from "./serdeNumbers";
-import type { GovActionRef, BlockchainDataClient } from "./koiosClient";
+import type { GovActionRef, BlockchainDataClient, AssetMetadata } from "./koiosClient";
 import {
   PLUTUS_V1_ORDER,
   PLUTUS_V2_ORDER,
@@ -260,6 +260,43 @@ interface BfScriptInfo {
   script_hash: string;
   type: "timelock" | "plutusV1" | "plutusV2" | "plutusV3";
   serialised_size: number | null;
+}
+
+// GET /assets/{asset}. `metadata` = cardano-token-registry (CIP-26);
+// `onchain_metadata` = CIP-25/68. We only read the fields we render.
+interface BfAsset {
+  asset: string;
+  policy_id: string;
+  asset_name: string | null; // hex
+  fingerprint: string;
+  quantity: string;
+  metadata?: {
+    name?: string;
+    description?: string;
+    ticker?: string;
+    url?: string;
+    logo?: string; // base64 PNG
+    decimals?: number;
+  } | null;
+  onchain_metadata?: { name?: string; decimals?: number } | null;
+}
+
+function bfAssetToMetadata(unit: string, a: BfAsset): AssetMetadata {
+  const m = a.metadata;
+  const o = a.onchain_metadata;
+  return {
+    unit: unit.toLowerCase(),
+    policyId: a.policy_id,
+    assetNameHex: a.asset_name ?? unit.slice(56),
+    fingerprint: a.fingerprint ?? null,
+    decimals: m?.decimals ?? o?.decimals ?? null,
+    ticker: m?.ticker ?? null,
+    name: m?.name ?? o?.name ?? null,
+    description: m?.description ?? null,
+    url: m?.url ?? null,
+    logo: m?.logo ?? null,
+    totalSupply: a.quantity ?? null,
+  };
 }
 
 // --- Helpers --------------------------------------------------------------
@@ -812,6 +849,20 @@ export class BlockfrostClient implements BlockchainDataClient {
       )
     );
     return results.filter((r): r is KoiosTxCborResponse => r !== null);
+  }
+
+  async getAssetInfo(units: string[]): Promise<AssetMetadata[]> {
+    if (units.length === 0) return [];
+    // Blockfrost has no bulk asset endpoint — fan out one GET per asset
+    // (memoised by getRaw; 404 ⇒ unknown asset, skipped).
+    const results = await Promise.all(
+      units.map((u) =>
+        this.getRaw<BfAsset>(`/assets/${u}`, { allow404: true }).then((d) =>
+          d ? bfAssetToMetadata(u, d) : null
+        )
+      )
+    );
+    return results.filter((x): x is AssetMetadata => x !== null);
   }
 
   async submitTransaction(txHex: string): Promise<string> {

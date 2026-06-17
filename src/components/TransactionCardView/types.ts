@@ -1,5 +1,7 @@
 import type { ExtractedHashes } from "@cardananium/cquisitor-lib";
 import type { KoiosUtxoInfo } from "@/utils/koiosTypes";
+import type { DeUplcLinkMaps } from "@/utils/deUplcLink";
+import type { DataProvider } from "@/utils/transactionValidation";
 
 // Re-export for convenience
 export type { ExtractedHashes };
@@ -404,6 +406,20 @@ export interface TransactionCardViewProps {
    * over-declared budgets that waste fee.
    */
   actualExUnits?: { mem: bigint; steps: bigint } | null;
+  /**
+   * "Open in de-uplc-web" deep-links — per redeemer and per witness script —
+   * built after Validate (they need the resolved context + utxos). Null until then.
+   */
+  deUplcLinks?: DeUplcLinkMaps | null;
+  /**
+   * Bytecode-only ("Open in de-uplc-web") program links per witness plutus_scripts
+   * index. Available without Validate (needs only the script hex + version).
+   */
+  deUplcProgramUrls?: (string | null)[] | null;
+  /** Active data provider — used to fetch asset metadata for enrichment. */
+  provider?: DataProvider;
+  /** API key/project_id for the active provider (asset-metadata fetch). */
+  apiKey?: string;
 }
 
 // Transaction types
