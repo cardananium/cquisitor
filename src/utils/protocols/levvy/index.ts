@@ -19,16 +19,35 @@ import {
   type LevvySettlement,
 } from "./datums";
 
-// Build a full-value DexRow for an address' payment credential. The shared hash
+// Build full-value DexRows for a Cardano address: one row for the payment
+// credential and (when present) one for the stake credential. The shared hash
 // component truncates + copies the full hash; script-ness goes into the label.
-function addressRow(label: string, addr: PlutusAddress): DexRow {
+// The stake credential is part of the on-chain Address; dropping it loses which
+// stake key the lender/borrower/claimant payout is bound to.
+function addressRows(label: string, addr: PlutusAddress): DexRow[] {
   const pay = addr.paymentCredential;
-  const isScript = pay.kind === "Script";
-  return {
-    label: isScript ? `${label} (script)` : label,
-    value: pay.hash,
-    hash: true,
-  };
+  const rows: DexRow[] = [
+    {
+      label: pay.kind === "Script" ? `${label} (script)` : label,
+      value: pay.hash,
+      hash: true,
+    },
+  ];
+  const stake = addr.stakeCredential;
+  if (stake && stake.kind === "Inline") {
+    const c = stake.credential;
+    rows.push({
+      label: `${label} stake cred${c.kind === "Script" ? " (script)" : ""}`,
+      value: c.hash,
+      hash: true,
+    });
+  } else if (stake && stake.kind === "Pointer") {
+    rows.push({
+      label: `${label} stake cred (pointer)`,
+      value: `slot ${stake.slotNumber.toString()}, txIdx ${stake.transactionIndex.toString()}, certIdx ${stake.certificateIndex.toString()}`,
+    });
+  }
+  return rows;
 }
 
 // Build a full-value DexRow for a consumed-UTxO reference: txId#index. The hash
@@ -63,7 +82,7 @@ function offerToView(o: LevvyOffer): DexOrderView {
     });
   }
   const rows: DexRow[] = [
-    addressRow("Lender", o.lenderAddress),
+    ...addressRows("Lender", o.lenderAddress),
     { label: "Principal", value: formatAda(o.principal) },
     { label: "Interest", value: formatAda(o.interest) },
     { label: "Loan duration", value: formatMsDuration(o.loanDurationMs) },
@@ -83,8 +102,8 @@ function loanToView(l: LevvyLoan): DexOrderView {
     });
   }
   const rows: DexRow[] = [
-    addressRow("Lender", l.lenderAddress),
-    addressRow("Borrower", l.borrowerAddress),
+    ...addressRows("Lender", l.lenderAddress),
+    ...addressRows("Borrower", l.borrowerAddress),
     { label: "Principal", value: formatAda(l.principal) },
     { label: "Interest", value: formatAda(l.interest) },
     { label: "Repayment due", value: `${l.deadline.toLocaleString()} (POSIX ms)` },
@@ -102,7 +121,7 @@ function loanToView(l: LevvyLoan): DexOrderView {
 
 function settlementToView(s: LevvySettlement): DexOrderView {
   const rows: DexRow[] = [
-    addressRow("Claimant", s.lenderAddress),
+    ...addressRows("Claimant", s.lenderAddress),
     { label: "Payout principal", value: formatAda(s.payoutPrincipal) },
     { label: "Payout interest", value: formatAda(s.payoutInterest) },
     outRefRow("Loan ref", s.outRef),

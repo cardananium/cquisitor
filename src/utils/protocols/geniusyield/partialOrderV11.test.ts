@@ -10,6 +10,7 @@ import {
   GENIUS_YIELD_V1_1_ROLE,
   matchGeniusYieldV11NftPolicy,
 } from "./constants";
+import { partialOrderV11ToView } from "./index";
 
 const C = (tag: number, ...fields: PD[]): PD => ({ constructor: tag, fields });
 const I = (n: number | bigint): PD => ({ int: BigInt(n) });
@@ -88,7 +89,10 @@ describe("parsePartialOrderV11Datum (real mainnet 12-field record variant)", () 
     if (o.record.kind === "record") {
       expect(o.record.nft).toBe(REC_F5_NFT);
       expect(o.record.price).toEqual({ numerator: BigInt(0), denominator: BigInt(1) });
+      // The trailing rationals of each pair are captured, not dropped.
+      expect(o.record.price2).toEqual({ numerator: BigInt(1), denominator: BigInt(50) });
       expect(o.record.nested).toEqual({ numerator: BigInt(0), denominator: BigInt(1) });
+      expect(o.record.nested2).toEqual({ numerator: BigInt(1), denominator: BigInt(50) });
     }
     expect(o.start).toBeNull();
     expect(o.end).toBeNull();
@@ -191,5 +195,15 @@ describe("Genius Yield V1.1 matching", () => {
     expect(
       matchGeniusYieldV11NftPolicy(GENIUS_YIELD_V1_1.nftPolicyV11, [REC_NFT], "preprod"),
     ).toBeNull();
+  });
+});
+
+describe("partialOrderV11ToView trading pair", () => {
+  test("pair = offered / asked (the two traded AssetClasses)", () => {
+    const view = partialOrderV11ToView(parsePartialOrderV11Datum(liveRecordDatum));
+    expect(view.pair).toEqual({
+      assetA: { policyId: "", assetName: "" },
+      assetB: { policyId: REC_ASKED_POLICY, assetName: REC_ASKED_NAME },
+    });
   });
 });

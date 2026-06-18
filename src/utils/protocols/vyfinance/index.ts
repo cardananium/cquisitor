@@ -9,6 +9,7 @@ import type { PD } from "@/utils/protocols/dex/plutusData";
 import {
   matchVyFinanceNftPolicy,
   matchVyFinanceScriptHash,
+  vyFinancePairForHash,
 } from "./constants";
 import {
   classifyVyFinanceOrderRedeemer,
@@ -40,10 +41,10 @@ function orderToView(order: VyFinanceOrder): DexOrderView {
       label: "Min receive",
       value: `${order.minReceive.toLocaleString()} ${receiveUnit}`,
     },
-    { label: "Owner payment PKH", value: order.paymentPkh, mono: true },
+    { label: "Owner payment PKH", value: order.paymentPkh, hash: true },
   ];
   if (order.stakeKeyHash) {
-    rows.push({ label: "Owner stake key", value: order.stakeKeyHash, mono: true });
+    rows.push({ label: "Owner stake key", value: order.stakeKeyHash, hash: true });
   }
   return {
     protocol: "VyFinance V2",
@@ -51,6 +52,9 @@ function orderToView(order: VyFinanceOrder): DexOrderView {
     kind: orderKind(order),
     rows,
     issues: order.issues,
+    // The pair isn't in the order datum (it's a per-pool script param); `decode`
+    // attaches it as a static `view.pair` from the generated registry, keyed off
+    // the matched per-pool script hash.
   };
 }
 
@@ -74,8 +78,13 @@ registerDexAdapter({
   label: "VyFinance V2",
   matchScriptHash: matchVyFinanceScriptHash,
   matchNftPolicy: matchVyFinanceNftPolicy,
-  decode: (datum: PD, role) =>
-    role === "pool" ? poolToView(parseVyFinancePool(datum)) : orderToView(parseVyFinanceOrder(datum)),
+  decode: (datum: PD, role, scriptHash) => {
+    const view =
+      role === "pool" ? poolToView(parseVyFinancePool(datum)) : orderToView(parseVyFinanceOrder(datum));
+    const pair = scriptHash ? vyFinancePairForHash(scriptHash) : null;
+    if (pair) view.pair = pair;
+    return view;
+  },
   classifyRedeemer: (redeemer: PD, role) =>
     role === "pool" ? null : classifyVyFinanceOrderRedeemer(redeemer),
 });

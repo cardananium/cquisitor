@@ -61,6 +61,31 @@ describe("parseWrRequestDatum — Swap (A→B)", () => {
     expect(view.assets).toHaveLength(2);
     expect(view.rows.find((r) => r.label === "Min wanted tokens")?.value).toBe("1,234");
   });
+
+  test("toView surfaces the traded pair (Asset A / Asset B)", () => {
+    const view = wrRequestToView(parseWrRequestDatum(datum));
+    expect(view.pair).toEqual({
+      assetA: { policyId: "", assetName: "" },
+      assetB: { policyId: POLICY_B, assetName: NAME_B },
+    });
+  });
+
+  // compensationDatum (field 3) and scaleA/scaleB (fields 11/12) were parsed
+  // but never surfaced in the flat-fallback request view.
+  test("flat request view surfaces owner, beneficiary, compensation datum + scale", () => {
+    const HASH = "00112233445566778899aabbccddeeff00112233445566778899aabb";
+    const withScale: PD = C(
+      0, I(2_000_000), keyAddr(PKH), keyAddr(PKH),
+      B(HASH), // compensationDatum = a datum hash
+      C(0), I(1_730_000_000_000), B(""), B(""), B(POLICY_B), B(NAME_B),
+      C(0, C(0), I(1234)), I(7), I(9), // scaleA=7, scaleB=9
+    );
+    const view = wrRequestToView(parseWrRequestDatum(withScale));
+    expect(view.rows.find((r) => r.label === "Owner (key)")?.value).toBe(PKH);
+    expect(view.rows.find((r) => r.label === "Beneficiary (key)")?.value).toBe(PKH);
+    expect(view.rows.find((r) => r.label === "Compensation datum")?.value).toBe(HASH);
+    expect(view.rows.find((r) => r.label === "Scale A / B")?.value).toBe("7 / 9");
+  });
 });
 
 describe("parseWrRequestDatum — other actions", () => {
@@ -117,8 +142,40 @@ describe("parseWrPoolDatum", () => {
     expect(view.kind).toBe("Liquidity Pool (Stableswap)");
   });
 
+  test("pool view surfaces the reserve pair (Asset A / Asset B)", () => {
+    const view = wrPoolToView(parseWrPoolDatum(poolBase(C(0))));
+    expect(view.pair).toEqual({
+      assetA: { policyId: "", assetName: "" },
+      assetB: { policyId: POLICY_B, assetName: NAME_B },
+    });
+  });
+
   test("rejects wrong field count", () => {
     expect(() => parseWrPoolDatum(C(0, B(VH)))).toThrow(/expected 21 fields/);
+  });
+
+  // Reserve fee, project/reserve treasuries and project/reserve beneficiaries
+  // were previously parsed but dropped from the flat-fallback pool view.
+  test("flat pool view surfaces reserve fee, project/reserve treasuries + beneficiaries", () => {
+    // script payment cred, no stake; wrapped in MaybeAddress Just (Constr0).
+    const justScriptAddr = (h: string): PD => C(0, C(0, C(1, B(h)), C(1)));
+    const PROJ = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const RES = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const datum = C(
+      0,
+      B(VH), B(""), B(""), B(POLICY_B), B(NAME_B),
+      I(35), I(5), I(7), I(9), I(10000), // swap/protocol/project/reserve fees + basis
+      I(2_000_000), I(1_730_000_000_000),
+      I(11), I(12), I(13), I(14), I(15), I(16), // treasury / projectTreasury / reserveTreasury (A,B)
+      justScriptAddr(PROJ), justScriptAddr(RES), // project/reserve beneficiary: Just(script addr)
+      C(0),
+    );
+    const view = wrPoolToView(parseWrPoolDatum(datum));
+    expect(view.rows.find((r) => r.label === "Reserve fee")?.value).toBe("9 / 10000");
+    expect(view.rows.find((r) => r.label === "Project treasury A / B")?.value).toBe("13 / 14");
+    expect(view.rows.find((r) => r.label === "Reserve treasury A / B")?.value).toBe("15 / 16");
+    expect(view.rows.find((r) => r.label === "Project beneficiary (script)")?.value).toBe(PROJ);
+    expect(view.rows.find((r) => r.label === "Reserve beneficiary (script)")?.value).toBe(RES);
   });
 });
 
@@ -165,6 +222,11 @@ describe("WingRiders LIVE nested layout (LiquidityPoolDatumV1 / RequestDatumV1)"
     // stableswap labelling flows from the matched role, not the datum
     expect(wrNestedPoolToView(d, true).protocol).toBe("WingRiders Stableswap");
     expect(wrNestedPoolToView(d, false).kind).toBe("Liquidity Pool (Constant-product)");
+    // reserve pair surfaced on the unified pair header
+    expect(wrNestedPoolToView(d, false).pair).toEqual({
+      assetA: { policyId: POLICY_B, assetName: NAME_B },
+      assetB: { policyId: "", assetName: "" },
+    });
   });
 
   test("nested request datum (Constr0[metadata, action]) with Swap action", () => {
@@ -179,6 +241,11 @@ describe("WingRiders LIVE nested layout (LiquidityPoolDatumV1 / RequestDatumV1)"
     expect(d.action).toEqual({ kind: "Swap", direction: "BToA", minWantedTokens: BigInt(1234) });
     expect(d.assetB).toEqual({ policyId: POLICY_B, assetName: NAME_B });
     expect(wrNestedRequestToView(d, false).protocol).toBe("WingRiders");
+    // traded pair surfaced on the unified pair header
+    expect(wrNestedRequestToView(d, false).pair).toEqual({
+      assetA: { policyId: "", assetName: "" },
+      assetB: { policyId: POLICY_B, assetName: NAME_B },
+    });
   });
 
   test("nested request AddLiquidity (Constr1) + RemoveLiquidity (Constr2)", () => {
@@ -187,5 +254,28 @@ describe("WingRiders LIVE nested layout (LiquidityPoolDatumV1 / RequestDatumV1)"
     expect(add.action).toEqual({ kind: "AddLiquidity", minWantedShares: BigInt(500) });
     const rem = parseWrNestedRequestDatum(C(0, meta, C(2, I(10), I(20))));
     expect(rem.action).toEqual({ kind: "WithdrawLiquidity", minWantedA: BigInt(10), minWantedB: BigInt(20) });
+  });
+
+  // The beneficiary (compensation recipient) Address was previously parsed but
+  // dropped from the view; only the bare owner pubkey-hash was shown. The
+  // beneficiary can carry a stake credential the owner PKH does not.
+  test("nested request view surfaces the beneficiary address incl. stake credential", () => {
+    const STAKE = "3fcf550f4d75ab4bd0f057b255f09fb0e6ae2264e0ec637735b92dac";
+    // beneficiary = key payment cred + inline key stake cred
+    const benef: PD = C(0, C(0, B(PKH)), C(0, C(0, C(0, B(STAKE)))));
+    const datum: PD = C(
+      0,
+      C(0, benef, B(PKH), I(1730000000000), C(0, asset("", ""), asset(POLICY_B, NAME_B))),
+      C(0, C(0), I(1234)),
+    );
+    const view = wrNestedRequestToView(parseWrNestedRequestDatum(datum), false);
+    const benRow = view.rows.find((r) => r.label === "Beneficiary (key)");
+    expect(benRow?.value).toBe(PKH);
+    expect(benRow?.hash).toBe(true);
+    const stakeRow = view.rows.find((r) => r.label === "Beneficiary stake (key)");
+    expect(stakeRow?.value).toBe(STAKE);
+    expect(stakeRow?.hash).toBe(true);
+    // owner still surfaced
+    expect(view.rows.find((r) => r.label === "Owner")?.value).toBe(PKH);
   });
 });

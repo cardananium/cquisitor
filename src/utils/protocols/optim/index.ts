@@ -24,14 +24,17 @@ import {
 } from "@/utils/protocols/dex/plutusData";
 import { matchOptimScriptHash } from "./constants";
 import {
+  formatBidApy,
   parseBatchStakeRedeemer,
   parseOptimBondDatum,
   parseOptimPositionDatum,
   parseSotokenMintRedeemer,
   validateBatchStake,
+  validateStakeAuctionBid,
   validateStakingAmo,
   type OptimDatum,
 } from "./datums";
+import type { Credential } from "@/utils/protocols/dex/plutusData";
 
 // Full address descriptor (script/key + optional stake), no truncation. The
 // shared HashWithTooltip component truncates + copies the full string.
@@ -45,11 +48,35 @@ function describeAddress(addr: PlutusAddress): string {
   return `${base} / stake (pointer)`;
 }
 
+// Render a bare Credential (the stake-credential field of a stake-auction bid).
+function describeCredential(c: Credential | null): string {
+  if (!c) return "(unrecognized)";
+  return `${c.kind === "Script" ? "script" : "key"} ${c.hash}`;
+}
+
 // AssetClass shape = Constr 0 [ Bytes policy, Bytes name ].
 function asAssetClassShape(d: PD): AssetClass | null {
   if (!isConstr(d) || d.constructor !== 0 || d.fields.length !== 2) return null;
   if (!isBytes(d.fields[0]) || !isBytes(d.fields[1])) return null;
   return { policyId: d.fields[0].bytes, assetName: d.fields[1].bytes };
+}
+
+// Render a single raw PD field as a DexRow by its on-chain STRUCTURE (asset
+// class, integer, hash/bytes, empty-ctor flag/unit) without fabricating a name.
+// Used both for unlabelled position datums and for the opaque Strategy data blob.
+function structuralFieldRow(label: string, f: PD): DexRow {
+  const ac = asAssetClassShape(f);
+  if (ac) return { label: `${label} — asset`, asset: { policyId: ac.policyId, assetName: ac.assetName } };
+  if (isInt(f)) return { label: `${label} — int`, value: asInt(f).toLocaleString() };
+  if (isBytes(f)) {
+    const hex = f.bytes;
+    return { label: `${label} — bytes${hex.length === 56 ? " (hash)" : ""}`, value: hex, hash: true };
+  }
+  if (isConstr(f) && f.fields.length === 0) {
+    return { label, value: `none / unit (ctor ${f.constructor})` };
+  }
+  if (isConstr(f)) return { label, value: `ctor ${f.constructor} (${f.fields.length} fields — see raw)` };
+  return { label, value: "(nested structure — see raw)" };
 }
 
 // Honest structural view for genuine-but-unlabelled Optim position datums (the
@@ -71,24 +98,7 @@ function structuralPositionView(raw: PD): DexOrderView {
       issues: [],
     };
   }
-  const rows: DexRow[] = fields.map((f, i): DexRow => {
-    const ac = asAssetClassShape(f);
-    if (ac) {
-      return {
-        label: `Field ${i} — asset`,
-        asset: { policyId: ac.policyId, assetName: ac.assetName },
-      };
-    }
-    if (isInt(f)) return { label: `Field ${i} — int`, value: asInt(f).toLocaleString() };
-    if (isBytes(f)) {
-      const hex = f.bytes;
-      return { label: `Field ${i} — bytes${hex.length === 56 ? " (hash)" : ""}`, value: hex, hash: true };
-    }
-    if (isConstr(f) && f.fields.length === 0) {
-      return { label: `Field ${i}`, value: `none / unit (ctor ${f.constructor})` };
-    }
-    return { label: `Field ${i}`, value: "(nested structure — see raw)" };
-  });
+  const rows: DexRow[] = fields.map((f, i): DexRow => structuralFieldRow(`Field ${i}`, f));
   return {
     protocol: "Optim Finance",
     role: "position",
@@ -117,26 +127,82 @@ export function optimDatumToView(datum: OptimDatum): DexOrderView {
     case "StakingAmo": {
       const issues: DexIssue[] = validateStakingAmo(datum);
       const rows: DexRow[] = [
-        { label: "sOADA policy", value: datum.sotoken, hash: true },
-        { label: "sOADA amount", value: datum.sotokenAmount.toLocaleString() },
-        { label: "sOADA backing", value: datum.sotokenBacking.toLocaleString() },
         {
-          label: "Rate (amount / backing)",
-          value: `${datum.sotokenAmount.toLocaleString()} / ${datum.sotokenBacking.toLocaleString()}`,
+          label: "Soul token (AMO id)",
+          asset: { policyId: datum.soulToken.policyId, assetName: datum.soulToken.assetName },
         },
-        { label: "sOADA limit", value: datum.sotokenLimit.toLocaleString() },
+        {
+          label: "Base asset",
+          asset: { policyId: datum.baseAsset.policyId, assetName: datum.baseAsset.assetName },
+        },
+        {
+          label: "OTOKEN",
+          asset: { policyId: datum.otoken.policyId, assetName: datum.otoken.assetName },
+        },
+        {
+          label: "sOTOKEN",
+          asset: { policyId: datum.sotoken.policyId, assetName: datum.sotoken.assetName },
+        },
+        { label: "sOTOKEN amount (snapshot)", value: datum.sotokenAmount.toLocaleString() },
+        { label: "sOTOKEN backing (snapshot)", value: datum.sotokenBacking.toLocaleString() },
         { label: "oDAO fee", value: datum.odaoFee.toLocaleString() },
-        { label: "oDAO sOADA", value: datum.odaoSotoken.toLocaleString() },
-        {
-          label: "Fee claimer",
-          asset: { policyId: datum.feeClaimer.policyId, assetName: datum.feeClaimer.assetName },
-        },
+        { label: "Fee component 2", value: datum.feeComponent2.toLocaleString() },
         { label: "Fee claim rule", value: datum.feeClaimRule, hash: true },
+        { label: "Script hash (field 12)", value: datum.scriptHash12, hash: true },
+        { label: "Field 1 (int)", value: datum.field1.toLocaleString() },
+        { label: "Field 4 (int)", value: datum.field4.toLocaleString() },
+        { label: "Field 5 (int)", value: datum.field5.toLocaleString() },
+        { label: "Flag 7", value: String(datum.flag7) },
+        { label: "Flag 8", value: String(datum.flag8) },
       ];
       return {
         protocol: "Optim Finance",
         role: "position",
         kind: "Staking AMO (rate state)",
+        rows,
+        issues,
+      };
+    }
+    case "StakeAuctionBid": {
+      const issues: DexIssue[] = validateStakeAuctionBid(datum);
+      const rows: DexRow[] = [
+        { label: "Owner", value: datum.owner, hash: true },
+        {
+          label: "Stake credential",
+          value: describeCredential(datum.stakeCredential),
+          hash: datum.stakeCredential !== null,
+        },
+        { label: "Bid APY", value: `${formatBidApy(datum.apy)} (raw ${datum.apy.toLocaleString()})` },
+        { label: "Bid type", value: datum.bidType },
+        {
+          label: "Bid reference",
+          value: datum.bidRef
+            ? `${datum.bidRef.transactionId}#${datum.bidRef.outputIndex.toString()}`
+            : "none",
+          hash: datum.bidRef !== null,
+        },
+      ];
+      return {
+        protocol: "Optim Finance",
+        role: "position",
+        kind: "Stake auction bid",
+        rows,
+        issues,
+      };
+    }
+    case "StakeAuctionBidCont": {
+      const issues: DexIssue[] = validateStakeAuctionBid(datum);
+      const rows: DexRow[] = [
+        { label: "Bid APY", value: `${formatBidApy(datum.apy)} (raw ${datum.apy.toLocaleString()})` },
+        {
+          label: "Note",
+          value: "Continuation / partial-fill bid (carries APY only).",
+        },
+      ];
+      return {
+        protocol: "Optim Finance",
+        role: "position",
+        kind: "Stake auction bid (continuation)",
         rows,
         issues,
       };
@@ -165,9 +231,11 @@ export function optimDatumToView(datum: OptimDatum): DexOrderView {
       };
     }
     case "Strategy": {
+      // strategy_data is opaque Data in the clean-code schema (no field names);
+      // surface its on-chain STRUCTURE rather than hiding it behind a label.
       const rows: DexRow[] = [
         { label: "Base profit", value: datum.baseProfit.toLocaleString() },
-        { label: "Strategy data", value: "opaque (raw Data)" },
+        structuralFieldRow("Strategy data", datum.strategyData),
       ];
       return {
         protocol: "Optim Finance",

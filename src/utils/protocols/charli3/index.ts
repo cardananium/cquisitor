@@ -298,15 +298,38 @@ function oracleRewardRows(fields: PD[]): DexRow[] {
   return rows;
 }
 
-// NodeDatum → NodeState[ operator PubKeyHash, feed (PriceFeed | Nothing) ].
+// NodeDatum → NodeState[ operator PubKeyHash, feed: Maybe<PriceData> ].
+//
+// The node's `feed` is the operator's OWN latest price submission, encoded as
+//   Maybe<PriceData> = Constr0[ PriceData ]  (Just) | Constr1[]  (Nothing)
+// where the push-oracle node PriceData is the bare tuple
+//   PriceData = Constr0[ price (uint), timestamp (POSIXTime ms) ].
+// (Verified live: every ADA/USD node UTxO carries Just(Constr0[price, ts]) with
+// the price aligned to the consumer feed and a millisecond POSIXTime.) The old
+// code rendered these as opaque "Feed.0"/"Feed.1", dropping their meaning.
 function nodeStateRows(fields: PD[]): DexRow[] {
   const rows: DexRow[] = [];
   const op = tryHex(fields[0]);
   if (op) rows.push({ label: "Operator", value: op, hash: true });
   const feed = fields[1];
   if (feed && isConstr(feed)) {
-    if (feed.constructor === 1 && feed.fields.length === 0) rows.push({ label: "Feed", value: "none (Nothing)" });
-    else describeInternal(feed, "Feed", rows, 0);
+    if (feed.constructor === 1 && feed.fields.length === 0) {
+      rows.push({ label: "Submitted feed", value: "none (Nothing)" });
+    } else if (
+      feed.constructor === 0 &&
+      feed.fields.length === 1 &&
+      isConstr(feed.fields[0]) &&
+      feed.fields[0].fields.length === 2 &&
+      isInt(feed.fields[0].fields[0]) &&
+      isInt(feed.fields[0].fields[1])
+    ) {
+      // Just( PriceData[ price, timestamp ] )
+      const priceData = feed.fields[0];
+      rows.push({ label: "Submitted price (raw)", value: asInt(priceData.fields[0]).toLocaleString() });
+      rows.push({ label: "Submitted timestamp", value: formatTimestampMs(asInt(priceData.fields[1])) });
+    } else {
+      describeInternal(feed, "Submitted feed", rows, 0);
+    }
   }
   return rows;
 }

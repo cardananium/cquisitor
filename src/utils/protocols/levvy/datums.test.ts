@@ -8,6 +8,8 @@ import {
   type LevvySettlement,
 } from "./datums";
 import { matchLevvyScriptHash, LEVVY } from "./constants";
+import "./index";
+import { getDexAdapter } from "@/utils/protocols/dex/registry";
 
 const C = (tag: number, ...fields: PD[]): PD => ({ constructor: tag, fields });
 const I = (n: number | bigint): PD => ({ int: BigInt(n) });
@@ -119,6 +121,56 @@ describe("classifyLevvyRedeemer — 5 nullary actions", () => {
   });
   test("field-bearing constructor is not a Levvy action", () => {
     expect(classifyLevvyRedeemer(C(0, I(1)))).toBeNull();
+  });
+});
+
+describe("Levvy view — surfaces every datum field (completeness)", () => {
+  const decode = (d: PD) => getDexAdapter("levvy")!.decode!(d, "loan");
+  const rowVal = (rows: { label: string; value?: string }[], label: string) =>
+    rows.find((r) => r.label === label)?.value;
+
+  test("offer surfaces lender payment + stake credential", () => {
+    const datum: PD = C(
+      0,
+      C(0, lenderAddr, B(POLICY), I(100_000_000), I(5_000_000), I(1_209_600_000)),
+    );
+    const view = decode(datum);
+    expect(rowVal(view.rows, "Lender")).toBe(LENDER_PKH);
+    // The Inline stake credential must be surfaced, not silently dropped.
+    expect(rowVal(view.rows, "Lender stake cred")).toBe(LENDER_STAKE);
+    expect(view.assets?.[0]?.policyId).toBe(POLICY);
+  });
+
+  test("loan surfaces both addresses' stake creds; borrower has none", () => {
+    const datum: PD = C(
+      1,
+      C(
+        0,
+        lenderAddr,
+        borrowerAddr,
+        B(POLICY),
+        B(ASSET_NAME),
+        I(100_000_000),
+        I(5_000_000),
+        I(1_730_000_000_000),
+        outRef,
+      ),
+    );
+    const view = decode(datum);
+    expect(rowVal(view.rows, "Lender")).toBe(LENDER_PKH);
+    expect(rowVal(view.rows, "Lender stake cred")).toBe(LENDER_STAKE);
+    expect(rowVal(view.rows, "Borrower")).toBe(BORROWER_PKH);
+    // Borrower address carries no stake credential → no stake row emitted.
+    expect(view.rows.some((r) => r.label === "Borrower stake cred")).toBe(false);
+    expect(rowVal(view.rows, "Offer ref")).toBe(`${TXID}#0`);
+  });
+
+  test("settlement surfaces claimant stake cred", () => {
+    const datum: PD = C(0 + 2, C(0, lenderAddr, I(111_000_000), I(4_799_751), outRef));
+    const view = decode(datum);
+    expect(rowVal(view.rows, "Claimant")).toBe(LENDER_PKH);
+    expect(rowVal(view.rows, "Claimant stake cred")).toBe(LENDER_STAKE);
+    expect(rowVal(view.rows, "Loan ref")).toBe(`${TXID}#0`);
   });
 });
 

@@ -1,13 +1,26 @@
-// Optim Finance (OADA / sOADA liquid staking) datum + redeemer parsers.
+// Optim Finance (OADA / sOADA liquid staking + Epoch Stake Auction) datum +
+// redeemer parsers.
 //
 // Shared encodings:
 //   AssetClass / Id / Nft  = Constr 0 [Bytes policy, Bytes name]
+//   Credential             = VerificationKey(hash) (ctor 0) | Script(hash) (ctor 1)
 //   Address                = the standard Cardano shape (parsePlutusAddress)
 //   Option<X>              = Constr 0 [x] (Some) | Constr 1 [] (None)
 //   OutputReference        = Constr 0 [ Constr0[Bytes tx_id], Int output_index ]
 //
-// The "bond" (Liquidity Bonds) product is NOT implemented here. decodeBond
-// surfaces the raw datum as an opaque passthrough.
+// FIELD SCHEMAS — SOURCES:
+//   * `optim/types/oada.ak`, `batch_stake.ak`, `staking_amo.ak`, `types.ak` in
+//     OptimFinance/clean-code (public, Anastasia-Labs–audited) give the OADA
+//     names (sotoken / sotoken_amount / sotoken_backing / odao_fee /
+//     fee_claimer / fee_claim_rule, BatchStakeDatum{owner, return_address}).
+//   * The DEPLOYED mainnet validators are the GENERALISED "otoken framework"
+//     (no public repo at this version). The 15-field staking AMO is the
+//     generalised StakingAmoDatum (the 8-field clean-code form plus base-asset /
+//     otoken / extra-flag fields); several int fields have no authoritative name
+//     and are surfaced by their role only.
+//   * The Epoch-Stake-Auction bid datum's APY field matches the off-chain
+//     formula `amount * 1000 * 73 / apy`
+//     (OptimFinance/oada-ui  src/oada/actions.ts  bidAmountToRequestedSize).
 
 import {
   asBytes,
@@ -15,9 +28,12 @@ import {
   asInt,
   asList,
   asOptional,
+  isBytes,
   parseAssetClass,
+  parseCredential,
   parsePlutusAddress,
   type AssetClass,
+  type Credential,
   type PD,
   type PlutusAddress,
 } from "@/utils/protocols/dex/plutusData";
@@ -84,36 +100,147 @@ export function parseBatchStakeRedeemer(data: PD): BatchStakeRedeemer {
 // ROLE "position" (pool / AMO singleton state datums)
 // --------------------------------------------------------------------------
 
-// StakingAmoDatum — Constr 0, 8 fields. The sOADA<->OADA rate state.
+// StakingAmoDatum — the DEPLOYED (generalised "otoken framework") staking-AMO
+// state: Constr 0 with 15 fields. This is a superset of the 8-field clean-code
+// `StakingAmoDatum` (which is the OADA-specialised form). Field layout:
+//   [0]  soulToken     Nft/Id      — the AMO singleton id NFT (held 1x in UTxO)
+//   [1]  field1        Int         — config int (soul-gated invariant; e.g. 3200)
+//   [2]  baseAsset     AssetClass  — the base asset (ADA = ("",""))
+//   [3]  otoken        AssetClass  — the OTOKEN (OADA) asset class
+//   [4]  field4        Int         — soul-gated parameter (e.g. 1)
+//   [5]  field5        Int         — soul-gated parameter (e.g. 1)
+//   [6]  sotoken       AssetClass  — the sOTOKEN asset class (held in the UTxO)
+//   [7]  flag7         Bool        — soul-gated boolean flag (ctor 0/1)
+//   [8]  flag8         Bool        — soul-gated boolean flag (ctor 0/1)
+//   [9]  odaoFee       Int         — oDAO fee component (used in 100000-f9-f10)
+//   [10] feeComponent2 Int         — second fee component
+//   [11] feeClaimRule  ScriptHash  — withdraw-0 fee-claim rule (28 bytes)
+//   [12] scriptHash12  ScriptHash  — soul-gated 28-byte hash parameter
+//   [13] sotokenAmount Int         — circulating-sOTOKEN accounting snapshot
+//   [14] sotokenBacking Int        — backing accounting snapshot (rate basis)
+// NOTE: only the asset-class / hash / clearly-named fields are authoritative;
+// the bare int fields [1],[4],[5] have no public name and are surfaced as-is.
 export interface StakingAmoDatum {
   kind: "StakingAmo";
-  sotoken: string; // sOADA minting policy id (28 bytes hex) == soadaPolicyId
-  sotokenAmount: bigint;
-  sotokenBacking: bigint; // rate = sotokenAmount / sotokenBacking
-  sotokenLimit: bigint;
-  odaoFee: bigint;
-  odaoSotoken: bigint;
-  feeClaimer: AssetClass;
-  feeClaimRule: string; // ScriptHash (28 bytes hex)
+  soulToken: AssetClass; // [0] AMO singleton NFT id
+  field1: bigint; // [1]
+  baseAsset: AssetClass; // [2]
+  otoken: AssetClass; // [3]
+  field4: bigint; // [4]
+  field5: bigint; // [5]
+  sotoken: AssetClass; // [6]
+  flag7: boolean; // [7]
+  flag8: boolean; // [8]
+  odaoFee: bigint; // [9]
+  feeComponent2: bigint; // [10]
+  feeClaimRule: string; // [11] ScriptHash (28 bytes hex)
+  scriptHash12: string; // [12] ScriptHash (28 bytes hex)
+  sotokenAmount: bigint; // [13]
+  sotokenBacking: bigint; // [14] rate = sotokenAmount / sotokenBacking
+}
+
+// Constr 0/1 with no fields => Bool (Constr0 False, Constr1 True). Optim uses
+// such flags positionally inside the AMO datum.
+function asFlag(d: PD): boolean {
+  const c = asConstr(d);
+  return c.tag !== 0;
 }
 
 export function parseStakingAmoDatum(data: PD): StakingAmoDatum {
   const c = asConstr(data);
   if (c.tag !== 0) throw new Error(`StakingAmoDatum: unexpected ctor ${c.tag}`);
-  if (c.fields.length !== 8) {
-    throw new Error(`StakingAmoDatum: expected 8 fields, got ${c.fields.length}`);
+  if (c.fields.length !== 15) {
+    throw new Error(`StakingAmoDatum: expected 15 fields, got ${c.fields.length}`);
   }
   return {
     kind: "StakingAmo",
-    sotoken: asBytes(c.fields[0]),
-    sotokenAmount: asInt(c.fields[1]),
-    sotokenBacking: asInt(c.fields[2]),
-    sotokenLimit: asInt(c.fields[3]),
-    odaoFee: asInt(c.fields[4]),
-    odaoSotoken: asInt(c.fields[5]),
-    feeClaimer: parseAssetClass(c.fields[6]),
-    feeClaimRule: asBytes(c.fields[7]),
+    soulToken: parseAssetClass(c.fields[0]),
+    field1: asInt(c.fields[1]),
+    baseAsset: parseAssetClass(c.fields[2]),
+    otoken: parseAssetClass(c.fields[3]),
+    field4: asInt(c.fields[4]),
+    field5: asInt(c.fields[5]),
+    sotoken: parseAssetClass(c.fields[6]),
+    flag7: asFlag(c.fields[7]),
+    flag8: asFlag(c.fields[8]),
+    odaoFee: asInt(c.fields[9]),
+    feeComponent2: asInt(c.fields[10]),
+    feeClaimRule: asBytes(c.fields[11]),
+    scriptHash12: asBytes(c.fields[12]),
+    sotokenAmount: asInt(c.fields[13]),
+    sotokenBacking: asInt(c.fields[14]),
   };
+}
+
+// --------------------------------------------------------------------------
+// ROLE "position" → StakeAuctionBidDatum (Epoch Stake Auction / ESA bid escrow,
+// the validator the constants call `stakeOrderHash`). Two on-chain variants:
+//
+//   FULL  = Constr 0, 5 fields:
+//     [0] owner        KeyHash         — bidder payment key hash (28 bytes)
+//     [1] stakeCred    Credential      — bidder stake credential (Constr0[hash])
+//     [2] apy          Int             — bid APY/APR (off-chain divides by 10 for
+//                                        display; on-chain rate basis, see below)
+//     [3] bidType      Bool            — Constr0 = Partial, Constr1 = Full
+//     [4] bidRef       Option<OutputReference> — parent/continuing bid reference
+//
+//   CONT  = Constr 1, 1 field: [ apy: Int ]  — a continuation/partial-fill bid
+//     carrying only the APY (same value as the full bid it descends from).
+//
+// SOURCE: the APY field is pinned by the on-chain `value * 73 * 1000 / apy`
+// term, which is byte-for-byte the off-chain
+// `bidAmountToRequestedSize = amount * 1000 * 73 / apy`
+// (OptimFinance/oada-ui src/oada/actions.ts). The validator also derives an
+// epoch index `(posix_ms - 1647899091000) / 432000000`, confirming the Epoch
+// Stake Auction semantics. owner/stake/bidType match the off-chain
+// StakeAuctionBidView { ownerPkh, stakeAddressBech32, bidType, apy }.
+export type StakeAuctionBidDatum =
+  | {
+      kind: "StakeAuctionBid";
+      owner: string;
+      stakeCredential: Credential | null;
+      apy: bigint;
+      bidType: "Partial" | "Full";
+      bidRef: OutputReference | null;
+    }
+  | { kind: "StakeAuctionBidCont"; apy: bigint };
+
+export function parseStakeAuctionBidDatum(data: PD): StakeAuctionBidDatum {
+  const c = asConstr(data);
+  // Continuation variant: Constr 1 [ apy ].
+  if (c.tag === 1) {
+    if (c.fields.length !== 1) {
+      throw new Error(`StakeAuctionBidCont: expected 1 field, got ${c.fields.length}`);
+    }
+    return { kind: "StakeAuctionBidCont", apy: asInt(c.fields[0]) };
+  }
+  if (c.tag !== 0) throw new Error(`StakeAuctionBid: unexpected ctor ${c.tag}`);
+  if (c.fields.length !== 5) {
+    throw new Error(`StakeAuctionBid: expected 5 fields, got ${c.fields.length}`);
+  }
+  return {
+    kind: "StakeAuctionBid",
+    owner: asBytes(c.fields[0]),
+    // stake credential is Constr0[hash] (VKey) / Constr1[hash] (Script).
+    stakeCredential: parseBidStakeCredential(c.fields[1]),
+    apy: asInt(c.fields[2]),
+    bidType: asConstr(c.fields[3]).tag === 0 ? "Partial" : "Full",
+    bidRef: asOptional(c.fields[4], parseOutputReference),
+  };
+}
+
+// Field [1] is a bare Credential (Constr0[hash]/Constr1[hash]). Tolerate either
+// a raw Credential or an Option-wrapped one without throwing.
+function parseBidStakeCredential(d: PD): Credential | null {
+  try {
+    const c = asConstr(d);
+    if ((c.tag === 0 || c.tag === 1) && c.fields.length === 1 && isBytes(c.fields[0])) {
+      return parseCredential(d);
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
 }
 
 // CollateralAmoDatum — Constr 0, 3 fields.
@@ -161,19 +288,32 @@ export function parseStrategyDatum(data: PD): StrategyDatum {
 export type OptimDatum =
   | BatchStakeDatum
   | StakingAmoDatum
+  | StakeAuctionBidDatum
   | CollateralAmoDatum
   | StrategyDatum
   | { kind: "Unknown"; raw: PD };
 
-// Best-effort discrimination among the position-role datums by field count/shape.
-// BatchStakeDatum (2: Bytes, Address) vs StakingAmo (8) vs CollateralAmo (3) vs
-// Strategy (2: Int, Data). All are Constr 0, so we sniff the fields.
+// Discriminate the position-role datums by ctor + field count/shape:
+//   Constr 0, 15 fields -> StakingAmoDatum (deployed generalised staking AMO)
+//   Constr 0,  5 fields -> StakeAuctionBidDatum (full ESA bid)
+//   Constr 1,  1 field  -> StakeAuctionBidDatum (continuation/partial bid)
+//   Constr 0,  3 fields -> CollateralAmoDatum (clean-code)
+//   Constr 0,  2 fields -> BatchStakeDatum [Bytes, Address] | StrategyDatum [Int, Data]
 export function parseOptimPositionDatum(data: PD): OptimDatum {
   const c = asConstr(data);
+  // Continuation bid (the only Constr-1 position datum we know).
+  if (c.tag === 1 && c.fields.length === 1) {
+    try {
+      return parseStakeAuctionBidDatum(data);
+    } catch {
+      return { kind: "Unknown", raw: data };
+    }
+  }
   if (c.tag !== 0) return { kind: "Unknown", raw: data };
   const n = c.fields.length;
   try {
-    if (n === 8) return parseStakingAmoDatum(data);
+    if (n === 15) return parseStakingAmoDatum(data);
+    if (n === 5) return parseStakeAuctionBidDatum(data);
     if (n === 3) return parseCollateralAmoDatum(data);
     if (n === 2) {
       // BatchStake = [Bytes owner, Address(Constr 0 [...])];
@@ -330,11 +470,33 @@ export function validateBatchStake(d: BatchStakeDatum): DexIssue[] {
 
 export function validateStakingAmo(d: StakingAmoDatum): DexIssue[] {
   const issues: DexIssue[] = [];
-  if (d.sotokenBacking <= BigInt(0)) {
-    issues.push({ severity: "warning", message: "sotoken_backing is non-positive; rate undefined" });
-  }
+  // The accounting snapshots are legitimately 0 when the AMO derives circulating
+  // sOTOKEN from the held value, so only flag clearly-invalid negatives.
   if (d.sotokenAmount < BigInt(0) || d.sotokenBacking < BigInt(0)) {
     issues.push({ severity: "warning", message: "negative sotoken amount/backing" });
+  }
+  return issues;
+}
+
+const APY_DISPLAY_DIVISOR = BigInt(10); // off-chain divides the raw APY by 10 for %
+
+export function formatBidApy(rawApy: bigint): string {
+  // off-chain: apy / 10 (so 308 -> 30.8%). Keep one decimal place.
+  const whole = rawApy / APY_DISPLAY_DIVISOR;
+  const frac = rawApy % APY_DISPLAY_DIVISOR;
+  return `${whole}.${frac.toString().padStart(1, "0")}%`;
+}
+
+export function validateStakeAuctionBid(d: StakeAuctionBidDatum): DexIssue[] {
+  const issues: DexIssue[] = [];
+  if (d.apy <= BigInt(0)) {
+    issues.push({ severity: "warning", message: "bid APY is non-positive" });
+  }
+  if (d.kind === "StakeAuctionBid" && !HEX28.test(d.owner.toLowerCase())) {
+    issues.push({
+      severity: "warning",
+      message: `owner is not a 28-byte key hash (got ${d.owner.length / 2} bytes)`,
+    });
   }
   return issues;
 }

@@ -6,7 +6,12 @@ import {
   type DexRole,
   type DexRow,
 } from "@/utils/protocols/dex/registry";
-import type { PD, PlutusAddress } from "@/utils/protocols/dex/plutusData";
+import type {
+  Credential,
+  PD,
+  PlutusAddress,
+  StakeCredential,
+} from "@/utils/protocols/dex/plutusData";
 import { matchJpgStoreNftPolicy, matchJpgStoreScriptHash } from "./constants";
 import {
   classifyJpgAskRedeemer,
@@ -26,6 +31,21 @@ import {
 // separate hash:true row value).
 function credentialKind(addr: PlutusAddress): "script" | "key" {
   return addr.paymentCredential.kind === "Script" ? "script" : "key";
+}
+
+function credKind(c: Credential): "script" | "key" {
+  return c.kind === "Script" ? "script" : "key";
+}
+
+// Render an address' stake credential as a `/ stake …` suffix appended after the
+// payment-credential hash (mirrors the Minswap decoder), so the staking part of
+// SwapAddress / Address (Maybe<StakingCredential>) is never silently dropped.
+function stakeCredentialSuffix(stake: StakeCredential | null): string {
+  if (!stake) return "";
+  if (stake.kind === "Inline") {
+    return ` / stake ${credKind(stake.credential)} ${stake.credential.hash}`;
+  }
+  return ` / stake pointer (${stake.slotNumber}, ${stake.transactionIndex}, ${stake.certificateIndex})`;
 }
 
 function formatAda(lovelace: bigint): string {
@@ -55,7 +75,7 @@ export function jpgAskToView(datum: JpgAskDatum): DexOrderView {
   datum.payouts.forEach((p, i) => {
     rows.push({
       label: `Payout ${i + 1} (${formatAda(p.amountLovelace)} → ${credentialKind(p.address)})`,
-      value: p.address.paymentCredential.hash,
+      value: `${p.address.paymentCredential.hash}${stakeCredentialSuffix(p.address.stakeCredential)}`,
       hash: true,
     });
   });
@@ -85,28 +105,43 @@ export function jpgSwapToView(datum: JpgSwapDatum): DexOrderView {
   datum.payouts.forEach((p, i) => {
     rows.push({
       label: `Payout ${i + 1} (${credentialKind(p.address)})`,
-      value: p.address.paymentCredential.hash,
+      value: `${p.address.paymentCredential.hash}${stakeCredentialSuffix(p.address.stakeCredential)}`,
       hash: true,
     });
     if (p.expected.length === 0) {
       rows.push({ label: `  expected`, value: "(no expected value)" });
     }
     p.expected.forEach((pol) => {
-      if (pol.tokens.length === 0) {
-        // Policy-only / collection-floor match: show the full policy id (or ADA).
-        if (pol.policyId) {
-          rows.push({ label: `  policy`, value: pol.policyId, hash: true });
-        } else {
-          rows.push({ label: `  policy`, value: "(ada)" });
-        }
+      // `natCount` (Natural) is the minimum AGGREGATE token count under this
+      // policy that must remain after the specific tokens are matched — the
+      // collection-floor threshold. It is 0 for plain ADA / exact-token payouts;
+      // surface it only when it actually constrains something.
+      if (pol.natCount > BigInt(0)) {
         rows.push({
-          label: `  nat count`,
-          value: `${pol.natCount.toString()} (collection / policy-only)`,
+          label: `  min token count (collection floor)`,
+          value: pol.natCount.toString(),
         });
+      }
+      if (pol.tokens.length === 0) {
+        // Policy-only / collection-floor match with no named token: show the
+        // full policy id (or note ADA when the policy is empty).
+        rows.push(
+          pol.policyId
+            ? { label: `  policy (any token)`, value: pol.policyId, hash: true }
+            : { label: `  expected`, value: "(ada, amount unspecified)" },
+        );
         return;
       }
       pol.tokens.forEach((t) => {
-        if (t.assetName) {
+        if (!pol.policyId && !t.assetName) {
+          // Empty policy + empty token name = the ADA (lovelace) the payout must
+          // receive. The WholeNumber here is a LOVELACE amount, NOT a token
+          // quantity — render it as ADA so it is not mistaken for an NFT count.
+          rows.push({
+            label: `  must receive`,
+            value: `${formatAda(t.quantity)} (${t.quantity.toString()} lovelace)`,
+          });
+        } else if (t.assetName) {
           // Full (policyId, assetName) pair → structured asset row (decoded
           // name + policy on hover), carrying the requested quantity.
           rows.push({
@@ -118,15 +153,9 @@ export function jpgSwapToView(datum: JpgSwapDatum): DexOrderView {
             },
           });
         } else {
-          // Policy-only token entry: bare policy id, no asset name → keep as hash.
-          if (pol.policyId) {
-            rows.push({
-              label: `  asset (policy)`,
-              value: pol.policyId,
-              hash: true,
-            });
-          }
-          rows.push({ label: `  asset (name)`, value: "(any / policy-only)" });
+          // policyId set, empty token name: any token under this policy plus a
+          // required quantity (collection-floor with an explicit count).
+          rows.push({ label: `  asset (policy, any name)`, value: pol.policyId, hash: true });
           rows.push({ label: `  quantity`, value: t.quantity.toString() });
         }
       });

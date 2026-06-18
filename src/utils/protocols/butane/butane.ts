@@ -22,6 +22,7 @@ import {
   asInt,
   asList,
   asBool,
+  asOptional,
   parseAssetClass,
   parseStakeCredential,
   type AssetClass,
@@ -86,6 +87,60 @@ export function parseTreasuryDebt(d: PD): TreasuryDebt {
   const c = asConstr(d);
   if (c.tag !== 0) throw new Error(`Butane TreasuryDebt: unexpected ctor ${c.tag}`);
   return { amount: asInt(c.fields[0]), asset: asBytes(c.fields[1]) };
+}
+
+// TreasuryDatum (inner, types.ak declaration order):
+//   TreasuryWithDebt { debt: TreasuryDebt, creation_time: Option<PosixTime> } = Constr0
+//   TreasuryFromGenesis = Constr1, TreasuryFromFees = Constr2,
+//   TreasuryOnlyRedeem = Constr3, TreasuryOnlySpend = Constr4
+export type TreasuryKind =
+  | { kind: "TreasuryWithDebt"; debt: TreasuryDebt; creationTime: bigint | null }
+  | { kind: "TreasuryFromGenesis" }
+  | { kind: "TreasuryFromFees" }
+  | { kind: "TreasuryOnlyRedeem" }
+  | { kind: "TreasuryOnlySpend" };
+
+export function parseTreasuryKind(d: PD): TreasuryKind {
+  const c = asConstr(d);
+  switch (c.tag) {
+    case 0:
+      return {
+        kind: "TreasuryWithDebt",
+        debt: parseTreasuryDebt(c.fields[0]),
+        creationTime: asOptional(c.fields[1], asInt),
+      };
+    case 1:
+      return { kind: "TreasuryFromGenesis" };
+    case 2:
+      return { kind: "TreasuryFromFees" };
+    case 3:
+      return { kind: "TreasuryOnlyRedeem" };
+    case 4:
+      return { kind: "TreasuryOnlySpend" };
+    default:
+      throw new Error(`Butane TreasuryDatum: unexpected ctor ${c.tag}`);
+  }
+}
+
+// GovAction (inner of GovDatum, types.ak declaration order). The payloads are
+// large/varied; we surface the discriminant (which governance action) and leave
+// the full nested payload to a higher layer. Indices are 0-based decl order.
+const GOV_ACTION_NAMES: readonly string[] = [
+  "NewParamsAuth", // 0  { params, asset }
+  "UpdateParamsAuth", // 1  { asset, action }
+  "TreasurySpendAuth", // 2  { out: FakeOutput }
+  "TreasuryMintAuth", // 3  { asset, amount }
+  "TreasuryCreateDebtAuth", // 4  { debt }
+  "TextProposalAuth", // 5  { text }
+  "TreasuryStakeUpdate", // 6  { delegatee: PoolId }
+  "ExternalScript", // 7  { other_script, other_data }
+  "GovNewCompat", // 8  { upgrade_policy }
+];
+
+// Returns the GovAction variant name, or null if the ctor is out of range.
+export function govActionName(d: PD): string | null {
+  const c = asConstr(d);
+  return GOV_ACTION_NAMES[c.tag] ?? null;
 }
 
 // --- ActiveParams — Constr0, 11 ordered fields -----------

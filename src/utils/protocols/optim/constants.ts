@@ -26,9 +26,19 @@ export const OPTIM = {
   // are the deployed instances, NOT the un-applied hashes):
   //   stakingAmoHash — the sOADA/OADA rate-state AMO singleton validator; UTxOs
   //     carry a 15-field StakingAmoDatum and hold the OADA backing.
-  //   stakeOrderHash — the user stake/unstake order escrow validator; UTxOs
-  //     carry a 5-field order datum.
+  //   stakeAuctionHash — the Epoch Stake Auction (ESA) bid escrow validator;
+  //     UTxOs carry a 5-field bid datum (full bid) or a 1-field Constr-1 datum
+  //     (continuation / partial-fill bid). VERIFIED live: only 5-field ctor0
+  //     bid datums at this hash on mainnet.
+  //   batchStakeHash — the OADA stake/unstake ORDER escrow (clean-code
+  //     `batch_stake.ak`); UTxOs carry the 2-field BatchStakeDatum
+  //     { owner: KeyHash, return_address: Address }. VERIFIED live: 2-field
+  //     ctor0 datums at this hash on mainnet.
   stakingAmoHash: "b37e1190853f6ccf68cdccf1f5776cb5cf36419a3b020a2eedea74f8",
+  // kept under the old name `stakeOrderHash` for back-compat (see export below).
+  stakeAuctionHash: "54e67eb61823f5d59026facb2cf5c2a1fd216ef8a9a64ff5761710f9",
+  batchStakeHash: "903d444cc678f9a5993e6f260325e63d193e9d976a6c389e95c9c08e",
+  // Back-compat alias: this name predates the ESA-vs-batch distinction.
   stakeOrderHash: "54e67eb61823f5d59026facb2cf5c2a1fd216ef8a9a64ff5761710f9",
 } as const;
 
@@ -44,7 +54,13 @@ export function matchOptimScriptHash(
 ): DexRole | null {
   if (network && network !== "mainnet") return null;
   const lower = hash.toLowerCase();
-  if (lower === OPTIM.stakingAmoHash || lower === OPTIM.stakeOrderHash) return "position";
+  if (
+    lower === OPTIM.stakingAmoHash ||
+    lower === OPTIM.stakeAuctionHash ||
+    lower === OPTIM.batchStakeHash
+  ) {
+    return "position";
+  }
   return null;
 }
 

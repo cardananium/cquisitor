@@ -243,6 +243,75 @@ describe("LoanDatum (17 fields)", () => {
   });
 });
 
+describe("view completeness — previously-dropped fields are surfaced", () => {
+  const REAL_ORACLE_POLICY = "93794f9b7f3dc632cb889c7aec7d334f016f532e64f16141b6895f5b";
+  const REAL_ORACLE_NAME = "6f7261636c65494147"; // "oracleIAG"
+  const realOracle: PD = C(0, B(REAL_ORACLE_POLICY), B(REAL_ORACLE_NAME));
+  // CollateralAsset whose oracleTokenAsset is a REAL (non-dummy) oracle token.
+  const collateralWithOracle: PD = C(0, B(POLICY), someName, realOracle);
+  // CommonData with a real principal oracle + a Liquidation mode (equity flag).
+  const liqMode: PD = C(2, I(70), I(100), I(50), C(1)); // equityInPrincipalCurrency = True
+  const commonOracle: PD = C(
+    0, ada, realOracle, I(500), I(24), I(12), I(48), liqMode, C(1), I(72), I(1000), C(1),
+  );
+
+  const rowByPrefix = (rows: { label: string; value?: string }[], prefix: string) =>
+    rows.find((r) => r.label.startsWith(prefix));
+
+  test("request surfaces stake credential, collateral oracle token, principal oracle, equity currency", () => {
+    const req: PD = C(
+      0, B(NONE), C(0), commonOracle, C(0, B(PKH)), addr, collateralWithOracle,
+      I(100), I(1), I(1000), C(0), I(1_730_000_000_000), I(2_000_000),
+    );
+    const view = ftDatumToView(parseFtDatum(req));
+    // stake credential (addr has an inline STAKE cred) is its own row.
+    expect(rowByPrefix(view.rows, "Borrower stake")?.value).toBe(STAKE);
+    // principal oracle token surfaced as an asset row when real.
+    expect(view.rows.some((r) => r.label === "Principal oracle token")).toBe(true);
+    // liquidation describes the equity currency.
+    expect(rowByPrefix(view.rows, "Liquidation mode")?.value).toContain("equity in principal currency");
+    // collateral oracle token surfaced in the assets list.
+    expect((view.assets ?? []).some((a) => a.label === "Collateral oracle token")).toBe(true);
+  });
+
+  test("pool surfaces per-option min-collateral ratio and extra data presence", () => {
+    const pool: PD = C(
+      0, B(NONE), C(0, I(7)) /* non-empty extraData */, commonOracle, C(0, B(PKH)), addr,
+      B("abcdef"), L(collateralWithOracle, collateralWithOracle), L(I(10), I(20)), L(I(1), I(3)), C(1),
+    );
+    const view = ftDatumToView(parseFtDatum(pool));
+    expect(rowByPrefix(view.rows, "Min collateral ratio #1")?.value).toBe("10 / 1");
+    expect(rowByPrefix(view.rows, "Min collateral ratio #2")?.value).toBe("20 / 3");
+    expect(view.rows.some((r) => r.label === "Extra data (opaque)")).toBe(true);
+    // each collateral option contributes its own asset + oracle-token asset row.
+    expect((view.assets ?? []).filter((a) => a.label.includes("oracle token")).length).toBe(2);
+  });
+
+  test("loan surfaces principal oracle token + collateral oracle token", () => {
+    const loan: PD = C(
+      0, I(0), I(100_000_000), I(1_730_000_000_000), I(2), I(500), I(12),
+      ada, realOracle, I(24), I(48), liqMode, C(1), I(72), I(1000), C(0),
+      B(NAME), collateralWithOracle,
+    );
+    const view = ftDatumToView(parseFtDatum(loan));
+    expect(view.rows.some((r) => r.label === "Principal oracle token")).toBe(true);
+    expect((view.assets ?? []).some((a) => a.label === "Collateral oracle token")).toBe(true);
+  });
+
+  test("dummy oracle (NONE/NONE) and empty extraData are NOT surfaced (no noise)", () => {
+    // collateral with dummy oracle, common with ADA principal oracle, empty extraData.
+    const view = ftDatumToView(
+      parseFtDatum(
+        C(0, B(NONE), C(0) /* empty extraData */, commonData, C(0, B(PKH)), addr, collateral,
+          I(100), I(1), I(1000), C(0), I(1), I(0)),
+      ),
+    );
+    expect(view.rows.some((r) => r.label === "Extra data (opaque)")).toBe(false);
+    expect(view.rows.some((r) => r.label === "Principal oracle token")).toBe(false);
+    expect((view.assets ?? []).some((a) => a.label.includes("oracle token"))).toBe(false);
+  });
+});
+
 describe("withdraw redeemers (the real actions)", () => {
   test("RequestAction: Cancel / CancelAfterExpiration / Lend", () => {
     expect(parseRequestAction(C(0, B(NAME)))).toEqual({ kind: "Cancel", requestId: NAME });

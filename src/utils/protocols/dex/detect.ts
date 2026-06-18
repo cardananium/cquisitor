@@ -79,7 +79,8 @@ export function detectDexOutput(
     if (raw) {
       detection.rawDatum = raw;
       try {
-        if (adapter.decode) detection.view = adapter.decode(raw, matched.role);
+        if (adapter.decode)
+          detection.view = adapter.decode(raw, matched.role, scriptHash ?? undefined);
       } catch (e) {
         detection.parseError = e instanceof Error ? e.message : String(e);
       }
@@ -99,6 +100,35 @@ export function detectDexOutput(
       detection.parseError = `Output is at a ${adapter.label} ${matched.role} address but has no datum`;
     }
     return detection;
+  }
+  return null;
+}
+
+export interface DexWithdrawalDetection {
+  adapterId: string;
+  /** Protocol display label, e.g. "Minswap V2". */
+  label: string;
+  /** Short purpose label for the withdraw-zero, e.g. "batch validator". */
+  purpose: string;
+}
+
+/**
+ * Recognize a tx withdrawal whose stake script is a DEX's withdraw-zero
+ * batcher. `rewardAddress` is the withdrawal map key (a bech32/hex reward
+ * address); its stake credential decodes into `payment_cred`, the same script
+ * hash the adapter registers. Returns null for key-credential or non-DEX
+ * withdrawals.
+ */
+export function detectDexWithdrawal(
+  rewardAddress: string,
+  network: CardanoNetwork | undefined,
+): DexWithdrawalDetection | null {
+  const stakeHash = getPaymentScriptHash(rewardAddress);
+  if (!stakeHash) return null;
+  for (const adapter of listDexAdapters()) {
+    if (!adapter.matchWithdrawalHash) continue;
+    const purpose = adapter.matchWithdrawalHash(stakeHash, network);
+    if (purpose) return { adapterId: adapter.id, label: adapter.label, purpose };
   }
   return null;
 }

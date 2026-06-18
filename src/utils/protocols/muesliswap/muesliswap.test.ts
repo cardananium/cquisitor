@@ -17,6 +17,8 @@ import {
   matchMuesliSwapNftPolicy,
   matchMuesliSwapScriptHash,
 } from "./constants";
+import { batchOrderToView, orderBookToView, orderBookV2ToView, poolToView } from "./index";
+import type { DexRow } from "@/utils/protocols/dex/registry";
 
 const C = (tag: number, ...fields: PD[]): PD => ({ constructor: tag, fields });
 const I = (n: number | bigint): PD => ({ int: BigInt(n) });
@@ -306,6 +308,114 @@ describe("classifyBatchOrderRedeemer", () => {
     expect(classifyBatchOrderRedeemer(C(0))).toBe("ApplyOrder");
     expect(classifyBatchOrderRedeemer(C(1))).toBe("CancelOrder");
     expect(classifyBatchOrderRedeemer(C(0, I(1)))).toBeNull();
+  });
+});
+
+// --- view completeness: stake credentials + script version surfaced ---------
+
+const rowValue = (rows: DexRow[], label: string): string | undefined =>
+  rows.find((r) => r.label === label)?.value;
+
+describe("orderBookV2ToView surfaces the creator stake credential", () => {
+  // creator Address WITH an inline stake credential (the `addr` fixture above).
+  const datum = parseMuesliOrderBookV2Datum(
+    C(0, C(0, addr, B(""), B(""), B(POLICY), B(TOKEN), I(36_771_409), C(0), I(2_650_000))),
+  );
+
+  test("emits both the payment AND stake credential rows", () => {
+    const { rows } = orderBookV2ToView(datum);
+    expect(rowValue(rows, "Creator (key)")).toBe(PKH);
+    // Previously dropped: the stake credential of the creator Address.
+    expect(rowValue(rows, "Creator stake (key)")).toBe(STAKE);
+  });
+
+  test("no stake row when the creator Address has none", () => {
+    const noStake = parseMuesliOrderBookV2Datum(
+      C(0, C(0, addrNoStake, B(POLICY), B(TOKEN), B(""), B(""), I(1), C(1), I(2_650_000))),
+    );
+    const { rows } = orderBookV2ToView(noStake);
+    expect(rowValue(rows, "Creator (script)")).toBe(SCRIPT);
+    expect(rows.some((r) => r.label.startsWith("Creator stake"))).toBe(false);
+  });
+});
+
+describe("batchOrderToView surfaces stake credentials + script version", () => {
+  // odSender = `addr` (inline STAKE), odReceiver = addrNoStake (Script, none).
+  const datum = parseBatchOrderDatum(
+    C(
+      0,
+      addr,
+      addrNoStake,
+      C(1), // Nothing receiver datum hash
+      C(1, I(9_707_460), I(39_813_592)), // Withdraw
+      I(2_000_000),
+      I(2_000_000),
+      B(NFT_NAME),
+      B(MUESLISWAP.scriptVersionHex),
+    ),
+  );
+
+  test("sender stake row present, receiver stake row absent", () => {
+    const { rows } = batchOrderToView(datum);
+    expect(rowValue(rows, "Sender (key)")).toBe(PKH);
+    // Previously dropped: the sender Address's stake credential.
+    expect(rowValue(rows, "Sender stake (key)")).toBe(STAKE);
+    expect(rowValue(rows, "Receiver (script)")).toBe(SCRIPT);
+    expect(rows.some((r) => r.label.startsWith("Receiver stake"))).toBe(false);
+  });
+
+  test("script version field is surfaced (previously only an issue check)", () => {
+    const { rows } = batchOrderToView(datum);
+    expect(rowValue(rows, "Script version")).toBe("MuesliSwap_AMM");
+  });
+});
+
+// --- trading pair surfaced on the genuine 2-asset trading views -------------
+
+describe("view.pair surfaces the traded pair", () => {
+  test("order-book V2 limit order: pair = (buy, sell)", () => {
+    // buy ADA, sell POLICY/TOKEN.
+    const datum = parseMuesliOrderBookV2Datum(
+      C(0, C(0, addr, B(""), B(""), B(POLICY), B(TOKEN), I(499_050_000), C(1), I(2_650_000))),
+    );
+    const view = orderBookV2ToView(datum);
+    expect(view.pair).toEqual({
+      assetA: { policyId: "", assetName: "" }, // buy side (ADA)
+      assetB: { policyId: POLICY, assetName: TOKEN }, // sell side
+    });
+  });
+
+  test("AMM pool: pair = (coinA, coinB) reserves, not LP / pool NFT", () => {
+    const view = poolToView(parsePoolDatum(C(0, ada, token, I(5_000_000), I(30))));
+    expect(view.pair).toEqual({
+      assetA: { policyId: "", assetName: "" }, // coinA (ADA)
+      assetB: { policyId: POLICY, assetName: TOKEN }, // coinB
+    });
+  });
+
+  test("order-book V1 (buy side only) has no pair", () => {
+    // V1 datum carries only the buy asset — not a genuine 2-asset trading pair.
+    const view = orderBookToView(parseOrderBookDatum(C(0, C(0, B(PKH), B(POLICY), B(TOKEN), I(7)))));
+    expect(view.pair).toBeUndefined();
+  });
+
+  test("AMM batch (liquidity) order has no pair", () => {
+    // Liquidity deposit/withdraw: not a swap, and the datum doesn't carry the
+    // pool's two reserve assets.
+    const datum = parseBatchOrderDatum(
+      C(
+        0,
+        addr,
+        addrNoStake,
+        C(1),
+        C(0, I(777)), // Deposit
+        I(2_000_000),
+        I(2_500_000),
+        B(NFT_NAME),
+        B(MUESLISWAP.scriptVersionHex),
+      ),
+    );
+    expect(batchOrderToView(datum).pair).toBeUndefined();
   });
 });
 

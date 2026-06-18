@@ -25,19 +25,61 @@ import {
   partialOrderV11Price,
   validatePartialOrderV11Datum,
   type PartialOrderV11Datum,
+  type PartialOrderV11Record,
 } from "./partialOrderV11";
 
 function formatRational(r: Rational): string {
   return `${r.numerator.toLocaleString()} / ${r.denominator.toLocaleString()}`;
 }
 
-function ownerAddressRow(addr: PlutusAddress): DexRow {
+// Surface the inner fields of the V1.1 f5 price/record union that were
+// previously collapsed to just the price + a "record kind" label.
+function partialOrderV11RecordRows(record: PartialOrderV11Record): DexRow[] {
+  if (record.kind === "plain") {
+    return [
+      {
+        label: "Record extra rational",
+        value: record.extra == null ? "—" : formatRational(record.extra),
+      },
+    ];
+  }
+  // record.kind === "record": a 32-byte hash + two rational pairs. The leading
+  // rational of the first pair is already shown as the top "Price" row; surface
+  // the remaining three rationals + the hash here so nothing is dropped.
+  return [
+    { label: "Record hash", value: record.nft, hash: true },
+    { label: "Record rational (pair 1, second)", value: formatRational(record.price2) },
+    { label: "Record nested rational (1 of 2)", value: formatRational(record.nested) },
+    { label: "Record nested rational (2 of 2)", value: formatRational(record.nested2) },
+  ];
+}
+
+function ownerAddressRows(addr: PlutusAddress): DexRow[] {
   const c = addr.paymentCredential;
-  return {
-    label: `Owner address (${c.kind === "Script" ? "script" : "key"})`,
-    value: c.hash,
-    hash: true,
-  };
+  const rows: DexRow[] = [
+    {
+      label: `Owner address (${c.kind === "Script" ? "script" : "key"})`,
+      value: c.hash,
+      hash: true,
+    },
+  ];
+  // Surface the stake credential too — it is parsed but was previously dropped.
+  const s = addr.stakeCredential;
+  if (s != null) {
+    if (s.kind === "Inline") {
+      rows.push({
+        label: `Owner stake credential (${s.credential.kind === "Script" ? "script" : "key"})`,
+        value: s.credential.hash,
+        hash: true,
+      });
+    } else {
+      rows.push({
+        label: "Owner stake pointer (slot / txIdx / certIdx)",
+        value: `${s.slotNumber.toLocaleString()} / ${s.transactionIndex.toLocaleString()} / ${s.certificateIndex.toLocaleString()}`,
+      });
+    }
+  }
+  return rows;
 }
 
 export function partialOrderToView(
@@ -69,7 +111,7 @@ export function partialOrderToView(
       value: datum.end == null ? "—" : `${datum.end.toLocaleString()} (POSIX ms)`,
     },
     { label: "Owner key", value: datum.ownerKey, hash: true },
-    ownerAddressRow(datum.ownerAddr),
+    ...ownerAddressRows(datum.ownerAddr),
     { label: "Order NFT", value: datum.nft, hash: true },
   ];
   const assets: DexAssetRow[] = [
@@ -92,6 +134,19 @@ export function partialOrderToView(
     rows,
     assets,
     issues: validatePartialOrderDatum(datum),
+    // A partial order is a genuine 2-asset limit swap: it trades the offered
+    // asset for the asked asset. Surface those two (the same AssetClasses the
+    // "Offered"/"Asked" asset rows render) as the trading pair.
+    pair: {
+      assetA: {
+        policyId: datum.offeredAsset.policyId,
+        assetName: datum.offeredAsset.assetName,
+      },
+      assetB: {
+        policyId: datum.askedAsset.policyId,
+        assetName: datum.askedAsset.assetName,
+      },
+    },
   };
 }
 
@@ -124,6 +179,7 @@ export function partialOrderV11ToView(
       label: "Record kind",
       value: datum.record.kind === "record" ? "record (with NFT)" : "plain",
     },
+    ...partialOrderV11RecordRows(datum.record),
     {
       label: "Start",
       value: datum.start == null ? "—" : `${datum.start.toLocaleString()} (POSIX ms)`,
@@ -135,8 +191,16 @@ export function partialOrderV11ToView(
     datum.signatories.length === 0
       ? { label: "Signatories", value: "—" }
       : { label: "Signatories", value: datum.signatories.join(", "), hash: true },
-    ownerAddressRow(datum.ownerAddr),
+    ...ownerAddressRows(datum.ownerAddr),
     { label: "Order NFT", value: datum.nft, hash: true },
+    // Trailing fields (datum indices 8–11). The 12-field V1.1 layout is NOT
+    // GeniusYield's own 15-field PartialOrderDatum, so these have no published
+    // names; surfaced with neutral labels + their raw values rather than
+    // dropped (and rather than fabricating a meaning).
+    { label: "Field 8 (integer)", value: datum.counter.toLocaleString() },
+    { label: "Field 9 (rational)", value: formatRational(datum.rational1) },
+    { label: "Field 10 (rational)", value: formatRational(datum.rational2) },
+    { label: "Field 11 (integer)", value: datum.trailingInt.toLocaleString() },
   ];
   const assets: DexAssetRow[] = [
     {
@@ -159,6 +223,19 @@ export function partialOrderV11ToView(
     rows,
     assets,
     issues: validatePartialOrderV11Datum(datum),
+    // A partial order is a genuine 2-asset limit swap: it trades the offered
+    // asset for the asked asset. Surface those two (the same AssetClasses the
+    // "Offered"/"Asked" asset rows render) as the trading pair.
+    pair: {
+      assetA: {
+        policyId: datum.offered.asset.policyId,
+        assetName: datum.offered.asset.assetName,
+      },
+      assetB: {
+        policyId: datum.asked.asset.policyId,
+        assetName: datum.asked.asset.assetName,
+      },
+    },
   };
 }
 

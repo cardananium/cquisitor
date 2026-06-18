@@ -14,10 +14,13 @@ import {
 import type { PD } from "@/utils/protocols/dex/plutusData";
 import { matchButaneNftPolicy, matchButaneScriptHash } from "./constants";
 import {
+  govActionName,
   parseLeftoversDatum,
   parseMonoDatum,
   parsePolicyRedeemer,
+  parseTreasuryKind,
   validateCDP,
+  type ActiveParams,
   type CDPCredential,
   type CDPDatum,
   type LeftoversDatum,
@@ -28,16 +31,43 @@ import {
 // Build the Owner DexRow(s). The owner is one of several credential kinds; the
 // descriptor word goes into the LABEL and the full hash is surfaced with
 // hash:true so the panel truncates + offers a copy button.
+//
+// AuthorizeWithPubKey carries TWO fields: the 28-byte PubKeyHash (used for the
+// direct extra-signatory owner check) and a SECOND field — the FULL ed25519
+// verification_key — used only on the signature-delegation path
+// (AuthorizingOtherWithSignature in lib/butane/utils.ak). It is commonly empty
+// (""); we only add a row when it carries a key so the common case stays clean.
+// MustWithdrawFrom carries a StakeCredential whose hash we surface (it was
+// previously collapsed to the literal string "must withdraw from stake cred").
 function ownerRows(owner: CDPCredential): DexRow[] {
   if (owner.kind === "AuthorizeWithPubKey") {
-    return [{ label: "Owner (pubkey)", value: owner.pubKeyHash, hash: true }];
+    const rows: DexRow[] = [{ label: "Owner (pubkey)", value: owner.pubKeyHash, hash: true }];
+    if (owner.verificationKey !== "") {
+      rows.push({
+        label: "Owner verification key (ed25519)",
+        value: owner.verificationKey,
+        hash: true,
+      });
+    }
+    return rows;
   }
   const ct = owner.constraint;
   if (ct.kind === "MustSpendToken") {
     const { policyId, assetName } = ct.asset;
     return [{ label: "Owner (must spend token)", asset: { policyId, assetName } }];
   }
-  return [{ label: "Owner", value: "must withdraw from stake cred" }];
+  // MustWithdrawFrom — surface the stake credential hash (and its kind).
+  const st = ct.stake;
+  if (st.kind === "Inline") {
+    const credKind = st.credential.kind === "Script" ? "script" : "pubkey";
+    return [{ label: `Owner (must withdraw from ${credKind})`, value: st.credential.hash, hash: true }];
+  }
+  return [
+    {
+      label: "Owner (must withdraw from stake pointer)",
+      value: `slot ${st.slotNumber}, txIdx ${st.transactionIndex}, certIdx ${st.certificateIndex}`,
+    },
+  ];
 }
 
 // Decode a bare synth asset-name hex into a printable ASCII name when possible
@@ -89,6 +119,64 @@ function leftoversToView(d: LeftoversDatum): DexOrderView {
   };
 }
 
+// Basis-point shares (bp_precision = 10_000 in types.ak) → a readable percent.
+function bpToPercent(bp: bigint): string {
+  return `${(Number(bp) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}% (${bp.toLocaleString()} bp)`;
+}
+
+// Render the full ActiveParams. The per-synthetic risk config is NOT just a
+// collateral-asset count: each named field is a meaningful governance-set value.
+// The two interest-rate lists are time-series (the most-recent entry is first,
+// the global cap has timestamp 0 as the LAST element); we surface the latest
+// rate + the entry count rather than exploding up to 71 rows.
+function activeParamsRows(p: ActiveParams): DexRow[] {
+  const rows: DexRow[] = [];
+  // collateral_assets — surface each AssetClass as an asset row, not a count.
+  p.collateralAssets.forEach((a, i) => {
+    const weight = p.weights[i];
+    const maxProp = p.maxProportions[i];
+    const parts: string[] = [];
+    if (weight !== undefined) parts.push(`weight ${weight}/${p.denominator}`);
+    if (maxProp !== undefined) parts.push(`max ${bpToPercent(maxProp)}`);
+    rows.push({
+      label: parts.length ? `Collateral ${i} (${parts.join(", ")})` : `Collateral ${i}`,
+      asset: { policyId: a.policyId, assetName: a.assetName },
+    });
+  });
+  rows.push({ label: "Weight denominator", value: p.denominator.toLocaleString() });
+  rows.push({
+    label: "Min outstanding synthetic",
+    value: p.minimumOutstandingSynthetic.toLocaleString(),
+  });
+  // interest_rates / staking_interest_rates: Pair(PosixTime, Int) entries; the
+  // parser maps them to {numerator: time, denominator: rate}. Surface the most
+  // recent rate (first entry) + count.
+  const latestBorrow = p.interestRates[0];
+  if (latestBorrow) {
+    rows.push({
+      label: "Interest rate (latest)",
+      value: `${bpToPercent(latestBorrow.denominator)} @ ${latestBorrow.numerator.toLocaleString()} (${p.interestRates.length} stored)`,
+    });
+  }
+  const latestStaking = p.stakingInterestRates[0];
+  if (latestStaking) {
+    rows.push({
+      label: "Staking interest rate (latest)",
+      value: `${bpToPercent(latestStaking.denominator)} @ ${latestStaking.numerator.toLocaleString()} (${p.stakingInterestRates.length} stored)`,
+    });
+  }
+  rows.push({ label: "Max liquidation return", value: bpToPercent(p.maxLiquidationReturn) });
+  rows.push({ label: "Treasury liquidation share", value: bpToPercent(p.treasuryLiquidationShare) });
+  rows.push({ label: "Redemption share", value: bpToPercent(p.redemptionShare) });
+  rows.push({ label: "Fee token (BTN) discount", value: bpToPercent(p.feeTokenDiscount) });
+  return rows;
+}
+
+// Decode a bare asset-name hex to ASCII when printable, else return the hex.
+function assetNameLabel(hex: string): string {
+  return decodeAssetName(hex) ?? hex;
+}
+
 // Render a non-CDP MonoDatum as an informational state card (NOT a vault).
 function monoStateToView(m: MonoDatum): DexOrderView {
   const issues: DexIssue[] = [
@@ -108,20 +196,38 @@ function monoStateToView(m: MonoDatum): DexOrderView {
         value: m.params.kind === "LiveParams" ? "Live" : "Voided (price feed denominator = 0)",
       });
       if (m.params.kind === "LiveParams") {
-        rows.push({ label: "Collateral assets", value: String(m.params.params.collateralAssets.length) });
-        rows.push({ label: "Denominator", value: m.params.params.denominator.toLocaleString() });
-        rows.push({
-          label: "Min outstanding synthetic",
-          value: m.params.params.minimumOutstandingSynthetic.toLocaleString(),
-        });
+        rows.push(...activeParamsRows(m.params.params));
       }
       break;
-    case "GovDatum":
+    case "GovDatum": {
       kind = "Governance datum";
+      // Surface WHICH governance action this datum carries (the discriminant was
+      // previously dropped). The full nested payload stays raw at this layer.
+      const action = govActionName(m.raw);
+      rows.push({ label: "Gov action", value: action ?? "(unknown variant)" });
       break;
-    case "TreasuryDatum":
+    }
+    case "TreasuryDatum": {
       kind = "Treasury datum";
+      // Surface WHICH treasury variant (5 kinds) — previously dropped entirely.
+      const t = parseTreasuryKind(m.raw);
+      rows.push({ label: "Treasury type", value: t.kind });
+      if (t.kind === "TreasuryWithDebt") {
+        rows.push({ label: "Debt amount", value: t.debt.amount.toLocaleString() });
+        rows.push({
+          label: "Debt asset",
+          value: assetNameLabel(t.debt.asset),
+          mono: true,
+        });
+        if (t.creationTime !== null) {
+          rows.push({
+            label: "Creation time",
+            value: `${t.creationTime.toLocaleString()} (POSIX ms)`,
+          });
+        }
+      }
       break;
+    }
     case "CompatLockedTokens":
       kind = "Compat locked tokens";
       break;

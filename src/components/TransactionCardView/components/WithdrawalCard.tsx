@@ -6,6 +6,7 @@ import { AddressWithTooltip } from "../../AddressWithTooltip";
 import { getPathDiagnostics, formatAda, getStakeKeyLink } from "../utils";
 import { decode_specific_type } from "@cardananium/cquisitor-lib";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
+import { detectDexWithdrawal, dexThemeKey } from "@/utils/protocols/dex";
 import type { DecodedAddress } from "@/utils/addressTypes";
 import type { ValidationDiagnostic, CardanoNetwork } from "../types";
 
@@ -53,7 +54,14 @@ export function WithdrawalCard({
   }, [address]);
   
   const isScript = decoded?.details?.staking_cred?.type === "ScriptHash";
-  
+
+  // A 0-amount withdrawal to a DEX's staking validator is its batcher: the
+  // order/pool spends defer the swap/batch validation to this withdraw-zero.
+  const dexBatcher = useMemo(
+    () => detectDexWithdrawal(address, network),
+    [address, network],
+  );
+
   return (
     <div ref={cardRef} className={`tcv-item-card tcv-withdrawal ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>
       <div className="tcv-item-header">
@@ -61,6 +69,11 @@ export function WithdrawalCard({
         <span className={`tcv-cred-type ${isScript ? 'script' : 'key'}`}>
           {isScript ? 'Script' : 'Key'}
         </span>
+        {dexBatcher && (
+          <span className="tcv-tag tcv-tag-dex" data-dex={dexThemeKey(dexBatcher.adapterId)}>
+            {dexBatcher.label} {dexBatcher.purpose}
+          </span>
+        )}
         <DiagnosticBadge diagnostics={diagnostics} />
       </div>
       

@@ -28,12 +28,28 @@ function formatNight(raw: bigint): string {
   return `${body} NIGHT`;
 }
 
-function addrCred(a: PlutusAddress): string {
-  return a.paymentCredential.hash;
-}
-
 function credLabel(c: Credential): string {
   return `${c.kind === "Script" ? "script" : "key"} hash`;
+}
+
+// Render a full Cardano address (payment credential + optional stake credential)
+// as one or two rows. The payment-credential hash carries the `hash:true` flag;
+// when a stake credential is present we surface it too (it is part of the owner's
+// identity and was previously dropped).
+function addressRows(label: string, a: PlutusAddress): DexRow[] {
+  const rows: DexRow[] = [
+    { label: `${label} (payment ${credLabel(a.paymentCredential)})`, value: a.paymentCredential.hash, hash: true },
+  ];
+  const s = a.stakeCredential;
+  if (s && s.kind === "Inline") {
+    rows.push({ label: `${label} (stake ${credLabel(s.credential)})`, value: s.credential.hash, hash: true });
+  } else if (s && s.kind === "Pointer") {
+    rows.push({
+      label: `${label} (stake pointer)`,
+      value: `slot ${s.slotNumber} · tx ${s.transactionIndex} · cert ${s.certificateIndex}`,
+    });
+  }
+  return rows;
 }
 
 // POSIX milliseconds → "YYYY-MM-DD HH:MM UTC".
@@ -48,20 +64,30 @@ function fmtDays(ms: bigint): string {
 }
 
 function configToView(cfg: GlacierConfig): DexOrderView {
+  // Field names from the public NightProtocolParams type (Aiken):
+  // github.com/midnightntwrk/night-token-distribution protocol-params/lib/types.ak
+  // [0] dynamic_minting_logic, [1] hydra_thread_script_hash, [2] reserve_script_address,
+  // [3] supply_script_address, [4] foundation_wallets, [5] tge_agent_auth_keys,
+  // [6] min_auth_signatures.
   const total = cfg.allocations.reduce((s, a) => s + a.amount, BigInt(0));
   const rows: DexRow[] = [
-    { label: `Authority (${credLabel(cfg.authority)})`, value: cfg.authority.hash, hash: true },
-    { label: "Authority policy", value: cfg.authorityHash, hash: true },
-    { label: "Address #1", value: addrCred(cfg.treasuryA), hash: true },
-    { label: "Thaw / redemption pool", value: addrCred(cfg.treasuryB), hash: true },
+    { label: `Minting logic (${credLabel(cfg.authority)})`, value: cfg.authority.hash, hash: true },
+    { label: "Hydra thread script hash", value: cfg.authorityHash, hash: true },
+    ...addressRows("Reserve script address", cfg.treasuryA),
+    ...addressRows("Supply script address", cfg.treasuryB),
     {
-      label: "Allocations",
+      label: "Foundation wallets",
       value: `${cfg.allocations.length} entries · ${formatNight(total)} total`,
     },
-    { label: "Series / batches", value: cfg.count.toString() },
+    { label: "Min auth signatures", value: cfg.count.toString() },
   ];
+  // The TGE agent auth keys (28-byte pubkey hashes) — previously mislabeled as
+  // opaque "series" identifiers.
+  cfg.series.forEach((s, i) => {
+    rows.push({ label: `TGE auth key ${i + 1}`, value: s, hash: true });
+  });
   cfg.allocations.forEach((a, i) => {
-    rows.push({ label: `Alloc ${i + 1} · ${formatNight(a.amount)}`, value: addrCred(a.address), hash: true });
+    addressRows(`Foundation wallet ${i + 1} · ${formatNight(a.amount)}`, a.address).forEach((r) => rows.push(r));
   });
   return { protocol: PROTOCOL, role: "config", kind: "Glacier Drop config", rows, issues: [] };
 }
@@ -87,7 +113,7 @@ function distributionToView(): DexOrderView {
 function thawToView(t: GlacierThaw): DexOrderView {
   if (t.variant === "position") {
     const rows: DexRow[] = [
-      { label: "Owner", value: addrCred(t.owner), hash: true },
+      ...addressRows("Owner", t.owner),
       { label: "Amount", value: formatNight(t.amount) },
       { label: "Next thaw", value: fmtDate(t.nextThaw) },
       { label: "Tranche", value: t.tranche.toString() },

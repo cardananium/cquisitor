@@ -4,24 +4,36 @@
 // validator. Constr tags decode to a 0-based `constructor` index via
 // cquisitor-lib's DetailedSchema.
 //
-// === DATUM: ReserveState (Constr 0, 10 positional fields) ===
-//   [0] Int  reserveAmount  — ADA collateral in LOVELACE held in the reserve.
-//   [1] Int  djedAmount      — circulating DJED (DjedMicroUSD), micro-units.
-//   [2] Int  shenAmount      — circulating SHEN (ShenMicroUSD), micro-units.
-//   [3] lastOracle: Constr0[ Constr0[ Constr0[ TxOutRef, Int(posixMillis) ] ] ]
-//   [4] Int  paramA          — protocol parameter preserved across transitions.
-//   [5] Int  paramB          — protocol parameter preserved across transitions.
-//   [6] Bool                 — paused/locked flag (spend path requires FALSE).
-//   [7] ByteArray policyId   — the DJED/SHEN minting policy id.
-//   [8] TxOutRef oracleRef   — reference to the oracle NFT UTxO consumed.
-//   [9] TxOutRef priorRef    — reference to the prior reserve/state UTxO consumed.
+// Field names + semantics follow the open-source Open DJED reverse-engineering
+// of the protocol (artifi-labs/open-djed, packages/data/src/pool-datum.ts —
+// the validated `PoolDatumSchema` + its committed CBOR test vector). The reserve
+// (a.k.a. "pool"/bank) datum is a Constr 0 with 10 positional fields:
+//
+// === DATUM: ReserveState / PoolDatum (Constr 0, 10 positional fields) ===
+//   [0] Int  adaInReserve     — ADA collateral in LOVELACE held in the reserve.
+//   [1] Int  djedInCirculation— circulating DJED (DjedMicroUSD), micro-units.
+//   [2] Int  shenInCirculation— circulating SHEN (ShenMicroUSD), micro-units.
+//   [3] lastOrder: Constr0[ Constr0[ { order: TxOutRef, time: Int(posixMillis) } ] ]
+//        — the LAST order processed by the bank: its consumed OutputReference and
+//          the timestamp recorded in that order's output datum.
+//   [4] Int  minADA           — minimum ADA that must remain in the reserve UTxO.
+//   [5] Int  _1               — unknown protocol constant (1530050 on mainnet);
+//                               unnamed in the Open DJED schema, surfaced raw.
+//   [6] Nullable<Any>         — an Option: Constr0[x]=Some / Constr1[]=Nothing.
+//                               Always Nothing on observed mainnet datums; unnamed
+//                               in the Open DJED schema, surfaced raw (NOT a Bool).
+//   [7] ByteArray mintingPolicyId — the DJED/SHEN/DjedStableCoinNFT minting policy.
+//   [8] TxOutRef mintingPolicyUniqRef — the one-shot OutputReference that seeds
+//                               the DJED/SHEN/NFT minting policy (constant).
+//   [9] TxOutRef _3           — an OutputReference, unnamed in the Open DJED
+//                               schema, surfaced raw.
 // TxOutRef canonical encoding = Constr0[ Constr0[ ByteArray hash(32) ], Int idx ].
 
 import {
-  asBool,
   asBytes,
   asConstr,
   asInt,
+  isConstr,
   type PD,
 } from "@/utils/protocols/dex/plutusData";
 
@@ -30,32 +42,39 @@ export interface DjedTxOutRef {
   index: bigint;
 }
 
-export interface DjedLastOracle {
-  oracleInput: DjedTxOutRef;
-  /** POSIX-millisecond timestamp of the last oracle/processing time. */
+export interface DjedLastOrder {
+  /** OutputReference of the last order the bank processed (datum field [3]). */
+  order: DjedTxOutRef;
+  /** POSIX-millisecond timestamp recorded in that order's output datum. */
   timestamp: bigint;
 }
 
 export interface DjedReserveState {
-  /** ADA collateral in lovelace held in the reserve UTxO. */
-  reserveAmount: bigint;
-  /** Circulating DJED (DjedMicroUSD) minted so far, micro-units. */
-  djedAmount: bigint;
-  /** Circulating SHEN (ShenMicroUSD) minted so far, micro-units. */
-  shenAmount: bigint;
-  lastOracle: DjedLastOracle;
-  /** Protocol parameter preserved across the transition (datum field [4]). */
-  paramA: bigint;
-  /** Protocol parameter preserved across the transition (datum field [5]). */
-  paramB: bigint;
-  /** Paused/locked flag; the spend path requires this to be false. */
-  paused: boolean;
-  /** DJED/SHEN minting policy id (= DJED.mintingPolicyId). */
-  policyId: string;
-  /** Reference to the oracle NFT UTxO consumed (datum field [8]). */
-  oracleRef: DjedTxOutRef;
-  /** Reference to the prior reserve/state UTxO consumed (datum field [9]). */
-  priorRef: DjedTxOutRef;
+  /** ADA collateral in lovelace held in the reserve UTxO (field [0]). */
+  adaInReserve: bigint;
+  /** Circulating DJED (DjedMicroUSD) minted so far, micro-units (field [1]). */
+  djedInCirculation: bigint;
+  /** Circulating SHEN (ShenMicroUSD) minted so far, micro-units (field [2]). */
+  shenInCirculation: bigint;
+  /** Last order processed by the bank: its OutputReference + time (field [3]). */
+  lastOrder: DjedLastOrder;
+  /** Minimum ADA that must remain in the reserve UTxO (field [4]). */
+  minADA: bigint;
+  /** Unknown protocol constant; unnamed (`_1`) in the Open DJED schema (field [5]). */
+  field1: bigint;
+  /**
+   * Option (Nullable) at field [6]: Constr0[x]=Some, Constr1[]=Nothing.
+   * Unnamed (`_2`) in the Open DJED schema; always Nothing on observed mainnet
+   * datums. `true` here means Some is present, `false` means Nothing — this is
+   * NOT a paused/locked boolean flag.
+   */
+  optionPresent: boolean;
+  /** DJED/SHEN/NFT minting policy id (field [7], = DJED.mintingPolicyId). */
+  mintingPolicyId: string;
+  /** One-shot OutputReference seeding the minting policy (field [8]). */
+  mintingPolicyUniqRef: DjedTxOutRef;
+  /** Unknown OutputReference; unnamed (`_3`) in the Open DJED schema (field [9]). */
+  field3: DjedTxOutRef;
 }
 
 // TxOutRef = Constr0[ Constr0[ ByteArray hash(32) ], Int index ].
@@ -74,9 +93,9 @@ function parseTxOutRef(d: PD): DjedTxOutRef {
   };
 }
 
-// lastOracle = Constr0[ Constr0[ Constr0[ TxOutRef, Int(posixMillis) ] ] ].
-// Three single-field Constr0 wrappers around the innermost (TxOutRef, timestamp).
-function parseLastOracle(d: PD): DjedLastOracle {
+// lastOrder = Constr0[ Constr0[ { order: TxOutRef, time: Int(posixMillis) } ] ].
+// Leading single-field Constr0 wrappers around the innermost (TxOutRef, timestamp).
+function parseLastOrder(d: PD): DjedLastOrder {
   let cur = asConstr(d);
   // Peel off the leading single-field wrappers until we reach the 2-field
   // innermost record (TxOutRef, posix-ms).
@@ -86,12 +105,18 @@ function parseLastOracle(d: PD): DjedLastOracle {
     guard += 1;
   }
   if (cur.fields.length !== 2) {
-    throw new Error(`Djed lastOracle: expected innermost 2-field record, got ${cur.fields.length}`);
+    throw new Error(`Djed lastOrder: expected innermost 2-field record, got ${cur.fields.length}`);
   }
   return {
-    oracleInput: parseTxOutRef(cur.fields[0]),
+    order: parseTxOutRef(cur.fields[0]),
     timestamp: asInt(cur.fields[1]),
   };
+}
+
+// Nullable<Any> encoded as Constr0[x] (Some) / Constr1[] (Nothing). We only need
+// to know whether a value is present, so we return a plain boolean.
+function isSome(d: PD): boolean {
+  return isConstr(d) && d.constructor === 0;
 }
 
 export function parseDjedReserveState(data: PD): DjedReserveState {
@@ -102,16 +127,16 @@ export function parseDjedReserveState(data: PD): DjedReserveState {
   }
   const f = c.fields;
   return {
-    reserveAmount: asInt(f[0]),
-    djedAmount: asInt(f[1]),
-    shenAmount: asInt(f[2]),
-    lastOracle: parseLastOracle(f[3]),
-    paramA: asInt(f[4]),
-    paramB: asInt(f[5]),
-    paused: asBool(f[6]),
-    policyId: asBytes(f[7]),
-    oracleRef: parseTxOutRef(f[8]),
-    priorRef: parseTxOutRef(f[9]),
+    adaInReserve: asInt(f[0]),
+    djedInCirculation: asInt(f[1]),
+    shenInCirculation: asInt(f[2]),
+    lastOrder: parseLastOrder(f[3]),
+    minADA: asInt(f[4]),
+    field1: asInt(f[5]),
+    optionPresent: isSome(f[6]),
+    mintingPolicyId: asBytes(f[7]),
+    mintingPolicyUniqRef: parseTxOutRef(f[8]),
+    field3: parseTxOutRef(f[9]),
   };
 }
 

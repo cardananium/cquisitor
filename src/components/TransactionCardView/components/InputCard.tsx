@@ -9,6 +9,7 @@ import { getPathDiagnostics, getTransactionLink } from "../utils";
 import type { TransactionInput, TransactionOutput, ValidationDiagnostic, CardanoNetwork, KoiosUtxoInfo } from "../types";
 import { detectSundaeOutput, type SundaeInputDetection } from "@/utils/protocols/sundae";
 import { detectDexOutput, formatDexRole, dexThemeKey, type DexInputDetection } from "@/utils/protocols/dex";
+import { useUtxoInfo } from "../UtxoInfoContext";
 import "@/utils/protocols/dex/adapters";
 
 interface InputCardProps {
@@ -162,9 +163,15 @@ export function InputCard({
       }, 100);
     }
   }, [isFocused]);
-  
-  // If we don't have UTxO info, show the compact view
-  if (!utxoInfo) {
+
+  // Resolve the UTxO lazily (batched + cached) when the caller didn't already
+  // supply it from a validation run, so inputs render fully on a plain decode.
+  const ref = `${input.transaction_id}#${input.index}`;
+  const lazyUtxo = useUtxoInfo(utxoInfo ? null : ref);
+  const resolvedUtxo = utxoInfo ?? lazyUtxo;
+
+  // If we still don't have UTxO info (loading / not found), show the compact view
+  if (!resolvedUtxo) {
     return (
       <div ref={cardRef} className={`tcv-item-card tcv-input tcv-input-compact ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>
         <div className="tcv-input-compact-row">
@@ -185,8 +192,8 @@ export function InputCard({
   }
 
   // With UTxO info - convert to TransactionOutput and use OutputCard
-  const output = koiosUtxoToTransactionOutput(utxoInfo);
-  const isSpent = utxoInfo.is_spent;
+  const output = koiosUtxoToTransactionOutput(resolvedUtxo);
+  const isSpent = resolvedUtxo.is_spent;
 
   // Spending inputs get a precomputed detection (with redeemer) from the tx
   // context. Collateral and reference inputs do NOT, so self-detect from the
@@ -200,13 +207,13 @@ export function InputCard({
     sundaeDetection ?? (selfSundae ? { match: selfSundae.match } : undefined);
 
   // For inline datum, datum_hash from Koios is already its hash
-  const inlineDatumHash = utxoInfo.inline_datum ? utxoInfo.datum_hash : null;
+  const inlineDatumHash = resolvedUtxo.inline_datum ? resolvedUtxo.datum_hash : null;
 
   // Prepare inline script info from reference_script
-  const inlineScriptInfo = utxoInfo.reference_script ? {
-    hash: utxoInfo.reference_script.hash,
-    script_type: utxoInfo.reference_script.type as "Native" | { Plutus: string } | undefined,
-    size: utxoInfo.reference_script.size,
+  const inlineScriptInfo = resolvedUtxo.reference_script ? {
+    hash: resolvedUtxo.reference_script.hash,
+    script_type: resolvedUtxo.reference_script.type as "Native" | { Plutus: string } | undefined,
+    size: resolvedUtxo.reference_script.size,
   } : null;
 
   return (

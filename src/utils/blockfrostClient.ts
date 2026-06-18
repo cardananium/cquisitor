@@ -102,6 +102,15 @@ interface BfTxUtxos {
   outputs: BfTxOutput[];
 }
 
+// One UTxO from GET /addresses/{address}/utxos/{asset}.
+interface BfAddrAssetUtxo {
+  tx_hash: string;
+  output_index: number;
+  amount: BfAmount[];
+  data_hash: string | null;
+  inline_datum: string | null; // hex CBOR
+}
+
 interface BfAccount {
   stake_address: string;
   // `active` = currently delegating; `registered` = current registration state.
@@ -878,6 +887,38 @@ export class BlockfrostClient implements BlockchainDataClient {
       for (const r of settled) if (r.status === 'fulfilled' && r.value) out.push(r.value);
     }
     return out;
+  }
+
+  async getPoolDatum(unit: string): Promise<unknown | null> {
+    if (unit.length < 56) return null;
+    // Find who holds the asset, then the datum-bearing UTxO among the biggest
+    // holders (the pool keeps the bulk of the LP supply / the pool NFT).
+    const holders = await this.getRaw<{ address: string; quantity: string }[]>(
+      `/assets/${unit}/addresses`,
+      { allow404: true },
+    );
+    if (!holders?.length) return null;
+    const byQty = [...holders].sort((a, b) => (BigInt(b.quantity) > BigInt(a.quantity) ? 1 : -1));
+    for (const h of byQty.slice(0, 3)) {
+      const utxos = await this.getRaw<BfAddrAssetUtxo[]>(
+        `/addresses/${h.address}/utxos/${unit}`,
+        { allow404: true },
+      );
+      const withDatum = (utxos ?? []).filter((u) => u.inline_datum);
+      if (withDatum.length === 0) continue;
+      // Prefer the UTxO holding the most assets (the pool with its reserves).
+      withDatum.sort((a, b) => (b.amount?.length ?? 0) - (a.amount?.length ?? 0));
+      return decodeInlineDatumValue(withDatum[0].inline_datum!);
+    }
+    return null;
+  }
+
+  async getDatumByHash(hash: string): Promise<unknown | null> {
+    if (!hash) return null;
+    const d = await this.getRaw<{ json_value: unknown }>(`/scripts/datum/${hash.toLowerCase()}`, {
+      allow404: true,
+    });
+    return d?.json_value ?? null;
   }
 
   async submitTransaction(txHex: string): Promise<string> {

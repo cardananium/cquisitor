@@ -202,6 +202,27 @@ describe("internalToView — internal oracle datums with named source fields", (
     expect(v.rows.some((r) => r.label === "Updated-node window" && r.value?.includes("21600000 ms"))).toBe(true);
   });
 
+  test("NodeDatum → NodeState: operator + Just(PriceData) submitted price/timestamp", () => {
+    // NodeState = C1[ C0[ operatorPKH, Maybe<PriceData> ] ]
+    // Maybe<PriceData> = Just( C0[ PriceData=C0[price, timestamp] ] ).
+    const node: PD = C(1, C(0, B(NODE), C(0, C(0, I(254879), I(1775838463631)))));
+    const v = internalToView("NodeDatum", node);
+    expect(v.kind).toBe("NodeDatum");
+    expect(v.rows.some((r) => r.label === "Operator" && r.value === NODE)).toBe(true);
+    expect(v.rows.some((r) => r.label === "Submitted price (raw)" && r.value === "254,879")).toBe(true);
+    expect(
+      v.rows.some((r) => r.label === "Submitted timestamp" && r.value?.includes("1775838463631 ms")),
+    ).toBe(true);
+    // No opaque "Feed.0"/"Feed.1" rows leak through anymore.
+    expect(v.rows.some((r) => r.label.startsWith("Feed."))).toBe(false);
+  });
+
+  test("NodeDatum → NodeState: Nothing feed is surfaced as none", () => {
+    const node: PD = C(1, C(0, B(NODE), C(1)));
+    const v = internalToView("NodeDatum", node);
+    expect(v.rows.some((r) => r.label === "Submitted feed" && r.value === "none (Nothing)")).toBe(true);
+  });
+
   test("RewardDatum → OracleReward: node reward accounts + platform reward", () => {
     // OracleReward = C3[ C0[ List<RewardInfo[owner, qty]>, orPlatformReward ] ]
     const rew = C(3, C(0, L(C(0, B(NODE), I(139868370)), C(0, B(NODE), I(253015707))), I(25073213)));

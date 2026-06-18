@@ -94,6 +94,18 @@ export interface BlockchainDataClient {
    * Returns one entry per asset that exists; unknown assets are omitted.
    */
   getAssetInfo(units: string[]): Promise<AssetMetadata[]>;
+  /**
+   * The inline datum (as decoded JSON) of the UTxO that holds the given asset
+   * unit and carries a datum — i.e. a pool/oracle UTxO identified by its
+   * LP/pool token. Returns null when no datum-bearing UTxO holds the asset.
+   */
+  getPoolDatum(unit: string): Promise<unknown | null>;
+  /**
+   * The datum (as decoded JSON) for a datum hash, if the provider has ever seen
+   * it on-chain. Lets an output that references its datum only by hash (not in
+   * the tx) still be decoded. Returns null when the datum is unknown.
+   */
+  getDatumByHash(hash: string): Promise<unknown | null>;
 }
 
 /** Normalize a Koios asset_info row into the cross-provider shape. */
@@ -400,6 +412,53 @@ export class KoiosClient implements BlockchainDataClient {
     return settled
       .filter((r): r is PromiseFulfilledResult<KoiosAssetInfo[]> => r.status === 'fulfilled')
       .flatMap((r) => r.value.map(koiosAssetToMetadata));
+  }
+
+  /**
+   * Inline datum of the UTxO holding `unit` that carries a datum — resolves a
+   * pool/oracle UTxO from the LP/pool token an order references. Of the
+   * datum-bearing holders, picks the one with the most native assets (the pool
+   * holds reserve_a + reserve_b + its NFT, users hold only the bare LP token).
+   * @param unit lowercase policyId+assetNameHex.
+   */
+  async getPoolDatum(unit: string): Promise<unknown | null> {
+    if (unit.length < 56) return null;
+    const body = { _asset_list: [[unit.slice(0, 56), unit.slice(56)]], _extended: true };
+    // The pool UTxO is consumed + recreated on every batch, so it is (almost
+    // always) the most recently produced UTxO holding the token. Ordering by
+    // block height surfaces it even for a popular LP token whose thousands of
+    // holder UTxOs would otherwise paginate the pool out of the first page.
+    const utxos = await this.post<KoiosUtxoInfo[], typeof body>(
+      '/asset_utxos?order=block_height.desc&limit=60',
+      body,
+    );
+    const withDatum = utxos.filter((u) => u.inline_datum?.value != null);
+    if (withDatum.length === 0) return null;
+    // The pool holds the vast bulk of its LP/identifier token (the un-minted
+    // supply, ~maxInt); batchers/holders carry only a sliver. Pick the
+    // datum-bearer with the most of THIS token, not the most assets — an
+    // aggregator UTxO holding many tokens (incl. this one) is not the pool.
+    const pol = unit.slice(0, 56);
+    const name = unit.slice(56);
+    const heldQty = (u: KoiosUtxoInfo): bigint => {
+      const a = u.asset_list?.find((x) => x.policy_id === pol && x.asset_name === name);
+      return a ? BigInt(a.quantity) : BigInt(0);
+    };
+    withDatum.sort((a, b) => {
+      const qa = heldQty(a);
+      const qb = heldQty(b);
+      return qb > qa ? 1 : qb < qa ? -1 : 0;
+    });
+    return withDatum[0].inline_datum?.value ?? null;
+  }
+
+  async getDatumByHash(hash: string): Promise<unknown | null> {
+    if (!hash) return null;
+    const res = await this.post<Array<{ datum_hash: string; value: unknown }>, { _datum_hashes: string[] }>(
+      '/datum_info',
+      { _datum_hashes: [hash.toLowerCase()] },
+    );
+    return res?.[0]?.value ?? null;
   }
 
   async submitTransaction(txHex: string): Promise<string> {

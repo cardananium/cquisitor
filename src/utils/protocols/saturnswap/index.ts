@@ -6,7 +6,7 @@ import {
   type DexOrderView,
   type DexRow,
 } from "@/utils/protocols/dex/registry";
-import type { AssetClass, PD } from "@/utils/protocols/dex/plutusData";
+import type { AssetClass, PD, PlutusAddress } from "@/utils/protocols/dex/plutusData";
 import { matchSaturnSwapScriptHash } from "./constants";
 import {
   classifySaturnRedeemer,
@@ -28,10 +28,33 @@ function legLabel(asset: AssetClass): string {
   return "token";
 }
 
+// Surface the owner Address's optional stake credential as its own row so it is
+// never dropped. Inline = a bare credential (key/script) hash; Pointer =
+// (slot,txIdx,certIdx). Matches the addressRows convention used by peer adapters.
+function ownerStakeRows(addr: PlutusAddress): DexRow[] {
+  const stake = addr.stakeCredential;
+  if (!stake) return [{ label: "Owner stake", value: "none" }];
+  if (stake.kind === "Inline") {
+    const sk = stake.credential.kind === "Script" ? "script" : "key";
+    return [{ label: `Owner stake (${sk})`, value: stake.credential.hash, hash: true }];
+  }
+  return [
+    {
+      label: "Owner stake (pointer)",
+      value: `slot ${stake.slotNumber}, txIdx ${stake.transactionIndex}, certIdx ${stake.certificateIndex}`,
+    },
+  ];
+}
+
 function orderToView(order: SaturnOrder): DexOrderView {
   const ownerKind = order.owner.paymentCredential.kind === "Script" ? "script" : "key";
   const rows: DexRow[] = [
     { label: `Owner (${ownerKind})`, value: order.owner.paymentCredential.hash, hash: true },
+    // The owner Address (field[0]) carries a CIP-19 stake part that the fill
+    // output must reproduce. It is set on every observed order (the project
+    // stake cred for pool orders, the maker's own stake key for user orders),
+    // so surface it as its own row instead of silently dropping it.
+    ...ownerStakeRows(order.owner),
     { label: "Offered amount", value: order.offeredAmount.toLocaleString() },
     { label: "Asked amount", value: order.askedAmount.toLocaleString() },
     {
@@ -64,6 +87,13 @@ function orderToView(order: SaturnOrder): DexOrderView {
     rows,
     assets,
     issues: validateSaturnOrder(order),
+    // A SaturnSwap order is a genuine 2-asset limit/swap: it sells `offered`
+    // for `asked`. Surface those exact two legs (datum order, never reordered)
+    // as the trading pair so the panel can show the "Pair: X / Y" header.
+    pair: {
+      assetA: { policyId: order.offered.policyId, assetName: order.offered.assetName },
+      assetB: { policyId: order.asked.policyId, assetName: order.asked.assetName },
+    },
   };
 }
 

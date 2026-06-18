@@ -17,6 +17,8 @@ import {
   asConstr,
   asInt,
   asOptional,
+  isBytes,
+  isConstr,
   parseAssetClass,
   parseRational,
   type AssetClass,
@@ -141,8 +143,47 @@ function parseCDPContent(content: PD): CDPPosition {
 // The five Rationals are surfaced positionally and kept as raw (num, den) pairs
 // rather than asserting a fixed semantic meaning.
 
+/**
+ * Extra fields carried by the NEWER (Constr1-wrapped) v2 iAsset layout that are
+ * absent from the v1 (Constr0, 9-field) record. Surfaced separately so the v1
+ * view stays unchanged. Every field here is structurally derived from the live
+ * on-chain datum (see parseIAssetContentV2) and is optional/nullable so the
+ * tolerant parser never has to assert a fixed presence.
+ */
+export interface IAssetV2Extras {
+  /**
+   * Quote/denomination AssetClass the iAsset is priced against (field [1]).
+   * ("","") = ADA; e.g. (1f3aec…, "USDCx") for the iAsset/USDCx market,
+   * (0691b2…, "NIGHT") for the iAsset/NIGHT market.
+   */
+  pricePairAsset: AssetClass | null;
+  /**
+   * Price-oracle reference (field [3]) — a Constr enum whose live arm is ctor 2
+   * carrying a single 28-byte hash (the oracle NFT policy / oracle script hash).
+   * V1's iaPrice was `Either OnChainDecimal OracleAssetNFT`; v2 widened it.
+   */
+  priceOracle: { ctor: number; hash: string | null } | null;
+  /**
+   * Interest-oracle AssetClass (field [4]) — policy + token name ending
+   * "_INTEREST" / "_INTEREST_ORACLE" (e.g. "iSOL_INTEREST").
+   */
+  interestOracleAsset: AssetClass | null;
+  /** Bare Int parameter in field [8] (1e7 / 1e8 fixed-point fee/limit param). */
+  param: bigint | null;
+  /** Boolean flag in field [9] (Constr0=False / Constr1=True). */
+  flag9: boolean | null;
+  /**
+   * Field [10] is an Option<AssetClass>: Just(assetClass) = Constr0[Constr0[AC]],
+   * Nothing = Constr1[]. When present the AssetClass matches the v2 price-pair
+   * asset family (e.g. (…,"USDCx")). null here means absent/unparseable.
+   */
+  optAsset10: { present: boolean; asset: AssetClass | null };
+}
+
 export interface IAssetConfig {
   role: "iasset";
+  /** "v1" = Constr0/9-field record; "v2" = Constr1/11-field record. */
+  layout: "v1" | "v2";
   assetName: string;
   /** Price-source index carried as a plain Int in field [1]. */
   priceSource: bigint;
@@ -152,6 +193,8 @@ export interface IAssetConfig {
   flag: boolean;
   /** Linked-list pointer to the next iAsset name (hex), or null (Nothing). */
   nextIAsset: string | null;
+  /** Extra v2-only fields; null on the v1 layout. */
+  v2: IAssetV2Extras | null;
 }
 
 function parseIAssetContent(content: PD): IAssetConfig {
@@ -163,6 +206,7 @@ function parseIAssetContent(content: PD): IAssetConfig {
   const f = c.fields;
   return {
     role: "iasset",
+    layout: "v1",
     assetName: asBytes(f[0]),
     priceSource: asInt(f[1]),
     ratios: [
@@ -174,31 +218,68 @@ function parseIAssetContent(content: PD): IAssetConfig {
     ],
     flag: asBool(f[7]),
     nextIAsset: asOptional(f[8], asBytes),
+    v2: null,
   };
 }
 
-// iAsset config "v2" — a NEWER on-chain layout wrapped in a top-level Constr 1
-// (the v1 layout above is Constr 0). The inner record has VARYING arity across
-// protocol revisions (11- and 14-field variants, plus a Constr1 shape at the
-// CDP validator), with the iAsset name first and several Rational params
-// (collateral/mint + fee ratios). Because the exact positional layout is not
-// stable, this parser is
-// deliberately TOLERANT: it extracts only the structurally-unambiguous fields
-// (name, the first bare Int, and every Rational) and never throws, so the UI
-// shows a useful view plus the raw datum rather than a parse error.
+// iAsset config "v2" — the NEWER on-chain layout, wrapped in a top-level
+// Constr 1 (the v1 layout above is Constr 0). Live mainnet shape (verified
+// across the full iAsset set — iETH/iBTC/iEUR/iJPY/iSOL/iUSD, all 11 fields):
+//
+//   Constr0[
+//     [0]  ByteArray   iAsset name (e.g. "iETH")
+//     [1]  AssetClass  quote/denomination asset the iAsset is priced AGAINST
+//                      (("","")=ADA; (…,"USDCx"); (…,"NIGHT")) — the market pair
+//     [2]  Int         small price-source kind/flag (always 0 observed)
+//     [3]  Constr<n>[ByteArray]  price oracle ref; live arm is Constr2[hash28]
+//                      (V1's iaPrice = Either OnChainDecimal OracleAssetNFT,
+//                       widened to a 3-arm enum here — the hash is the oracle
+//                       NFT policy / oracle script hash)
+//     [4]  AssetClass  interest-oracle token (name ends "_INTEREST" /
+//                      "_INTEREST_ORACLE", e.g. "iSOL_INTEREST")
+//     [5]  Rational    collateral / maintenance ratio (e.g. 1.5 = 150%)
+//     [6]  Rational    second ratio (≈1.15 — liquidation ratio)
+//     [7]  Rational    third ratio (≈1.10 — redemption ratio)
+//     [8]  Int         fixed-point fee/limit parameter (1e7 / 1e8)
+//     [9]  Bool         flag (Constr0=False / Constr1=True)
+//     [10] Option<AssetClass>  Just=Constr0[Constr0[AC]] / Nothing=Constr1[]
+//                      (live: Just(…,"USDCx") or Nothing)
+//   ]
+//
+// The layout above is now stable on chain, but to stay robust against any
+// future revision this parser remains TOLERANT: it reads each field
+// positionally, never throws, and leaves a slot null when its shape does not
+// match — so the UI always renders a useful view plus the raw datum.
+function v2Bool(d: PD | undefined): boolean | null {
+  if (d === undefined) return null;
+  try {
+    return asBool(d);
+  } catch {
+    return null;
+  }
+}
+
+function v2AssetClass(d: PD | undefined): AssetClass | null {
+  if (d === undefined) return null;
+  try {
+    return parseAssetClass(d);
+  } catch {
+    return null;
+  }
+}
+
 function parseIAssetContentV2(content: PD): IAssetConfig {
   const c = asConstr(content);
   const f = c.fields;
   const assetName = (() => {
     try {
-      return f[0] !== undefined ? asBytes(f[0]) : "";
+      return f[0] !== undefined && isBytes(f[0]) ? asBytes(f[0]) : "";
     } catch {
       return "";
     }
   })();
-  // Collect every Rational (Constr0[Int, Int]) anywhere in the record. An
-  // AssetClass is also Constr0[_,_] but its fields are bytes, so asInt rejects
-  // it and parseRational throws — keeping only genuine numeric ratios.
+  // Collect every Rational (Constr0[Int, Int]). An AssetClass is also
+  // Constr0[_,_] but with byte fields, so parseRational rejects it.
   const ratios: Rational[] = [];
   for (const x of f) {
     try {
@@ -207,6 +288,7 @@ function parseIAssetContentV2(content: PD): IAssetConfig {
       // not a Rational
     }
   }
+  // priceSource = the first bare Int (field [2] in the live layout).
   let priceSource = BigInt(0);
   for (const x of f) {
     try {
@@ -216,7 +298,63 @@ function parseIAssetContentV2(content: PD): IAssetConfig {
       // not a bare Int
     }
   }
-  return { role: "iasset", assetName, priceSource, ratios, flag: false, nextIAsset: null };
+  // Positional v2-only fields (see layout comment above).
+  const pricePairAsset = v2AssetClass(f[1]);
+  let priceOracle: { ctor: number; hash: string | null } | null = null;
+  if (f[3] !== undefined && isConstr(f[3])) {
+    const oc = asConstr(f[3]);
+    let hash: string | null = null;
+    if (oc.fields[0] !== undefined && isBytes(oc.fields[0])) {
+      try {
+        hash = asBytes(oc.fields[0]);
+      } catch {
+        hash = null;
+      }
+    }
+    priceOracle = { ctor: oc.tag, hash };
+  }
+  const interestOracleAsset = v2AssetClass(f[4]);
+  // The trailing bare-Int parameter (field [8]) — distinct from priceSource:
+  // take the LAST bare Int in the record so we don't re-grab field [2].
+  let param: bigint | null = null;
+  for (let i = f.length - 1; i >= 0; i--) {
+    if (f[i] !== undefined && (f[i] as { int?: unknown }).int !== undefined) {
+      try {
+        param = asInt(f[i]);
+        break;
+      } catch {
+        // keep scanning
+      }
+    }
+  }
+  // Field [10] is an Option<AssetClass>: Just = Constr0[AssetClass], Nothing =
+  // Constr1[]. Decode both presence and the wrapped AssetClass (if any).
+  let optAsset10: { present: boolean; asset: AssetClass | null } = { present: false, asset: null };
+  if (f[10] !== undefined && isConstr(f[10])) {
+    const oc = asConstr(f[10]);
+    if (oc.tag === 0) {
+      optAsset10 = { present: true, asset: oc.fields[0] !== undefined ? v2AssetClass(oc.fields[0]) : null };
+    } else {
+      optAsset10 = { present: false, asset: null };
+    }
+  }
+  return {
+    role: "iasset",
+    layout: "v2",
+    assetName,
+    priceSource,
+    ratios,
+    flag: false,
+    nextIAsset: null,
+    v2: {
+      pricePairAsset,
+      priceOracle,
+      interestOracleAsset,
+      param,
+      flag9: v2Bool(f[9]),
+      optAsset10,
+    },
+  };
 }
 
 // --- top-level CDPDatum (enum / variant by constructor) ---------------------

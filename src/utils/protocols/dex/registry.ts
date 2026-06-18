@@ -48,6 +48,24 @@ export interface DexAssetRow {
   amount?: bigint;
 }
 
+/** A pool-identifying native asset (LP token / pool NFT), lowercased hex. */
+export interface PoolRef {
+  policyId: string;
+  assetName: string;
+  /**
+   * For multi-asset pools (e.g. stableswaps) whose order stores asset *indices*
+   * into the pool's asset list rather than the assets themselves: which two
+   * indices this order trades. `parsePoolPair` uses them to pick the pair.
+   */
+  assetIndices?: [number, number];
+}
+
+/** The two assets a pool trades, recovered from the pool UTxO's datum. */
+export interface PoolPair {
+  assetA: PoolRef;
+  assetB: PoolRef;
+}
+
 /** Normalized, protocol-agnostic view a panel can render for any decoded UTxO. */
 export interface DexOrderView {
   /** Protocol + version label, e.g. "Minswap V2". */
@@ -58,6 +76,19 @@ export interface DexOrderView {
   rows: DexRow[];
   assets?: DexAssetRow[];
   issues: DexIssue[];
+  /**
+   * For an order that only references its pool by an LP / pool token, the asset
+   * to resolve (via the chain) so the panel can show the actual trading pair —
+   * the pair is not carried in the order datum itself. The pool UTxO's datum is
+   * decoded back into the pair by this adapter's `parsePoolPair`.
+   */
+  poolRef?: PoolRef;
+  /**
+   * The trading pair when it is already known at decode time (e.g. from a
+   * per-pool script-hash registry) and needs no chain resolution. Rendered the
+   * same way as a resolved `poolRef`. Takes precedence over `poolRef`.
+   */
+  pair?: PoolPair;
 }
 
 export interface DexAdapter {
@@ -75,10 +106,30 @@ export interface DexAdapter {
    * name), where matching the policy alone would false-positive on LP tokens.
    */
   matchNftPolicy?(policyId: string, assetNames: string[], network?: CardanoNetwork): DexRole | null;
-  /** Decode a datum for the matched role into the normalized view. May throw. */
-  decode?(datum: PD, role: DexRole): DexOrderView;
+  /**
+   * Match a 28-byte STAKE script hash (lowercased hex) of a tx withdrawal →
+   * a short purpose label (e.g. "batch validator"), or null. Some DEXes gate
+   * their swap/batch logic on a withdraw-zero: the order/pool spend is trivial
+   * and the real validation lives in a staking validator triggered by a
+   * 0-amount withdrawal. This lets the withdrawal be labelled as that batcher.
+   */
+  matchWithdrawalHash?(stakeHash: string, network?: CardanoNetwork): string | null;
+  /**
+   * Decode a datum for the matched role into the normalized view. May throw.
+   * `scriptHash` is the matched 28-byte payment script hash (lowercased), for
+   * adapters with per-pool validators that key a static pair off it.
+   */
+  decode?(datum: PD, role: DexRole, scriptHash?: string): DexOrderView;
   /** Classify a spend redeemer for the matched role (e.g. "Apply", "Cancel"). */
   classifyRedeemer?(redeemer: PD, role: DexRole): string | null;
+  /**
+   * Decode a resolved POOL UTxO datum (the one referenced by a view's
+   * `poolRef`) into the two assets it trades. Lets the panel show e.g.
+   * "ADA / USDT" for an order that only stored the pool's LP token. The
+   * originating `ref` is passed for multi-asset pools that need its
+   * `assetIndices`. May throw.
+   */
+  parsePoolPair?(poolDatum: PD, ref: PoolRef): PoolPair | null;
 }
 
 const adapters: DexAdapter[] = [];

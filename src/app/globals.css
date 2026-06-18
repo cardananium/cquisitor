@@ -8723,6 +8723,29 @@ a.tcv-hash-truncate:hover {
   color: #1f2937;
 }
 
+/* Resolved pool pair (assetA / assetB) — a prominent row above the meta grid. */
+.tcv-dex-pair .tcv-dex-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tcv-dex-pair-assets {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+.tcv-dex-pair-sep {
+  color: color-mix(in srgb, var(--dex-accent) 55%, black);
+  font-weight: 700;
+}
+.tcv-dex-pair-loading {
+  color: #9ca3af;
+  font-style: italic;
+  font-size: 12px;
+}
+
 .tcv-dex-asset {
   display: inline-flex;
   align-items: baseline;

@@ -10,11 +10,14 @@
 
 import {
   asConstr,
+  asOptional,
   isBytes,
   isConstr,
   isInt,
   isList,
   isMap,
+  parseCredential,
+  type Credential,
   type PD,
 } from "@/utils/protocols/dex/plutusData";
 
@@ -73,7 +76,14 @@ export interface LiqwidPositionDatum {
 export interface LiqwidMarketDatum {
   role: "market";
   epoch: bigint;
-  actionQueueKeys: number[];
+  /**
+   * state[1] action queues: per-action-type id → number of pending queue
+   * entries currently held in that queue's inner map. (Queues are filled and
+   * drained within a single batch tx, so persisted datums normally show 0
+   * entries per key; this preserves the size if a populated queue is ever
+   * observed instead of collapsing the inner map to just its keys.)
+   */
+  actionQueues: { actionId: number; entryCount: number }[];
   mode: bigint;
   admins: string[];
   interestRateModel: bigint[];
@@ -124,13 +134,101 @@ export function parseLiqwidMarket(data: PD): LiqwidMarketDatum {
   return {
     role: "market",
     epoch: pdInt(f[0]),
-    actionQueueKeys: queue.map((e) => Number(pdInt(e.k))),
+    actionQueues: queue.map((e) => ({
+      actionId: Number(pdInt(e.k)),
+      entryCount: isMap(e.v) ? e.v.map.length : isList(e.v) ? e.v.list.length : 0,
+    })),
     mode: pdInt(f[2]),
     admins: isList(f[3]) ? f[3].list.map(parseAdmin) : [],
     interestRateModel: isList(f[4]) ? f[4].list.map(pdInt) : [],
     accumulators: accMap.map((e) => ({ actionId: pdInt(e.k), amount: pdInt(e.v) })),
     timingParams: isList(f[6]) ? f[6].list.map(pdInt) : [],
     lastUpdate: pdInt(f[7]),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Batcher-action / LQ-escrow datum  (role: "action")
+// ---------------------------------------------------------------------------
+// On-chain shape: TOP-LEVEL LIST of 4 elements (NOT a Constr). Held on the
+// action validator (fa3603d2) at addr1w8arvq7j9…, each UTxO marked by the V2
+// state-token (policy 5785b71b, asset name = the action-validator hash).
+//
+//   [0] amount          : Int   — VALUE-CONFIRMED to equal the LQ governance
+//                                  token quantity (policy da8c3085…, name "LQ")
+//                                  held on the SAME UTxO, across every observed
+//                                  UTxO. So this is the escrowed LQ amount. The
+//                                  action validator reads exactly this LQ asset
+//                                  value, matching it against datum[0].
+//   [1] ownerPayment    : Constr0[Bytes(28)]  — a Credential (VerificationKey)
+//                                  for the beneficiary's payment part.
+//   [2] ownerStake      : Maybe Credential     — Some = Constr0[Constr0[Bytes28]]
+//                                  (a VKey/Script stake credential), None =
+//                                  Constr1[]. Together [1]+[2] reconstruct the
+//                                  beneficiary's shelley address.
+//   [3] references      : List< [ Int idx, Constr1[Int count, Int posixMs] ] >
+//                                  — claim/snapshot references. `idx` is a market
+//                                  batch index (matches MarketState[0] history);
+//                                  the inner pair is (count, POSIXTime-ms). Often
+//                                  empty. The POSIX ms (e.g. 1691686314000) and
+//                                  the batch index are value-confirmed; `count`
+//                                  is kept neutral.
+//
+// NOTE: field names beyond the address/amount/timestamp parts are NOT taken from
+// any published Liqwid schema (the market/action validators are closed-source).
+// Anything not defensibly named is surfaced with a neutral label + its raw value.
+export interface LiqwidActionRef {
+  /** Market batch index this reference points at (matches MarketState[0]). */
+  index: bigint;
+  /**
+   * Inner Constr tag — a status/variant discriminator (always 1 across every
+   * observed on-chain reference; kept neutral, surfaced only when != 1).
+   */
+  statusTag: number;
+  /** Inner small int (claim count / snapshot counter — kept neutral). */
+  count: bigint;
+  /** POSIXTime in milliseconds of the referenced batch. */
+  timeMs: bigint;
+}
+export interface LiqwidActionDatum {
+  role: "action";
+  /** Escrowed LQ amount (== on-chain LQ token quantity on this UTxO). */
+  amount: bigint;
+  ownerPaymentCredential: Credential;
+  ownerStakeCredential: Credential | null;
+  references: LiqwidActionRef[];
+}
+
+function parseActionRef(d: PD): LiqwidActionRef | null {
+  if (!isList(d) || d.list.length !== 2) return null;
+  const idx = d.list[0];
+  const inner = d.list[1];
+  if (!isInt(idx) || !isConstr(inner)) return null;
+  const c = asConstr(inner);
+  if (c.fields.length !== 2 || !isInt(c.fields[0]) || !isInt(c.fields[1])) return null;
+  return { index: pdInt(idx), statusTag: c.tag, count: pdInt(c.fields[0]), timeMs: pdInt(c.fields[1]) };
+}
+
+export function parseLiqwidActionDatum(data: PD): LiqwidActionDatum {
+  if (!isList(data)) throw new Error("Liqwid action datum: expected top-level List");
+  const f = data.list;
+  if (f.length !== 4) throw new Error(`Liqwid action datum: expected 4 fields, got ${f.length}`);
+  // [1] = bare Credential; [2] = Maybe Credential.
+  const ownerPaymentCredential = parseCredential(f[1]);
+  const ownerStakeCredential = asOptional(f[2], parseCredential);
+  const refList = isList(f[3]) ? f[3].list : [];
+  const references: LiqwidActionRef[] = [];
+  for (const r of refList) {
+    const parsed = parseActionRef(r);
+    if (!parsed) throw new Error("Liqwid action datum: malformed reference entry");
+    references.push(parsed);
+  }
+  return {
+    role: "action",
+    amount: pdInt(f[0]),
+    ownerPaymentCredential,
+    ownerStakeCredential,
+    references,
   };
 }
 

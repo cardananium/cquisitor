@@ -11,6 +11,8 @@ import { DexOrderPanel } from "./DexOrderPanel";
 import { AddressWithTooltip } from "../../AddressWithTooltip";
 import { getPathDiagnostics, getAddressLink, formatAda } from "../utils";
 import { AssetNameWithTooltip, AssetAmount } from "./AssetNameWithTooltip";
+import { useUtxoInfo } from "../UtxoInfoContext";
+import { useDatum } from "../DatumInfoContext";
 import { detectSundaeOutput } from "@/utils/protocols/sundae";
 import { detectDexOutput, formatDexRole, dexThemeKey } from "@/utils/protocols/dex";
 import "@/utils/protocols/dex/adapters";
@@ -42,6 +44,8 @@ interface OutputCardProps {
   isInputCard?: boolean;
   /** Map of datum hash (lowercase hex) to parsed plutus data, for resolving DataHash datums via the tx's witness set. */
   witnessDatums?: Map<string, SundaePD> | null;
+  /** This tx's hash — lets a real output check if it's already spent on-chain. */
+  txHash?: string;
 }
 
 // Auto-truncate with tooltip
@@ -152,11 +156,18 @@ export function OutputCard({
   inlineScriptInfo,
   isInputCard = false,
   witnessDatums = null,
+  txHash,
 }: OutputCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
-  
+
+  // For a real on-chain output, resolve its own ref ("txHash#index") and flag
+  // it when already spent. Skipped when wrapped as an input card (the InputCard
+  // shows the input's own spent status) or for not-yet-submitted txs.
+  const onchainUtxo = useUtxoInfo(!isInputCard && txHash ? `${txHash}#${index}` : null);
+  const isSpentOnchain = onchainUtxo?.is_spent === true;
+
   // Scroll into view when focused
   useEffect(() => {
     if (isFocused && cardRef.current) {
@@ -169,18 +180,35 @@ export function OutputCard({
   const hasMultiasset = output.amount.multiasset && Object.keys(output.amount.multiasset).length > 0;
   const hasScriptRef = !!output.script_ref;
 
+  // The output may reference its datum only by hash, with the datum present
+  // neither in the tx witness set nor its inputs. Resolve such a hash on-chain
+  // (Koios datum_info) so the output can still be decoded; merge it into the
+  // datum map used for detection below.
+  const byHashDatum =
+    output.plutus_data && "DataHash" in output.plutus_data
+      ? output.plutus_data.DataHash.toLowerCase()
+      : null;
+  const unresolvedHash = byHashDatum && !witnessDatums?.has(byHashDatum) ? byHashDatum : null;
+  const fetchedDatum = useDatum(unresolvedHash);
+  const effectiveDatums = useMemo<Map<string, SundaePD> | null>(() => {
+    if (!unresolvedHash || !fetchedDatum) return witnessDatums;
+    const merged = new Map(witnessDatums ?? []);
+    merged.set(unresolvedHash, fetchedDatum as unknown as SundaePD);
+    return merged;
+  }, [witnessDatums, unresolvedHash, fetchedDatum]);
+
   // Sundae detection — runs only when the output address looks like a script
   // hosted by a known SundaeSwap protocol script.
   const sundaeDetection = useMemo(
-    () => detectSundaeOutput(output, network, witnessDatums),
-    [output, network, witnessDatums]
+    () => detectSundaeOutput(output, network, effectiveDatums),
+    [output, network, effectiveDatums]
   );
 
   // Generic DEX detection (Minswap, WingRiders, Splash, …) — matches the output
   // address against every registered adapter. Disjoint from Sundae's own table.
   const dexDetection = useMemo(
-    () => detectDexOutput(output, network, witnessDatums),
-    [output, network, witnessDatums]
+    () => detectDexOutput(output, network, effectiveDatums),
+    [output, network, effectiveDatums]
   );
 
   // Parse plutus data to determine type
@@ -231,6 +259,11 @@ export function OutputCard({
         <div className="tcv-item-header">
           <span className="tcv-item-index">#{index}</span>
           <div className="tcv-output-tags">
+            {isSpentOnchain && (
+              <span className="tcv-tag tcv-tag-spent" title="This output has already been spent on-chain">
+                Spent
+              </span>
+            )}
             {hasMultiasset && <span className="tcv-tag tokens">Tokens</span>}
             {isDatumHash && <span className="tcv-tag datum-hash">Datum Hash</span>}
             {isInlineDatum && <span className="tcv-tag datum">Inline Datum</span>}

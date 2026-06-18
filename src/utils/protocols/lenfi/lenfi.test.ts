@@ -4,6 +4,8 @@ import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 import {
   parseCollateralDatum,
   parseCollateralRedeemer,
+  parseLeftoversDatum,
+  parseOrderDatum,
   parsePoolDatum,
   parsePoolRedeemer,
   parseLenfiDatum,
@@ -185,6 +187,144 @@ describe("parseCollateralRedeemer", () => {
     if (r.mergeType.kind !== "DelayedIntoPool") throw new Error("expected delayed");
     expect(r.mergeType.outputIndex).toBe(BigInt(3));
     expect(r.mergeType.amountRepaying).toBe(BigInt(40_000_000));
+  });
+});
+
+describe("parseLeftoversDatum", () => {
+  test("LeftoversDatum = AssetClass (pool NFT)", () => {
+    // leftovers.LeftoversDatum = AssetClass = Constr 0 [ policy, name ].
+    const l = parseLeftoversDatum(C(0, B(POLICY), B(POOL_NFT_NAME)));
+    expect(l.poolNft).toEqual({ policyId: POLICY, assetName: POOL_NFT_NAME });
+  });
+
+  test("parseLenfiDatum routes a 2-field loan datum to leftovers", () => {
+    const r = parseLenfiDatum(C(0, B(POLICY), B(POOL_NFT_NAME)), "loan");
+    expect(r.kind).toBe("leftovers");
+  });
+});
+
+describe("parseOrderDatum", () => {
+  // order.Datum<a> = Constr 0 [ control_credential, pool_nft_cs, batcher_fee, order ].
+  // Header sub-fields shared by every request kind.
+  const control: PD = C(0, B(PKH)); // VKey credential
+  const poolNftCs: PD = C(0, B(POLICY), B(POOL_NFT_NAME));
+  // Minimal stand-ins for the embedded Output / PartialOutput structures, which
+  // we deliberately don't expand (the redeemer re-validates them).
+  const outputStub: PD = C(0, addr, C(0), C(0), C(1));
+  const partialStub: PD = C(0, addr, C(0), C(0));
+  const order = (req: PD): PD => C(0, control, poolNftCs, I(2_000_000), req);
+
+  test("BorrowRequest (7 fields)", () => {
+    const req: PD = C(
+      0,
+      outputStub, // expected_output
+      partialStub, // partial_output
+      B(LENFI_V2.collateralHash), // borrower_nft_policy
+      I(70_000_000), // min_collateral_amount
+      I(1_717_743_538_000), // min_deposit_time
+      I(37_866), // max_interest_rate
+      addr, // collateral_address
+    );
+    const d = parseOrderDatum(order(req));
+    expect(d.controlCredential).toEqual({ kind: "VKey", hash: PKH });
+    expect(d.poolNftCs).toEqual({ policyId: POLICY, assetName: POOL_NFT_NAME });
+    expect(d.batcherFeeAda).toBe(BigInt(2_000_000));
+    expect(d.request.kind).toBe("Borrow");
+    if (d.request.kind !== "Borrow") throw new Error("expected Borrow");
+    expect(d.request.borrowerNftPolicy).toBe(LENFI_V2.collateralHash);
+    expect(d.request.minCollateralAmount).toBe(BigInt(70_000_000));
+    expect(d.request.minDepositTime).toBe(BigInt(1_717_743_538_000));
+    expect(d.request.maxInterestRate).toBe(BigInt(37_866));
+    expect(d.request.collateralAddress.paymentCredential).toEqual({ kind: "Script", hash: PKH });
+    // expected_output.address — the borrower's loan/NFT destination address.
+    expect(d.request.destinationAddress?.paymentCredential).toEqual({ kind: "Script", hash: PKH });
+    expect(d.request.destinationAddress?.stakeCredential).toEqual({
+      kind: "Inline",
+      credential: { kind: "Script", hash: STAKE },
+    });
+  });
+
+  test("DepositRequest (3 fields, Int first)", () => {
+    const req: PD = C(0, I(56_500_000), partialStub, token); // amount, partial, lp_asset
+    const d = parseOrderDatum(order(req));
+    expect(d.request.kind).toBe("Deposit");
+    if (d.request.kind !== "Deposit") throw new Error("expected Deposit");
+    expect(d.request.depositAmount).toBe(BigInt(56_500_000));
+    expect(d.request.lpAsset).toEqual({ policyId: POLICY, assetName: NAME });
+    // partial_output.address — where the minted LP tokens are returned.
+    expect(d.request.destinationAddress?.paymentCredential).toEqual({ kind: "Script", hash: PKH });
+  });
+
+  test("RepayRequest (3 fields, Output first)", () => {
+    // expected_output, order: OutputReference, burn_asset.
+    const req: PD = C(0, outputStub, oref(4), token);
+    const d = parseOrderDatum(order(req));
+    expect(d.request.kind).toBe("Repay");
+    if (d.request.kind !== "Repay") throw new Error("expected Repay");
+    expect(d.request.order).toEqual({ transactionId: TXID, outputIndex: BigInt(4) });
+    expect(d.request.burnAsset).toEqual({ policyId: POLICY, assetName: NAME });
+    // expected_output.address — where the freed collateral is returned.
+    expect(d.request.destinationAddress?.paymentCredential).toEqual({ kind: "Script", hash: PKH });
+  });
+
+  test("WithdrawRequest (4 fields)", () => {
+    const req: PD = C(0, I(1_000), partialStub, ada, token); // burn, partial, receive, lp
+    const d = parseOrderDatum(order(req));
+    expect(d.request.kind).toBe("Withdraw");
+    if (d.request.kind !== "Withdraw") throw new Error("expected Withdraw");
+    expect(d.request.lpTokensBurn).toBe(BigInt(1_000));
+    expect(d.request.receiveAsset).toEqual({ policyId: "", assetName: "" });
+    expect(d.request.lpAsset).toEqual({ policyId: POLICY, assetName: NAME });
+    // partial_output.address — where the withdrawn assets are returned.
+    expect(d.request.destinationAddress?.paymentCredential).toEqual({ kind: "Script", hash: PKH });
+  });
+
+  test("LiquidateRequest (1 field)", () => {
+    const d = parseOrderDatum(order(C(0, outputStub)));
+    expect(d.request.kind).toBe("Liquidate");
+    if (d.request.kind !== "Liquidate") throw new Error("expected Liquidate");
+    // expected_output.address — where the liquidation proceeds go.
+    expect(d.request.destinationAddress?.paymentCredential).toEqual({ kind: "Script", hash: PKH });
+  });
+
+  test("parseLenfiDatum routes role 'order'", () => {
+    const d = parseLenfiDatum(order(C(0, outputStub)), "order");
+    expect(d.kind).toBe("order");
+  });
+
+  // Real on-chain borrow order datum (order_borrow validator 70512aa1…).
+  const LIVE_ORDER_DATUM = convertSerdeNumbers(
+    JSON.parse(
+      '{"fields":[{"fields":[{"bytes":"a1ba8a133da3e6690e38291345fe05005c10060b872f1181f736775e"}],"constructor":0},{"fields":[{"bytes":"32e8c0ae314ef4be452c16a999867f66d1a1791fc972cb2f7c74e38d"},{"bytes":"1c492d6bc445ddcb9ab75ad9c921947a86633682b951f187e11aff40"}],"constructor":0},{"int":2000000},{"fields":[{"fields":[{"fields":[{"fields":[{"bytes":"a1ba8a133da3e6690e38291345fe05005c10060b872f1181f736775e"}],"constructor":0},{"fields":[{"fields":[{"fields":[{"bytes":"62e25f96dae4d0f9558d5a560e49f2c82cd5c772ea5cff1dcfd9b7c5"}],"constructor":0}],"constructor":0}],"constructor":0}],"constructor":0},{"map":[{"k":{"bytes":""},"v":{"map":[{"k":{"bytes":""},"v":{"int":2000000}}]}},{"k":{"bytes":"5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d114"},"v":{"map":[{"k":{"bytes":"494147"},"v":{"int":180000000}}]}}]},{"fields":[],"constructor":0},{"fields":[],"constructor":1}],"constructor":0},{"fields":[{"fields":[{"fields":[{"bytes":"a1ba8a133da3e6690e38291345fe05005c10060b872f1181f736775e"}],"constructor":0},{"fields":[{"fields":[{"fields":[{"bytes":"62e25f96dae4d0f9558d5a560e49f2c82cd5c772ea5cff1dcfd9b7c5"}],"constructor":0}],"constructor":0}],"constructor":0}],"constructor":0},{"map":[{"k":{"bytes":""},"v":{"map":[{"k":{"bytes":""},"v":{"int":2000000}}]}}]},{"fields":[],"constructor":0}],"constructor":0},{"bytes":"8021830afedd85fda1253da2be75b66c0e65c482148eb8ca690903cb"},{"int":70000000},{"int":1717743538000},{"int":37866},{"fields":[{"fields":[{"bytes":"8021830afedd85fda1253da2be75b66c0e65c482148eb8ca690903cb"}],"constructor":1},{"fields":[{"fields":[{"fields":[{"bytes":"1c492d6bc445ddcb9ab75ad9c921947a86633682b951f187e11aff40"}],"constructor":1}],"constructor":0}],"constructor":0}],"constructor":0}],"constructor":0}],"constructor":0}',
+    ),
+  ) as PD;
+
+  test("decodes real borrow order datum", () => {
+    const d = parseOrderDatum(LIVE_ORDER_DATUM);
+    expect(d.batcherFeeAda).toBe(BigInt(2_000_000));
+    expect(d.poolNftCs.policyId).toBe("32e8c0ae314ef4be452c16a999867f66d1a1791fc972cb2f7c74e38d");
+    expect(d.request.kind).toBe("Borrow");
+    if (d.request.kind !== "Borrow") throw new Error("expected Borrow");
+    expect(d.request.borrowerNftPolicy).toBe(
+      "8021830afedd85fda1253da2be75b66c0e65c482148eb8ca690903cb",
+    );
+    expect(d.request.minCollateralAmount).toBe(BigInt(70_000_000));
+    expect(d.request.minDepositTime).toBe(BigInt(1_717_743_538_000));
+    expect(d.request.maxInterestRate).toBe(BigInt(37_866));
+    expect(d.request.collateralAddress.paymentCredential).toEqual({
+      kind: "Script",
+      hash: "8021830afedd85fda1253da2be75b66c0e65c482148eb8ca690903cb",
+    });
+    // expected_output.address — the borrower's own address (loan + borrower NFT
+    // destination), previously dropped by the decoder.
+    expect(d.request.destinationAddress?.paymentCredential).toEqual({
+      kind: "VKey",
+      hash: "a1ba8a133da3e6690e38291345fe05005c10060b872f1181f736775e",
+    });
+    expect(d.request.destinationAddress?.stakeCredential).toEqual({
+      kind: "Inline",
+      credential: { kind: "VKey", hash: "62e25f96dae4d0f9558d5a560e49f2c82cd5c772ea5cff1dcfd9b7c5" },
+    });
   });
 });
 
