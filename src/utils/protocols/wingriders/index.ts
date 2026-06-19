@@ -6,11 +6,12 @@ import {
   type DexIssue,
   type DexOrderView,
   type DexRow,
+  type PoolPair,
 } from "@/utils/protocols/dex/registry";
 import type { CardanoNetwork } from "@/components/TransactionCardView/types";
 import type { DexRole } from "@/utils/protocols/dex/registry";
-import { asConstr } from "@/utils/protocols/dex/plutusData";
-import type { PD, PlutusAddress } from "@/utils/protocols/dex/plutusData";
+import { asConstr, isBytes, isConstr } from "@/utils/protocols/dex/plutusData";
+import type { AssetClass, PD, PlutusAddress } from "@/utils/protocols/dex/plutusData";
 import {
   matchWingRidersNftPolicy,
   matchWingRidersRapidNftPolicy,
@@ -37,6 +38,41 @@ import {
 
 function credentialKind(addr: PlutusAddress): string {
   return addr.paymentCredential.kind === "Script" ? "script" : "key";
+}
+
+// Render a Cardano Address as one row for the payment credential plus, when
+// present, a second row for the stake credential. Matches the existing
+// owner/beneficiary rows but also surfaces the stake part (an Address can hold a
+// stake credential the bare owner pubkey-hash does not).
+function addressRows(label: string, addr: PlutusAddress): DexRow[] {
+  const rows: DexRow[] = [
+    { label: `${label} (${credentialKind(addr)})`, value: addr.paymentCredential.hash, hash: true },
+  ];
+  const stake = addr.stakeCredential;
+  if (stake && stake.kind === "Inline") {
+    rows.push({
+      label: `${label} stake (${stake.credential.kind === "Script" ? "script" : "key"})`,
+      value: stake.credential.hash,
+      hash: true,
+    });
+  } else if (stake && stake.kind === "Pointer") {
+    rows.push({
+      label: `${label} stake (pointer)`,
+      value: `slot ${stake.slotNumber}, tx ${stake.transactionIndex}, cert ${stake.certificateIndex}`,
+    });
+  }
+  return rows;
+}
+
+// The compensation datum is an opaque PlutusData. When it is a bare ByteArray
+// it is a datum hash (render as a hash); when it is the unit Constr0[] there is
+// none; otherwise surface its shape so the field is never silently dropped.
+function compensationDatumRow(d: PD): DexRow {
+  if (isBytes(d)) return { label: "Compensation datum", value: d.bytes, hash: true };
+  if (isConstr(d) && d.constructor === 0 && d.fields.length === 0) {
+    return { label: "Compensation datum", value: "none (unit)" };
+  }
+  return { label: "Compensation datum", value: "inline datum (see raw)" };
 }
 
 function actionLabel(action: WrRequestAction): string {
@@ -74,6 +110,17 @@ function actionRows(action: WrRequestAction): DexRow[] {
   }
 }
 
+// The two assets every WingRiders trading context parses (Asset A / Asset B):
+// the pool's reserve pair for an AMM pool, the offered/asked pair for a swap or
+// liquidity request. Both are genuine 2-asset trading pairs, so surface them as
+// the unified `pair` header.
+function tradingPair(assetA: AssetClass, assetB: AssetClass): PoolPair {
+  return {
+    assetA: { policyId: assetA.policyId, assetName: assetA.assetName },
+    assetB: { policyId: assetB.policyId, assetName: assetB.assetName },
+  };
+}
+
 export function wrRequestToView(datum: WrRequestDatum): DexOrderView {
   const issues: DexIssue[] = [];
   if (datum.deadline <= BigInt(0)) {
@@ -82,10 +129,18 @@ export function wrRequestToView(datum: WrRequestDatum): DexOrderView {
   const rows: DexRow[] = [
     ...actionRows(datum.action),
     { label: "Deadline", value: `${datum.deadline.toLocaleString()} (POSIX ms)` },
-    { label: `Owner (${credentialKind(datum.ownerAddress)})`, value: datum.ownerAddress.paymentCredential.hash, hash: true },
-    { label: `Beneficiary (${credentialKind(datum.beneficiary)})`, value: datum.beneficiary.paymentCredential.hash, hash: true },
+    // owner_address can reclaim the request; beneficiary receives the
+    // compensation output. Per WingRiders parsing-education RequestDatum.
+    ...addressRows("Owner", datum.ownerAddress),
+    ...addressRows("Beneficiary", datum.beneficiary),
     { label: "Receiver datum", value: datum.datumType },
+    // Compensation datum: the datum attached to the beneficiary's compensation
+    // output (an enforced output datum hash when the beneficiary is a script).
+    compensationDatumRow(datum.compensationDatum),
     { label: "Agent fee reserve (oil)", value: datum.oil.toLocaleString() },
+    // Stableswap scaling factors used to normalize A/B amounts (1 for
+    // constant-product pools).
+    { label: "Scale A / B", value: `${datum.scaleA.toLocaleString()} / ${datum.scaleB.toLocaleString()}` },
   ];
   const assets: DexAssetRow[] = [
     { label: "Asset A", policyId: datum.assetA.policyId, assetName: datum.assetA.assetName },
@@ -98,6 +153,9 @@ export function wrRequestToView(datum: WrRequestDatum): DexOrderView {
     rows,
     assets,
     issues,
+    // The request trades Asset A / Asset B (offered vs asked) — surface them as
+    // the trading pair.
+    pair: tradingPair(datum.assetA, datum.assetB),
   };
 }
 
@@ -108,11 +166,20 @@ export function wrPoolToView(datum: WrPoolDatum): DexOrderView {
     { label: "Swap fee", value: `${datum.swapFeeInBasis} / ${datum.feeBasis}` },
     { label: "Protocol fee", value: `${datum.protocolFeeInBasis} / ${datum.feeBasis}` },
     { label: "Project fee", value: `${datum.projectFeeInBasis} / ${datum.feeBasis}` },
+    { label: "Reserve fee", value: `${datum.reserveFeeInBasis} / ${datum.feeBasis}` },
     { label: "Agent fee (ADA)", value: datum.agentFeeAda.toLocaleString() },
     { label: "Treasury A / B", value: `${datum.treasuryA.toLocaleString()} / ${datum.treasuryB.toLocaleString()}` },
+    { label: "Project treasury A / B", value: `${datum.projectTreasuryA.toLocaleString()} / ${datum.projectTreasuryB.toLocaleString()}` },
+    { label: "Reserve treasury A / B", value: `${datum.reserveTreasuryA.toLocaleString()} / ${datum.reserveTreasuryB.toLocaleString()}` },
     { label: "Last interaction", value: `${datum.lastInteraction.toLocaleString()} (POSIX ms)` },
     { label: "Request validator", value: datum.requestValidatorHash, hash: true },
   ];
+  if (datum.projectBeneficiary) {
+    rows.push(...addressRows("Project beneficiary", datum.projectBeneficiary));
+  }
+  if (datum.reserveBeneficiary) {
+    rows.push(...addressRows("Reserve beneficiary", datum.reserveBeneficiary));
+  }
   if (datum.poolSpecifics.kind === "Stableswap") {
     rows.push({
       label: "Stableswap (D, scaleA, scaleB)",
@@ -130,6 +197,8 @@ export function wrPoolToView(datum: WrPoolDatum): DexOrderView {
     rows,
     assets,
     issues: [],
+    // AMM pool: the two reserve assets (Asset A / Asset B) are the trading pair.
+    pair: tradingPair(datum.assetA, datum.assetB),
   };
 }
 
@@ -163,6 +232,8 @@ export function rapidPoolToView(datum: RapidPoolDatum): DexOrderView {
     rows,
     assets,
     issues: [],
+    // AMM pool: the two reserve assets (Asset A / Asset B) are the trading pair.
+    pair: tradingPair(datum.assetA, datum.assetB),
   };
 }
 
@@ -191,6 +262,11 @@ export function wrNestedRequestToView(datum: WrNestedRequestDatum, isStable: boo
     rows: [
       ...actionRows(datum.action),
       { label: "Deadline", value: `${datum.deadline.toLocaleString()} (POSIX ms)` },
+      // Beneficiary = recipient of the compensation output (the address funds are
+      // paid to once the request is applied). Distinct from `owner`, which only
+      // controls reclaiming the request. Per WingRiders parsing-education
+      // RequestDatum (beneficiary: Address, owner_address: Address).
+      ...addressRows("Beneficiary", datum.beneficiary),
       { label: "Owner", value: datum.owner, hash: true },
     ],
     assets: [
@@ -198,6 +274,9 @@ export function wrNestedRequestToView(datum: WrNestedRequestDatum, isStable: boo
       { label: "Asset B", policyId: datum.assetB.policyId, assetName: datum.assetB.assetName },
     ],
     issues: [],
+    // The request trades Asset A / Asset B (offered vs asked) — surface them as
+    // the trading pair.
+    pair: tradingPair(datum.assetA, datum.assetB),
   };
 }
 
@@ -216,6 +295,8 @@ export function wrNestedPoolToView(datum: WrNestedPoolDatum, isStable: boolean):
       { label: "Asset B", policyId: datum.assetB.policyId, assetName: datum.assetB.assetName },
     ],
     issues: [],
+    // AMM pool: the two reserve assets (Asset A / Asset B) are the trading pair.
+    pair: tradingPair(datum.assetA, datum.assetB),
   };
 }
 
@@ -252,6 +333,14 @@ registerDexAdapter({
   // has a spend redeemer.
   classifyRedeemer: (redeemer: PD, role): string | null =>
     role === "rapid-pool" ? rapidRedeemerLabel(parseRapidPoolRedeemer(redeemer)) : null,
+  // WingRiders V2 batches via a withdraw-zero staking validator: the request
+  // spends defer swap/batch validation to this 0-amount withdrawal.
+  matchWithdrawalHash: (stakeHash: string, network?: CardanoNetwork): string | null => {
+    if (network && network !== "mainnet") return null;
+    return stakeHash === "96f5c1bee23481335ff4aece32fe1dfa1aa40a944a66d2d6edc9a9a5"
+      ? "batch validator"
+      : null;
+  },
 });
 
 export * from "./v2";

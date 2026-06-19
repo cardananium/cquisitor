@@ -65,13 +65,20 @@ function assetRow(label: string, asset: AssetClass, amount?: bigint): DexAssetRo
   return { label, policyId: asset.policyId, assetName: asset.assetName, amount };
 }
 
+// Owner stake-key row, consistent across position + order views. A position's
+// owner credential is a payment key hash; the optional stake key completes the
+// full owner address, so always surface it (None → "none").
+function ownerStakeKeyRow(stakeKey: string | null): DexRow {
+  return stakeKey
+    ? { label: "Owner stake key", value: stakeKey, hash: true }
+    : { label: "Owner stake key", value: "none" };
+}
+
 function positionRows(p: StrikePositionDatum): DexRow[] {
   return [
     { label: "Side", value: p.side },
     { label: "Owner", value: p.ownerPkh, hash: true },
-    p.ownerStakeKey
-      ? { label: "Owner stake key", value: p.ownerStakeKey, hash: true }
-      : { label: "Owner stake key", value: "none" },
+    ownerStakeKeyRow(p.ownerStakeKey),
     { label: "Entered at", value: `${p.enteredPositionTime.toLocaleString()} (POSIX ms)` },
     { label: "Entry price", value: formatUsd(p.enteredAtUsdPrice) },
     {
@@ -90,6 +97,7 @@ function positionRows(p: StrikePositionDatum): DexRow[] {
       value: p.takeProfitUsdPrice === BigInt(0) ? "unset" : formatUsd(p.takeProfitUsdPrice),
     },
     { label: "Position policy", value: p.positionPolicyId, hash: true },
+    { label: "Manage-positions script", value: p.managePositionsScriptHash, hash: true },
   ];
 }
 
@@ -140,6 +148,7 @@ function orderRows(action: StrikeOrderAction): DexRow[] {
     case "ClosePositionOrder":
       return [
         { label: "Owner", value: action.ownerPkh, hash: true },
+        ownerStakeKeyRow(action.ownerStakeKey),
         {
           label: "Send amount",
           value: `${action.sendAssetAmount.toLocaleString()}${isAda(action.sendAsset) ? " ADA" : ""}`,
@@ -157,10 +166,14 @@ function orderRows(action: StrikeOrderAction): DexRow[] {
     case "ProvideLiquidityOrder":
       return [
         { label: "Owner", value: action.ownerPkh, hash: true },
+        ownerStakeKeyRow(action.ownerStakeKey),
         assetIdRow("Liquidity asset", action.liquidityAsset),
       ];
     case "WithdrawLiquidityOrder":
-      return [{ label: "Owner", value: action.ownerPkh, hash: true }];
+      return [
+        { label: "Owner", value: action.ownerPkh, hash: true },
+        ownerStakeKeyRow(action.ownerStakeKey),
+      ];
   }
 }
 

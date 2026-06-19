@@ -69,6 +69,14 @@ describe("parseRapidPoolDatum", () => {
     expect(view.kind).toBe("Liquidity Pool (rapid-dex)");
     expect(view.assets).toHaveLength(2);
   });
+
+  test("toView surfaces the reserve pair (Asset A / Asset B)", () => {
+    const view = rapidPoolToView(parseRapidPoolDatum(poolDatum(C(0))));
+    expect(view.pair).toEqual({
+      assetA: { policyId: "", assetName: "" },
+      assetB: { policyId: POLICY_B, assetName: NAME_B },
+    });
+  });
 });
 
 describe("parseRapidPoolRedeemer", () => {

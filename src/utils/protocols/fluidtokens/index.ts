@@ -35,12 +35,26 @@ function assetRow(label: string, asset: AssetClass): DexRow {
   return { label, asset: { policyId: asset.policyId, assetName: asset.assetName } };
 }
 
-// Address payment-credential row: descriptor (key/script) goes in the LABEL,
-// the FULL credential hash is the value (hash:true).
-function credentialRow(label: string, addr: PlutusAddress): DexRow {
+// Address rows: descriptor (key/script) goes in the LABEL, the FULL credential
+// hash is the value (hash:true). The optional stake credential (often present
+// on these addresses) is surfaced as its own row so it is never dropped.
+function addressRows(label: string, addr: PlutusAddress): DexRow[] {
   const c = addr.paymentCredential;
   const kind = c.kind === "Script" ? "script" : "key";
-  return { label: `${label} (${kind})`, value: c.hash, hash: true };
+  const rows: DexRow[] = [{ label: `${label} (${kind})`, value: c.hash, hash: true }];
+  const stake = addr.stakeCredential;
+  if (stake) {
+    if (stake.kind === "Inline") {
+      const sk = stake.credential.kind === "Script" ? "script" : "key";
+      rows.push({ label: `${label} stake (${sk})`, value: stake.credential.hash, hash: true });
+    } else {
+      rows.push({
+        label: `${label} stake (pointer)`,
+        value: `slot ${stake.slotNumber}, txIdx ${stake.transactionIndex}, certIdx ${stake.certificateIndex}`,
+      });
+    }
+  }
+  return rows;
 }
 
 // AuthorizationMethod row: the auth kind (CardanoSignature, CardanoSpendScript,
@@ -55,8 +69,12 @@ function describeLiquidation(m: FtLiquidationMode): string {
       return "No liquidation (full collateral claim)";
     case "NoLiquidationDutchAuctionClaim":
       return "No liquidation (Dutch auction claim)";
-    case "Liquidation":
-      return `Liquidation (LTV ${m.lTV}/${m.lTVDivider}, penalty ${m.partialLiquidationPenaltyPerMille}‰)`;
+    case "Liquidation": {
+      // equityInPrincipalCurrency: true -> equity computed in principal currency,
+      // false -> in collateral currency (per the on-chain LiquidationMode comment).
+      const equity = m.equityInPrincipalCurrency ? "principal" : "collateral";
+      return `Liquidation (LTV ${m.lTV}/${m.lTVDivider}, penalty ${m.partialLiquidationPenaltyPerMille}‰, equity in ${equity} currency)`;
+    }
   }
 }
 
@@ -71,19 +89,64 @@ function describeRepayment(m: FtRepaymentMode): string {
   }
 }
 
+// The oracle "dummy" sentinel (= no oracle) is ascii "NONE"/"NONE".
+const ORACLE_NONE = "4e4f4e45"; // ascii "NONE"
+
+function isDummyOracle(a: AssetClass): boolean {
+  return a.policyId === ORACLE_NONE && a.assetName === ORACLE_NONE;
+}
+
 function collateralAssets(label: string, c: FtCollateralAsset): DexAssetRow[] {
-  return [
+  const rows: DexAssetRow[] = [
     {
       label,
       policyId: c.policyId,
       assetName: c.maybeAssetName ?? "",
     },
   ];
+  // CollateralAsset.oracleTokenAsset: the oracle NFT used to price this
+  // collateral (dummy ("NONE","NONE") when no oracle is used). Surface the real
+  // oracle token; skip the dummy sentinel.
+  if (!isDummyOracle(c.oracleTokenAsset)) {
+    rows.push({
+      label: `${label} oracle token`,
+      policyId: c.oracleTokenAsset.policyId,
+      assetName: c.oracleTokenAsset.assetName,
+    });
+  }
+  return rows;
+}
+
+// A real (non-dummy, non-empty) oracle AssetClass carries pricing data worth
+// surfacing; ("","") (ADA / no oracle) and the "NONE"/"NONE" dummy do not.
+function isRealOracle(a: AssetClass): boolean {
+  if (isDummyOracle(a)) return false;
+  return a.policyId !== "" || a.assetName !== "";
+}
+
+// extraData is an opaque `Data` extension field (used by permissioned pools and
+// parsed per use-case). It is empty (Constr0[]) on standard orders; surface a
+// neutral presence row only when it actually carries content, so the meaning is
+// never silently dropped without inventing a name for arbitrary data.
+function extraDataRows(d: PD): DexRow[] {
+  const empty =
+    typeof d === "object" &&
+    d !== null &&
+    "constructor" in d &&
+    "fields" in d &&
+    (d as { fields: PD[] }).fields.length === 0;
+  if (empty) return [];
+  return [{ label: "Extra data (opaque)", value: "present", mono: true }];
 }
 
 function commonRows(cd: FtCommonData): DexRow[] {
   return [
     assetRow("Principal asset", cd.principalAsset),
+    // principalOracleAsset: oracle NFT for the principal (used by dynamic-priced
+    // pools and partial liquidations). Surfaced only when a real oracle is set.
+    ...(isRealOracle(cd.principalOracleAsset)
+      ? [assetRow("Principal oracle token", cd.principalOracleAsset)]
+      : []),
     { label: "Interest rate", value: `${cd.interestRate} / 10000` },
     { label: "Installment period (h)", value: cd.installmentPeriod.toLocaleString() },
     { label: "Total installments", value: cd.totalInstallments.toLocaleString() },
@@ -109,13 +172,14 @@ export function requestToView(datum: FtRequestDatum): DexOrderView {
     permissionless
       ? { label: "Permissioning", value: "permissionless" }
       : { label: "Permissioning (condition script)", value: datum.permissionedConditionScriptHash, hash: true },
-    credentialRow("Borrower", datum.borrowerAddress),
+    ...addressRows("Borrower", datum.borrowerAddress),
     authRow("Borrower auth", datum.borrowerAuth),
     { label: "Min principal", value: `${datum.minPrincipal.toLocaleString()} / ${datum.minPrincipalDivider.toLocaleString()}` },
     { label: "Max principal", value: datum.maxPrincipal.toLocaleString() },
     { label: "Dynamic collateral price", value: datum.dynamicCollateralPrice ? "yes" : "no" },
     { label: "Request expiration", value: `${datum.requestExpiration.toLocaleString()} (POSIX ms)` },
     { label: "Expiration penalty", value: `${datum.requestExpirationPenalty.toLocaleString()} lovelace` },
+    ...extraDataRows(datum.extraData),
     ...commonRows(datum.commonData),
   ];
   return {
@@ -140,15 +204,30 @@ export function poolToView(datum: FtPoolDatum): DexOrderView {
     });
   }
   const permissionless = datum.permissionedConditionScriptHash === "4e4f4e45"; // "NONE"
+  // Per-option borrow ratio: minCollateral[i] / minCollateralDivider[i] is the
+  // LTV (oracle pools) or collateral-per-principal unit (no-oracle pools) for
+  // collateral option #(i+1). Surface each one so these lists are not collapsed
+  // to a bare count.
+  const ratioRows: DexRow[] = datum.collateralOptions.map((_, i) => {
+    const num = datum.minCollateral[i];
+    const div = datum.minCollateralDivider[i];
+    const ratio =
+      num !== undefined && div !== undefined
+        ? `${num.toLocaleString()} / ${div.toLocaleString()}`
+        : "—";
+    return { label: `Min collateral ratio #${i + 1}`, value: ratio };
+  });
   const rows: DexRow[] = [
     permissionless
       ? { label: "Permissioning", value: "permissionless" }
       : { label: "Permissioning (condition script)", value: datum.permissionedConditionScriptHash, hash: true },
-    credentialRow("Lender bond address", datum.lenderBondAddress),
+    ...addressRows("Lender bond address", datum.lenderBondAddress),
     authRow("Lender auth", datum.lenderAuth),
     { label: "Lender bond datum hash", value: datum.lenderBondInlineDatumHash, hash: true },
     { label: "Collateral options", value: datum.collateralOptions.length.toLocaleString() },
+    ...ratioRows,
     { label: "Dynamic collateral price", value: datum.dynamicCollateralPrice ? "yes" : "no" },
+    ...extraDataRows(datum.extraData),
     ...commonRows(datum.commonData),
   ];
   const assets: DexAssetRow[] = datum.collateralOptions.flatMap((c, i) =>
@@ -168,6 +247,10 @@ export function loanToView(datum: FtLoanDatum): DexOrderView {
   const rows: DexRow[] = [
     { label: "Principal amount", value: datum.principalAmount.toLocaleString() },
     assetRow("Principal asset", datum.principalAsset),
+    // principalOracleAsset (loan field 7): oracle NFT for the principal.
+    ...(isRealOracle(datum.principalOracleAsset)
+      ? [assetRow("Principal oracle token", datum.principalOracleAsset)]
+      : []),
     { label: "Lend date", value: `${datum.lendDate.toLocaleString()} (POSIX ms)` },
     { label: "Interest rate", value: `${datum.interestRate} / 10000` },
     { label: "Installments repaid", value: `${datum.repaidInstallments.toLocaleString()} / ${datum.totalInstallments.toLocaleString()}` },

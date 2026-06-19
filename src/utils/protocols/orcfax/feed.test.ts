@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { PD } from "@/utils/protocols/dex/plutusData";
 import { parseOrcfaxFeed } from "./feed";
+import { orcfaxFeedToView } from "./index";
 import { matchOrcfaxNftPolicy, matchOrcfaxScriptHash, ORCFAX } from "./constants";
 
 const C = (tag: number, ...fields: PD[]): PD => ({ constructor: tag, fields });
@@ -136,5 +137,57 @@ describe("Orcfax matching", () => {
     expect(matchOrcfaxNftPolicy(ORCFAX.preprodV0AuthPolicy, [], "preview")).toBe("feed");
     expect(matchOrcfaxNftPolicy(ORCFAX.preprodV0AuthPolicy, [], "mainnet")).toBeNull();
     expect(matchOrcfaxNftPolicy(ORCFAX.factTokenPolicy, [], "preprod")).toBeNull();
+  });
+});
+
+describe("orcfaxFeedToView — completeness", () => {
+  const COLLECTOR = "3c12f6735ef87655c5b27bced3f828d857d0a27fd20f2cda18ebf2fb";
+  const ascii2 = (s: string): string => {
+    let out = "";
+    for (let i = 0; i < s.length; i++) out += s.charCodeAt(i).toString(16).padStart(2, "0");
+    return out;
+  };
+  const rowLabels = (rows: { label: string }[]) => rows.map((r) => r.label);
+
+  test("V1: collector + collect_after (labelled slot) both surface", () => {
+    const datum: PD = C(
+      0,
+      C(0, B(ascii2("CER/ADA-USD/3")), I(1727701212380), C(0, I(77046047), I(200000000))),
+      C(0, I(1727701200000), B(COLLECTOR)), // 2-field context: [collect_after, collector]
+    );
+    const view = orcfaxFeedToView(parseOrcfaxFeed(datum));
+    const labels = rowLabels(view.rows);
+    expect(labels).toContain("Collector");
+    expect(labels).toContain("Collect after");
+    const collectAfter = view.rows.find((r) => r.label === "Collect after");
+    // collect_after is a slot gate, NOT a ms timestamp — must not claim "POSIX ms".
+    expect(collectAfter?.value).toContain("(slot)");
+    expect(collectAfter?.value).not.toContain("POSIX");
+    // collector rendered as a 28-byte hash row.
+    const collector = view.rows.find((r) => r.label === "Collector");
+    expect(collector?.value).toBe(COLLECTOR);
+    expect(collector?.hash).toBe(true);
+  });
+
+  test("V0: every value pair is rendered, not just the first two", () => {
+    const expNeg5 = BigInt("18446744073709551611"); // 2^64 - 5
+    const datum: PD = C(
+      0,
+      M(
+        { k: B(ascii2("name")), v: B(ascii2("ADA-USD|USD-ADA")) },
+        {
+          k: B(ascii2("value")),
+          v: L(C(3, I(1), I(expNeg5)), C(3, I(2), I(expNeg5)), C(3, I(3), I(expNeg5))),
+        },
+      ),
+      B(ascii2("ID")),
+      C(1, I(1700000600000), B(COLLECTOR)),
+    );
+    const view = orcfaxFeedToView(parseOrcfaxFeed(datum));
+    const labels = rowLabels(view.rows);
+    // all three pairs surface — the 3rd (extra) one is NOT silently dropped.
+    expect(labels).toContain("Value (rate)");
+    expect(labels).toContain("Value (inverse)");
+    expect(labels).toContain("Value [2]");
   });
 });

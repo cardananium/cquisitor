@@ -17,6 +17,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createStore, del, entries, set } from "idb-keyval";
 import type { NetworkType } from "@cardananium/cquisitor-lib";
 import type { DataProvider } from "@/utils/transactionValidation";
 import { KoiosClient, type AssetMetadata, type BlockchainDataClient } from "@/utils/koiosClient";
@@ -58,6 +59,55 @@ function makeAssetClient(
   }
 }
 
+// Persistent metadata cache with a 1-hour TTL, backed by IndexedDB (idb-keyval)
+// and mirrored in memory for synchronous reads. The in-memory map is hydrated
+// from IndexedDB on mount, so already-fetched assets survive card re-renders,
+// transaction switches AND full page reloads without refetching. `null` (asset
+// has no metadata) is cached too, so unknown assets aren't retried for an hour.
+// IndexedDB (not localStorage) is used because registry logos make entries large
+// and would blow the ~5 MB localStorage budget.
+type CacheEntry = { meta: AssetMetadata | null; at: number };
+const ASSET_TTL_MS = 60 * 60 * 1000;
+const idbStore = createStore("cquisitor-asset-meta", "entries");
+const assetCache = new Map<string, CacheEntry>();
+const hasIdb = (): boolean => typeof indexedDB !== "undefined";
+
+let hydration: Promise<void> | null = null;
+/** Load non-expired entries from IndexedDB into the in-memory mirror, once. */
+function hydrateAssetCache(): Promise<void> {
+  if (hydration) return hydration;
+  hydration = (async () => {
+    if (!hasIdb()) return;
+    try {
+      const now = Date.now();
+      for (const [unit, entry] of await entries<string, CacheEntry>(idbStore)) {
+        if (entry && now - entry.at <= ASSET_TTL_MS) assetCache.set(unit, entry);
+        else void del(unit, idbStore);
+      }
+    } catch {
+      /* unavailable (private mode / quota) — fall back to network-only */
+    }
+  })();
+  return hydration;
+}
+
+function cacheGet(unit: string): AssetMetadata | null | undefined {
+  const entry = assetCache.get(unit);
+  if (!entry) return undefined;
+  if (Date.now() - entry.at > ASSET_TTL_MS) {
+    assetCache.delete(unit);
+    if (hasIdb()) void del(unit, idbStore);
+    return undefined;
+  }
+  return entry.meta;
+}
+
+function cacheSet(unit: string, meta: AssetMetadata | null): void {
+  const entry: CacheEntry = { meta, at: Date.now() };
+  assetCache.set(unit, entry);
+  if (hasIdb()) void set(unit, entry, idbStore).catch(() => {});
+}
+
 export function AssetInfoProvider({
   provider,
   apiKey,
@@ -85,21 +135,42 @@ export function AssetInfoProvider({
   }, [data]);
   const pending = useRef<Set<string>>(new Set());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load the persisted (IndexedDB) cache once, then re-render so consumers
+  // re-read `get` and the prefetch effect can skip already-cached units.
+  useEffect(() => {
+    let active = true;
+    hydrateAssetCache().then(() => {
+      if (!active) return;
+      setHydrated(true);
+      // Bump `data` identity so the context value changes and consumers re-read
+      // `get` — needed when every asset is cache-served and nothing else fetches.
+      setData((prev) => new Map(prev));
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const client = useMemo(
     () => (provider && network ? makeAssetClient(provider, network, apiKey ?? "") : null),
     [provider, network, apiKey],
   );
 
+  // Cache + state are keyed by `${network}:${unit}` so metadata cached on one
+  // network is never served for a query on another. The bare unit is still what
+  // the network client receives.
   const flush = useCallback(() => {
     timer.current = null;
     const units = Array.from(pending.current);
     pending.current.clear();
     if (units.length === 0) return;
+    const prefix = `${network ?? "?"}:`;
     const markNotFound = () =>
       setData((prev) => {
         const next = new Map(prev);
-        for (const u of units) if (!next.has(u)) next.set(u, null);
+        for (const u of units) if (!next.has(prefix + u)) next.set(prefix + u, null);
         return next;
       });
     if (!client) {
@@ -112,33 +183,50 @@ export function AssetInfoProvider({
         const byUnit = new Map(infos.map((i) => [i.unit, i] as const));
         setData((prev) => {
           const next = new Map(prev);
-          for (const u of units) next.set(u, byUnit.get(u) ?? null);
+          for (const u of units) {
+            const meta = byUnit.get(u) ?? null;
+            next.set(prefix + u, meta);
+            cacheSet(prefix + u, meta); // remember for an hour across remounts
+          }
           return next;
         });
       })
       .catch(markNotFound);
-  }, [client]);
+  }, [client, network]);
 
   const request = useCallback(
     (unit: string) => {
-      if (!unit || dataRef.current.has(unit) || pending.current.has(unit)) return;
+      if (!unit || pending.current.has(unit)) return;
+      const key = `${network ?? "?"}:${unit}`;
+      // A fresh cache entry is served via the `get` read-through below — no
+      // fetch needed (and no setState here, which would cascade in an effect).
+      if (dataRef.current.has(key) || cacheGet(key) !== undefined) return;
       pending.current.add(unit);
       // Coalesce all lookups from a single render pass into one batch.
       if (timer.current == null) timer.current = setTimeout(flush, 60);
     },
-    [flush],
+    [flush, network],
   );
 
   // Prefetch the centrally-collected units as one batch once the client is
   // ready (they coalesce with any lazy component requests in the same window).
   useEffect(() => {
-    if (!client || !units) return;
+    if (!client || !units || !hydrated) return;
     for (const u of units) request(u);
-  }, [client, units, request]);
+  }, [client, units, request, hydrated]);
 
   const value = useMemo<AssetInfoContextValue>(
-    () => ({ get: (unit) => data.get(unit), request, enabled: !!client }),
-    [data, request, client],
+    () => ({
+      // Read through to the persisted cache for units not in this instance's
+      // state (e.g. served from IndexedDB after a reload, or lazily requested).
+      get: (unit) => {
+        const key = `${network ?? "?"}:${unit}`;
+        return data.has(key) ? data.get(key) : cacheGet(key);
+      },
+      request,
+      enabled: !!client,
+    }),
+    [data, request, client, network],
   );
 
   return <AssetInfoContext.Provider value={value}>{children}</AssetInfoContext.Provider>;

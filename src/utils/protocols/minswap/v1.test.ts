@@ -22,11 +22,16 @@ const B = (hex: string): PD => ({ bytes: hex });
 const L = (...items: PD[]): PD => ({ list: items });
 
 const PKH = "0123456789abcdef0123456789abcdef0123456789abcdef01234567";
+const PKH2 = "89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0";
+const STAKE = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba98";
+const DATUM_HASH = "1111111111111111111111111111111111111111111111111111111111111111";
 const POLICY = "11112222333344445555666677778888999900001111222233334444";
 const NAME = "4d494e";
 const ada: PD = C(0, B(""), B(""));
 const token: PD = C(0, B(POLICY), B(NAME));
 const keyAddr: PD = C(0, C(0, B(PKH)), C(1)); // key payment, no stake
+const stakedAddr = (pkh: string, stake: string): PD =>
+  C(0, C(0, B(pkh)), C(0, C(0, C(0, B(stake))))); // key payment + inline key stake
 
 describe("Minswap V1 order datum", () => {
   const datum: PD = C(0, keyAddr, keyAddr, C(1), C(0, token, I(950)), I(2_000_000), I(2_000_000));
@@ -42,6 +47,27 @@ describe("Minswap V1 order datum", () => {
     expect(v.role).toBe("v1-order");
     expect(v.kind).toBe("Swap (exact in)");
   });
+
+  test("view surfaces sender, receiver (with stake) and receiver datum hash", () => {
+    const withReceiver: PD = C(
+      0,
+      stakedAddr(PKH, STAKE), // sender
+      stakedAddr(PKH2, STAKE), // receiver
+      C(0, B(DATUM_HASH)), // receiver datum hash: Some
+      C(0, token, I(950)),
+      I(2_000_000),
+      I(2_000_000),
+    );
+    const v = minswapV1OrderToView(parseMinswapV1OrderDatum(withReceiver));
+    const sender = v.rows.find((r) => r.label === "Sender (key)");
+    const receiver = v.rows.find((r) => r.label === "Receiver (key)");
+    const dh = v.rows.find((r) => r.label === "Receiver datum hash");
+    expect(sender?.value).toBe(`${PKH} / stake key ${STAKE}`);
+    expect(sender?.hash).toBe(true);
+    expect(receiver?.value).toBe(`${PKH2} / stake key ${STAKE}`);
+    expect(dh?.value).toBe(DATUM_HASH);
+    expect(dh?.hash).toBe(true);
+  });
 });
 
 describe("Minswap V1 pool datum", () => {
@@ -56,6 +82,22 @@ describe("Minswap V1 pool datum", () => {
   test("view labeled Minswap V1 pool", () => {
     expect(minswapV1PoolToView(parseMinswapV1PoolDatum(datum)).role).toBe("v1-pool");
   });
+  test("view surfaces fee-sharing fee-to address when set", () => {
+    // PoolFeeSharing = Constr0[ feeTo Address, Option<datumHash> ]
+    const withFeeShare: PD = C(
+      0,
+      ada,
+      token,
+      I(1_000_000),
+      I(42),
+      C(0, C(0, stakedAddr(PKH, STAKE), C(0, B(DATUM_HASH)))), // Some(PoolFeeSharing)
+    );
+    const v = minswapV1PoolToView(parseMinswapV1PoolDatum(withFeeShare));
+    const feeTo = v.rows.find((r) => r.label === "Fee-sharing fee-to (key)");
+    const feeToDh = v.rows.find((r) => r.label === "Fee-sharing fee-to datum hash");
+    expect(feeTo?.value).toBe(`${PKH} / stake key ${STAKE}`);
+    expect(feeToDh?.value).toBe(DATUM_HASH);
+  });
   test("redeemer classify", () => {
     expect(classifyMinswapV1OrderRedeemer(C(0))).toBe("ApplyOrder");
     expect(classifyMinswapV1OrderRedeemer(C(1))).toBe("CancelOrder");
@@ -69,6 +111,12 @@ describe("Minswap Stableswap", () => {
     const d = parseMinswapStableswapOrderDatum(orderDatum);
     expect(d.step).toEqual({ kind: "Swap", assetInIndex: BigInt(0), assetOutIndex: BigInt(1), minimumAssetOut: BigInt(99) });
     expect(minswapStableswapOrderToView(d).protocol).toBe("Minswap Stableswap");
+  });
+  test("order view surfaces sender + receiver addresses", () => {
+    const withAddrs: PD = C(0, stakedAddr(PKH, STAKE), stakedAddr(PKH2, STAKE), C(1), C(0, I(0), I(1), I(99)), I(1_000_000), I(2_000_000));
+    const v = minswapStableswapOrderToView(parseMinswapStableswapOrderDatum(withAddrs));
+    expect(v.rows.find((r) => r.label === "Sender (key)")?.value).toBe(`${PKH} / stake key ${STAKE}`);
+    expect(v.rows.find((r) => r.label === "Receiver (key)")?.value).toBe(`${PKH2} / stake key ${STAKE}`);
   });
   test("pool: balances + amp + orderHash", () => {
     const d = parseMinswapStableswapPoolDatum(poolDatum);

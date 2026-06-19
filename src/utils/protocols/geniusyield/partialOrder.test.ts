@@ -12,6 +12,7 @@ import {
   matchGeniusYieldNftPolicy,
   matchGeniusYieldScriptHash,
 } from "./constants";
+import { partialOrderToView } from "./index";
 
 const C = (tag: number, ...fields: PD[]): PD => ({ constructor: tag, fields });
 const I = (n: number | bigint): PD => ({ int: BigInt(n) });
@@ -234,5 +235,15 @@ describe("Genius Yield matching", () => {
   test("rejects wrong policy and non-mainnet networks", () => {
     expect(matchGeniusYieldNftPolicy(POLICY, [NFT_NAME], "mainnet")).toBeNull();
     expect(matchGeniusYieldNftPolicy(GENIUS_YIELD_V1.nftPolicyV1, [NFT_NAME], "preprod")).toBeNull();
+  });
+});
+
+describe("partialOrderToView trading pair", () => {
+  test("pair = offered / asked (the two traded AssetClasses)", () => {
+    const view = partialOrderToView(parsePartialOrderDatum(datum));
+    expect(view.pair).toEqual({
+      assetA: { policyId: POLICY, assetName: OFFERED_NAME },
+      assetB: { policyId: "", assetName: "" },
+    });
   });
 });

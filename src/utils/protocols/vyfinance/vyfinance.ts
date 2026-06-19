@@ -18,7 +18,11 @@
 //   the tag + raw single Int through.
 //
 // POOL DATUM (UTxO at the addr1z… pool address, attached BY DATUM HASH):
-//   Constr 0 [ Int barFeeA, Int barFeeB, Int totalLpTokens ]
+//   Constr 0 [ Int poolAssetABarFee, Int poolAssetBBarFee, Int totalLpTokens ]
+//   Field names per the IndigoProtocol/dexter SDK
+//   (src/dex/definitions/vyfinance/pool.ts): PoolAssetABarFee, PoolAssetBBarFee,
+//   TotalLpTokens. Pool reserves and the pair's asset identities are NOT in the
+//   datum — reserves are the UTxO value and pool identity is the mainNFT.
 
 import {
   asBytes,
@@ -99,11 +103,11 @@ export function parseVyFinanceOrder(data: PD): VyFinanceOrder {
 // --- Pool datum ------------------------------------------------------------
 
 export interface VyFinancePool {
-  /** Fee numerator / accumulated bar-fee component A (semantics inferred). */
+  /** PoolAssetABarFee — bar fee for pool asset A (dexter field name). */
   barFeeA: bigint;
-  /** Fee numerator / accumulated bar-fee component B (semantics inferred). */
+  /** PoolAssetBBarFee — bar fee for pool asset B (dexter field name). */
   barFeeB: bigint;
-  /** Total LP tokens currently in circulation for this pool. */
+  /** TotalLpTokens currently in circulation for this pool. */
   totalLpTokens: bigint;
   issues: DexIssue[];
 }

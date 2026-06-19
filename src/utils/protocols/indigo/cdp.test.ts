@@ -182,6 +182,84 @@ describe("parseCDPDatum — IAsset config (real live shape, 9 fields, role hint)
   });
 });
 
+// IAsset config "v2" — the NEWER Constr1-wrapped 11-field record. Real live
+// shape (iETH/USDCx market): the parser must surface the price-pair AssetClass,
+// the Constr2 price-oracle hash, the interest-oracle AssetClass, the bare-Int
+// parameter, the field-9 bool, and the field-10 Option<AssetClass> — none of
+// which exist in the v1 layout.
+describe("parseCDPDatum — IAsset config v2 (Constr1, 11 fields, real live shape)", () => {
+  const ORACLE = "f83f5e86412ad360e1f6f248503b11fa92edf4aaa4a6799f1f067317"; // 28-byte
+  const USDCX_POLICY = "1f3aec8bfe7ea4fe14c5f121e2a92e301afe414147860d557cac7e34";
+  const USDCX = "5553444378"; // "USDCx"
+  const INT_ORACLE_POLICY = "44686156f9e6a34b974eeced389585837b75b82a11077154fb74f4f4";
+  const INT_ORACLE_NAME = "494554485f55534443585f494e5445524553545f4f5241434c45"; // IETH_USDCX_INTEREST_ORACLE
+  const acOf = (p: string, n: string): PD => C(0, B(p), B(n));
+
+  const inner = C(
+    0,
+    B("69455448"), // [0] iAsset name "iETH"
+    acOf(USDCX_POLICY, USDCX), // [1] price-pair (quote) asset
+    I(0), // [2] price-source kind
+    C(2, B(ORACLE)), // [3] price oracle ref (live arm = Constr2[hash])
+    acOf(INT_ORACLE_POLICY, INT_ORACLE_NAME), // [4] interest-oracle asset
+    ratio(15, 10), // [5] maintenance ratio 1.5
+    ratio(115, 100), // [6] 1.15
+    ratio(11, 10), // [7] 1.1
+    I(10_000_000), // [8] fee/limit parameter
+    FALSE, // [9] bool flag
+    nothing, // [10] Option<AssetClass> = Nothing
+  );
+  const datum: PD = C(1, inner);
+
+  test("v2 layout surfaces every meaningful field", () => {
+    const d = parseCDPDatum(datum, "iasset") as IAssetConfig;
+    expect(d.role).toBe("iasset");
+    expect(d.layout).toBe("v2");
+    expect(d.assetName).toBe("69455448");
+    expect(d.priceSource).toBe(BigInt(0));
+    expect(d.ratios).toHaveLength(3);
+    expect(d.ratios[0]).toEqual({ numerator: BigInt(15), denominator: BigInt(10) });
+    if (!d.v2) throw new Error("expected v2 extras");
+    expect(d.v2.pricePairAsset).toEqual({ policyId: USDCX_POLICY, assetName: USDCX });
+    expect(d.v2.priceOracle).toEqual({ ctor: 2, hash: ORACLE });
+    expect(d.v2.interestOracleAsset).toEqual({
+      policyId: INT_ORACLE_POLICY,
+      assetName: INT_ORACLE_NAME,
+    });
+    expect(d.v2.param).toBe(BigInt(10_000_000));
+    expect(d.v2.flag9).toBe(false);
+    expect(d.v2.optAsset10).toEqual({ present: false, asset: null });
+  });
+
+  test("field [10] Just(AssetClass) is decoded", () => {
+    const withOpt = C(
+      1,
+      C(
+        0,
+        B("69455448"),
+        acOf("", ""),
+        I(0),
+        C(2, B(ORACLE)),
+        acOf(INT_ORACLE_POLICY, INT_ORACLE_NAME),
+        ratio(15, 10),
+        ratio(115, 100),
+        ratio(11, 10),
+        I(100_000_000),
+        TRUE,
+        just(acOf(USDCX_POLICY, USDCX)), // Just(AssetClass)
+      ),
+    );
+    const d = parseCDPDatum(withOpt, "iasset") as IAssetConfig;
+    if (!d.v2) throw new Error("expected v2 extras");
+    expect(d.v2.flag9).toBe(true);
+    expect(d.v2.optAsset10).toEqual({
+      present: true,
+      asset: { policyId: USDCX_POLICY, assetName: USDCX },
+    });
+    expect(d.v2.pricePairAsset).toEqual({ policyId: "", assetName: "" }); // ADA
+  });
+});
+
 // Redeemer cases use the CDP-validator spend redeemer constructor table.
 describe("parseCDPRedeemer", () => {
   test("AdjustCDP = Constr3[ posixMs, Constr0[Int] ] (real live shape)", () => {

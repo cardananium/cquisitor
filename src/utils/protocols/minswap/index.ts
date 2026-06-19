@@ -8,16 +8,24 @@ import {
   type DexOrderView,
   type DexRow,
 } from "@/utils/protocols/dex/registry";
-import type { AssetClass, PD } from "@/utils/protocols/dex/plutusData";
+import type {
+  AssetClass,
+  Credential,
+  PD,
+  PlutusAddress,
+  StakeCredential,
+} from "@/utils/protocols/dex/plutusData";
 import {
   matchMinswapV2ScriptHash,
   matchMinswapV1ScriptHash,
   matchMinswapStableswapScriptHash,
 } from "./constants";
+import { MINSWAP_STABLESWAP_PAIRS } from "./stableswapPairs.generated";
 import {
   classifyMinswapOrderRedeemer,
   parseMinswapOrderDatum,
   parseMinswapPoolDatum,
+  type ExtraOrderDatum,
   type MinswapOrderDatum,
   type MinswapPoolDatum,
   type OrderAuthorizationMethod,
@@ -39,6 +47,7 @@ import {
   type V1OrderStep,
 } from "./v1";
 import type { DexRole } from "@/utils/protocols/dex/registry";
+import type { CardanoNetwork } from "@/components/TransactionCardView/types";
 
 const FEE_DENOMINATOR = 10_000;
 
@@ -48,6 +57,46 @@ function isAda(asset: AssetClass): boolean {
 
 function assetRow(label: string, asset: AssetClass): DexRow {
   return { label, asset: { policyId: asset.policyId, assetName: asset.assetName } };
+}
+
+function maybeRow(row: DexRow | null): DexRow[] {
+  return row ? [row] : [];
+}
+
+function credKind(c: Credential): string {
+  return c.kind === "Script" ? "script" : "key";
+}
+
+function stakeCredentialSuffix(stake: StakeCredential | null): string {
+  if (!stake) return "";
+  if (stake.kind === "Inline") {
+    return ` / stake ${credKind(stake.credential)} ${stake.credential.hash}`;
+  }
+  return ` / stake pointer (${stake.slotNumber}, ${stake.transactionIndex}, ${stake.certificateIndex})`;
+}
+
+// One row carrying an address' full payment-credential hash (hash:true for the
+// truncate+copy tooltip); script-ness + any stake credential go into the value.
+function addressRow(label: string, addr: PlutusAddress): DexRow {
+  const c = addr.paymentCredential;
+  return {
+    label: `${label} (${credKind(c)})`,
+    value: `${c.hash}${stakeCredentialSuffix(addr.stakeCredential)}`,
+    hash: true,
+  };
+}
+
+// V2 ExtraOrderDatum: NoDatum carries nothing; DatumHash/InlineDatum carry a
+// 32-byte CustomDatumHash that pins the receiver output's datum.
+function extraDatumRow(label: string, extra: ExtraOrderDatum): DexRow | null {
+  switch (extra.kind) {
+    case "NoDatum":
+      return null;
+    case "DatumHash":
+      return { label: `${label} (datum hash)`, value: extra.hash, hash: true };
+    case "InlineDatum":
+      return { label: `${label} (inline datum hash)`, value: extra.hash, hash: true };
+  }
 }
 
 function formatLovelace(lovelace: bigint): string {
@@ -184,6 +233,10 @@ function stepRows(step: OrderStep): DexRow[] {
     case "SwapMultiRouting":
       return [
         { label: "Routings", value: `${step.routings.length} pool(s)` },
+        ...step.routings.flatMap((r, i): DexRow[] => [
+          assetRow(`Routing ${i + 1} pool LP`, r.lpAsset),
+          { label: `Routing ${i + 1} direction`, value: direction(r.aToBDirection) },
+        ]),
         { label: "Swap amount", value: describeSwapAmount(step.swapAmountOption) },
         { label: "Minimum receive", value: step.minimumReceive.toLocaleString() },
       ];
@@ -216,6 +269,10 @@ function validateOrder(datum: MinswapOrderDatum): DexIssue[] {
 export function minswapOrderToView(datum: MinswapOrderDatum): DexOrderView {
   const rows: DexRow[] = [
     ...stepRows(datum.step),
+    addressRow("Success receiver", datum.successReceiver),
+    ...maybeRow(extraDatumRow("Success receiver datum", datum.successReceiverDatum)),
+    addressRow("Refund receiver", datum.refundReceiver),
+    ...maybeRow(extraDatumRow("Refund receiver datum", datum.refundReceiverDatum)),
     { label: "Max batcher fee", value: formatLovelace(datum.maxBatcherFee) },
     cancellerRow(datum.canceller),
   ];
@@ -235,11 +292,33 @@ export function minswapOrderToView(datum: MinswapOrderDatum): DexOrderView {
     rows,
     assets,
     issues: validateOrder(datum),
+    // The order only stores the pool's LP token; resolve it to show the pair.
+    // Skip multi-routing: its lp_asset is just the entry pool, so a single pair
+    // would mislead on a multi-hop swap — the per-routing LP rows show the path.
+    poolRef:
+      datum.step.kind !== "SwapMultiRouting" && datum.lpAsset.policyId
+        ? { policyId: datum.lpAsset.policyId, assetName: datum.lpAsset.assetName }
+        : undefined,
+  };
+}
+
+function stakeCredentialRow(label: string, stake: StakeCredential): DexRow {
+  if (stake.kind === "Inline") {
+    return {
+      label: `${label} (${credKind(stake.credential)})`,
+      value: stake.credential.hash,
+      hash: true,
+    };
+  }
+  return {
+    label: `${label} (pointer)`,
+    value: `(${stake.slotNumber}, ${stake.transactionIndex}, ${stake.certificateIndex})`,
   };
 }
 
 export function minswapPoolToView(datum: MinswapPoolDatum): DexOrderView {
   const rows: DexRow[] = [
+    stakeCredentialRow("Pool batching stake credential", datum.poolBatchingStakeCredential),
     { label: "Total LP minted", value: datum.totalLiquidity.toLocaleString() },
     { label: "Base fee A", value: `${datum.baseFeeANumerator} / ${FEE_DENOMINATOR}` },
     { label: "Base fee B", value: `${datum.baseFeeBNumerator} / ${FEE_DENOMINATOR}` },
@@ -259,6 +338,12 @@ export function minswapPoolToView(datum: MinswapPoolDatum): DexOrderView {
     rows,
     assets,
     issues: [],
+    // The pool datum carries both reserve assets directly — surface them as the
+    // trading pair (the two reserves, not the LP token / pool NFT).
+    pair: {
+      assetA: { policyId: datum.assetA.policyId, assetName: datum.assetA.assetName },
+      assetB: { policyId: datum.assetB.policyId, assetName: datum.assetB.assetName },
+    },
   };
 }
 
@@ -304,34 +389,59 @@ const V1_STEP_LABELS: Record<V1OrderStep["kind"], string> = {
 };
 
 export function minswapV1OrderToView(datum: MinswapV1OrderDatum): DexOrderView {
+  const rows: DexRow[] = [
+    ...v1StepRows(datum.step),
+    addressRow("Receiver", datum.receiver),
+  ];
+  if (datum.receiverDatumHash !== null) {
+    rows.push({ label: "Receiver datum hash", value: datum.receiverDatumHash, hash: true });
+  }
+  rows.push(
+    addressRow("Sender", datum.sender),
+    { label: "Batcher fee", value: lovelace(datum.batcherFee) },
+    { label: "Deposit ADA", value: lovelace(datum.depositADA) },
+  );
   return {
     protocol: "Minswap V1",
     role: "v1-order",
     kind: V1_STEP_LABELS[datum.step.kind],
-    rows: [
-      ...v1StepRows(datum.step),
-      { label: "Batcher fee", value: lovelace(datum.batcherFee) },
-      { label: "Deposit ADA", value: lovelace(datum.depositADA) },
-    ],
+    rows,
     issues: [],
   };
 }
 
 export function minswapV1PoolToView(datum: MinswapV1PoolDatum): DexOrderView {
+  const rows: DexRow[] = [
+    { label: "Total LP minted", value: datum.totalLiquidity.toLocaleString() },
+    { label: "Root k (last)", value: datum.rootKLast.toLocaleString() },
+    { label: "Fee sharing", value: datum.feeSharing ? "on" : "off" },
+  ];
+  if (datum.feeSharing) {
+    rows.push(addressRow("Fee-sharing fee-to", datum.feeSharing.feeTo));
+    if (datum.feeSharing.feeToDatumHash !== null) {
+      rows.push({
+        label: "Fee-sharing fee-to datum hash",
+        value: datum.feeSharing.feeToDatumHash,
+        hash: true,
+      });
+    }
+  }
   return {
     protocol: "Minswap V1",
     role: "v1-pool",
     kind: "Liquidity Pool",
-    rows: [
-      { label: "Total LP minted", value: datum.totalLiquidity.toLocaleString() },
-      { label: "Root k (last)", value: datum.rootKLast.toLocaleString() },
-      { label: "Fee sharing", value: datum.feeSharing ? "on" : "off" },
-    ],
+    rows,
     assets: [
       { label: "Asset A", policyId: datum.assetA.policyId, assetName: datum.assetA.assetName },
       { label: "Asset B", policyId: datum.assetB.policyId, assetName: datum.assetB.assetName },
     ],
     issues: [],
+    // The pool datum carries both pool assets directly — surface them as the
+    // trading pair (the two reserve assets, not the LP token).
+    pair: {
+      assetA: { policyId: datum.assetA.policyId, assetName: datum.assetA.assetName },
+      assetB: { policyId: datum.assetB.policyId, assetName: datum.assetB.assetName },
+    },
   };
 }
 
@@ -367,15 +477,35 @@ const STABLE_STEP_LABELS: Record<StableswapOrderStep["kind"], string> = {
 };
 
 export function minswapStableswapOrderToView(datum: MinswapStableswapOrderDatum): DexOrderView {
+  const rows: DexRow[] = [
+    ...stableStepRows(datum.step),
+    addressRow("Receiver", datum.receiver),
+  ];
+  if (datum.receiverDatumHash !== null) {
+    rows.push({ label: "Receiver datum hash", value: datum.receiverDatumHash, hash: true });
+  }
+  rows.push(
+    addressRow("Sender", datum.sender),
+    { label: "Batcher fee", value: lovelace(datum.batcherFee) },
+    { label: "Deposit ADA", value: lovelace(datum.depositADA) },
+  );
+  // No `poolRef`: pool-pair resolution is not possible for Minswap Stableswap
+  // through the parsePoolPair(poolDatum, ref) mechanism. Verified on chain:
+  //  - The order datum carries NO pool token / NFT / LP asset — it only stores
+  //    the asset in/out *indices* into the pool's asset list (e.g. Swap 0 → 1)
+  //    and sits at a per-pool order-script address. There is nothing to look the
+  //    pool UTxO up by.
+  //  - The pool inline datum is Constr0[balances, totalLiquidity, amp,
+  //    orderHash] — it contains NO asset classes. The traded assets are baked
+  //    into the pool validator's compile-time script PARAMETERS (an opaque
+  //    Plutus Data constant), and getPoolDatum only returns the inline datum, so
+  //    parsePoolPair cannot recover them. We don't guess; the indices are shown
+  //    raw in the rows above.
   return {
     protocol: "Minswap Stableswap",
     role: "stableswap-order",
     kind: STABLE_STEP_LABELS[datum.step.kind],
-    rows: [
-      ...stableStepRows(datum.step),
-      { label: "Batcher fee", value: lovelace(datum.batcherFee) },
-      { label: "Deposit ADA", value: lovelace(datum.depositADA) },
-    ],
+    rows,
     issues: [],
   };
 }
@@ -397,6 +527,14 @@ export function minswapStableswapPoolToView(datum: MinswapStableswapPoolDatum): 
 
 // --- Adapter: V2 + V1 + Stableswap, dispatched by the matched role ---------
 
+// Attach the trading pair (resolved once from on-chain reserves) to a
+// stableswap view, keyed off the matched per-pool script hash.
+function withStableswapPair(view: DexOrderView, scriptHash?: string): DexOrderView {
+  const pair = scriptHash ? MINSWAP_STABLESWAP_PAIRS[scriptHash] : undefined;
+  if (pair) view.pair = pair;
+  return view;
+}
+
 function matchMinswap(hash: string, network: Parameters<typeof matchMinswapV2ScriptHash>[1]): DexRole | null {
   return (
     matchMinswapV2ScriptHash(hash, network) ??
@@ -409,7 +547,7 @@ registerDexAdapter({
   id: "minswap",
   label: "Minswap",
   matchScriptHash: matchMinswap,
-  decode: (datum: PD, role) => {
+  decode: (datum: PD, role, scriptHash) => {
     switch (role) {
       case "pool":
         return minswapPoolToView(parseMinswapPoolDatum(datum));
@@ -418,9 +556,17 @@ registerDexAdapter({
       case "v1-pool":
         return minswapV1PoolToView(parseMinswapV1PoolDatum(datum));
       case "stableswap-order":
-        return minswapStableswapOrderToView(parseMinswapStableswapOrderDatum(datum));
+        // Stableswap orders carry only asset indices; the pair lives in the
+        // per-pool script params, so attach it from the resolved-reserves registry.
+        return withStableswapPair(
+          minswapStableswapOrderToView(parseMinswapStableswapOrderDatum(datum)),
+          scriptHash,
+        );
       case "stableswap-pool":
-        return minswapStableswapPoolToView(parseMinswapStableswapPoolDatum(datum));
+        return withStableswapPair(
+          minswapStableswapPoolToView(parseMinswapStableswapPoolDatum(datum)),
+          scriptHash,
+        );
       default: // "order" (V2)
         return minswapOrderToView(parseMinswapOrderDatum(datum));
     }
@@ -430,6 +576,26 @@ registerDexAdapter({
     if (role === "v1-order") return classifyMinswapV1OrderRedeemer(redeemer);
     if (role === "stableswap-order") return classifyMinswapStableswapOrderRedeemer(redeemer);
     return null;
+  },
+  // A V2 order references its pool by the LP token; resolve that pool UTxO's
+  // datum back into the two traded assets so the panel can show the pair.
+  parsePoolPair: (poolDatum: PD) => {
+    // V2 pool datum carries asset_a / asset_b directly (the ref's indices are
+    // only needed by multi-asset stableswap pools, handled separately).
+    const p = parseMinswapPoolDatum(poolDatum);
+    return {
+      assetA: { policyId: p.assetA.policyId, assetName: p.assetA.assetName },
+      assetB: { policyId: p.assetB.policyId, assetName: p.assetB.assetName },
+    };
+  },
+  // Minswap V2 batches via a withdraw-zero: the order/pool spend defers to this
+  // staking validator (the pool datum's pool_batching_stake_credential), which
+  // validates the entire batch in one 0-amount withdrawal.
+  matchWithdrawalHash: (stakeHash: string, network?: CardanoNetwork): string | null => {
+    if (network && network !== "mainnet") return null;
+    return stakeHash === "1eae96baf29e27682ea3f815aba361a0c6059d45e4bfbe95bbd2f44a"
+      ? "batch validator"
+      : null;
   },
 });
 

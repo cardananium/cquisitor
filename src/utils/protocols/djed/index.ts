@@ -53,37 +53,40 @@ function formatLovelace(lovelace: bigint): string {
   return `${dec} ADA (${lovelace.toLocaleString()} lovelace)`;
 }
 
+// Render a POSIX-millisecond timestamp as an ISO date alongside the raw value.
+function formatPosixMs(ms: bigint): string {
+  const n = Number(ms);
+  const iso = Number.isFinite(n) ? new Date(n).toISOString() : "?";
+  return `${iso} (${ms.toLocaleString()} ms)`;
+}
+
 export function reserveToView(state: DjedReserveState): DexOrderView {
   const issues: DexIssue[] = [];
-  // The spend path requires the paused flag to be false; flag it when set.
-  if (state.paused) {
-    issues.push({
-      severity: "warning",
-      message: "Reserve paused/locked flag is set (spend path requires it to be false)",
-    });
-  }
   // Sanity-check the embedded policy id against the known DJED/SHEN policy.
-  if (state.policyId.toLowerCase() !== DJED.mintingPolicyId) {
+  if (state.mintingPolicyId.toLowerCase() !== DJED.mintingPolicyId) {
     issues.push({
       severity: "info",
-      message: `Datum policy id ${shortHex(state.policyId)} differs from the known DJED/SHEN policy`,
+      message: `Datum policy id ${shortHex(state.mintingPolicyId)} differs from the known DJED/SHEN policy`,
     });
   }
   const rows: DexRow[] = [
-    { label: "Reserve (collateral)", value: formatLovelace(state.reserveAmount) },
-    { label: "DJED circulating", value: formatMicro(state.djedAmount, "DJED") },
-    { label: "SHEN circulating", value: formatMicro(state.shenAmount, "SHEN") },
-    { label: "Param A", value: state.paramA.toLocaleString() },
-    { label: "Param B", value: state.paramB.toLocaleString() },
-    { label: "Paused", value: state.paused ? "yes" : "no" },
-    { label: "Mint policy", value: state.policyId, hash: true },
+    { label: "Reserve (collateral)", value: formatLovelace(state.adaInReserve) },
+    { label: "DJED circulating", value: formatMicro(state.djedInCirculation, "DJED") },
+    { label: "SHEN circulating", value: formatMicro(state.shenInCirculation, "SHEN") },
+    { label: "Min ADA in reserve", value: formatLovelace(state.minADA) },
+    { label: "Field [5] (unnamed)", value: state.field1.toLocaleString(), mono: true },
     {
-      label: "Last oracle time",
-      value: `${state.lastOracle.timestamp.toLocaleString()} (POSIX ms)`,
+      label: "Field [6] option",
+      value: state.optionPresent ? "Some (present)" : "Nothing",
     },
-    { label: "Last oracle input", value: formatRef(state.lastOracle.oracleInput), hash: true },
-    { label: "Oracle ref", value: formatRef(state.oracleRef), hash: true },
-    { label: "Prior state ref", value: formatRef(state.priorRef), hash: true },
+    { label: "Mint policy", value: state.mintingPolicyId, hash: true },
+    {
+      label: "Last order time",
+      value: formatPosixMs(state.lastOrder.timestamp),
+    },
+    { label: "Last order ref", value: formatRef(state.lastOrder.order), hash: true },
+    { label: "Minting-policy unique ref", value: formatRef(state.mintingPolicyUniqRef), hash: true },
+    { label: "Field [9] ref (unnamed)", value: formatRef(state.field3), hash: true },
   ];
   return {
     protocol: "Djed",

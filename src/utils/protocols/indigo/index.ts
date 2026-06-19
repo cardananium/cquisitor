@@ -80,18 +80,74 @@ function iAssetConfigToView(datum: IAssetConfig): DexOrderView {
   const rows: DexRow[] = [
     { label: "iAsset name", value: decodeAsciiName(datum.assetName), mono: true },
     { label: "Price source", value: datum.priceSource.toString() },
-    ...datum.ratios.map((r, i) => ({ label: `Ratio #${i + 1}`, value: formatRatio(r) })),
-    { label: "Flag", value: datum.flag ? "yes" : "no" },
-    {
+  ];
+
+  // v2 layout: surface the market-pair asset and price oracle right after the
+  // name so the priced-against asset is visible alongside it.
+  if (datum.v2) {
+    if (datum.v2.pricePairAsset) {
+      rows.push({
+        label: "Price-pair (quote) asset",
+        asset: {
+          policyId: datum.v2.pricePairAsset.policyId,
+          assetName: datum.v2.pricePairAsset.assetName,
+        },
+      });
+    }
+    if (datum.v2.priceOracle) {
+      const o = datum.v2.priceOracle;
+      if (o.hash !== null) {
+        rows.push({ label: `Price oracle (Constr ${o.ctor})`, value: o.hash, hash: true });
+      } else {
+        rows.push({ label: "Price oracle", value: `Constr ${o.ctor}` });
+      }
+    }
+    if (datum.v2.interestOracleAsset) {
+      rows.push({
+        label: "Interest oracle asset",
+        asset: {
+          policyId: datum.v2.interestOracleAsset.policyId,
+          assetName: datum.v2.interestOracleAsset.assetName,
+        },
+      });
+    }
+  }
+
+  rows.push(...datum.ratios.map((r, i) => ({ label: `Ratio #${i + 1}`, value: formatRatio(r) })));
+
+  if (datum.v2) {
+    if (datum.v2.param !== null) {
+      rows.push({ label: "Parameter (field 8)", value: datum.v2.param.toLocaleString() });
+    }
+    if (datum.v2.flag9 !== null) {
+      rows.push({ label: "Flag (field 9)", value: datum.v2.flag9 ? "yes" : "no" });
+    }
+    // Field [10]: Option<AssetClass>.
+    if (datum.v2.optAsset10.present && datum.v2.optAsset10.asset) {
+      rows.push({
+        label: "Optional asset (field 10)",
+        asset: {
+          policyId: datum.v2.optAsset10.asset.policyId,
+          assetName: datum.v2.optAsset10.asset.assetName,
+        },
+      });
+    } else if (datum.v2.optAsset10.present) {
+      rows.push({ label: "Optional asset (field 10)", value: "present (unparsed)" });
+    } else {
+      rows.push({ label: "Optional asset (field 10)", value: "Nothing" });
+    }
+  } else {
+    rows.push({ label: "Flag", value: datum.flag ? "yes" : "no" });
+    rows.push({
       label: "Next iAsset",
       value: datum.nextIAsset === null ? "Nothing (list tail)" : decodeAsciiName(datum.nextIAsset),
       mono: datum.nextIAsset !== null,
-    },
-  ];
+    });
+  }
   return {
     protocol: PROTOCOL,
     role: "iasset",
-    kind: "iAsset config",
+    kind: datum.v2 ? "iAsset config (v2)" : "iAsset config",
     rows,
     assets: [],
     issues: validateCDPDatum(datum),

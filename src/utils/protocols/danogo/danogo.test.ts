@@ -14,6 +14,7 @@ import {
   type DanogoRequestDatum,
 } from "./danogo";
 import { matchDanogoNftPolicy, matchDanogoScriptHash } from "./constants";
+import { danogoPositionToView } from "./index";
 
 const C = (tag: number, ...fields: PD[]): PD => ({ constructor: tag, fields });
 const I = (n: number | bigint): PD => ({ int: BigInt(n) });
@@ -255,6 +256,76 @@ describe("parseDanogoPosition — BondDatum (9 fields, PValue at idx 0)", () => 
     expect(p.bondSymbol).toBe("53fb41609e208f1cd3cae467c0b9abfc69f1a552bf9a90d51665a4d6");
     expect(p.bondAmount).toBe(BigInt(3));
     expect(p.start).toBe(BigInt(63));
+  });
+});
+
+describe("danogoPositionToView — completeness", () => {
+  // The escrowed per-epoch reward (BondDatum.epo_rewards PValue) must be
+  // surfaced with its actual lovelace amount, not collapsed to a policy count.
+  test("BondDatum surfaces epo_rewards lovelace as an asset row", () => {
+    const datum = C(
+      0,
+      M({ k: B(""), v: M({ k: B(""), v: I(61_095_890) }) }), // epo_rewards (ada)
+      I(18), // duration
+      B("92d4de86b80a3df1c02e0494d364cea0296d82b67118de9b407b3262"), // bond_symbol
+      B("208c78e98e45bb601a5e57ba677544e503a724cd46e055378d50fc3b125a3b1d"), // token_name
+      I(5), // bond_amount
+      I(6), // buffer
+      I(1000), // fee
+      B("e7e620338c24165d8496444f91b949f45372d9f60dc8a79bbbdd063c"), // borrower
+      I(101), // start
+    );
+    const view = danogoPositionToView(parseDanogoPosition(datum));
+    expect(view.kind).toBe("Active bond");
+    const reward = view.assets?.find((a) => a.label === "Epoch reward");
+    expect(reward).toEqual({
+      label: "Epoch reward",
+      policyId: "",
+      assetName: "",
+      amount: BigInt(61_095_890),
+    });
+    // No "N policies" collapse row remains.
+    expect(view.rows.some((r) => /policies/.test(r.value ?? ""))).toBe(false);
+  });
+
+  test("BondDatum with no epo_rewards shows an explicit 'none' row", () => {
+    const datum = C(
+      0,
+      M(), // epo_rewards: empty
+      I(18),
+      B("92d4de86b80a3df1c02e0494d364cea0296d82b67118de9b407b3262"),
+      B("208c78e98e45bb601a5e57ba677544e503a724cd46e055378d50fc3b125a3b1d"),
+      I(5),
+      I(6),
+      I(1000),
+      B("e7e620338c24165d8496444f91b949f45372d9f60dc8a79bbbdd063c"),
+      I(101),
+    );
+    const view = danogoPositionToView(parseDanogoPosition(datum));
+    expect(view.rows.find((r) => r.label === "Epoch rewards")?.value).toBe("none");
+  });
+
+  test("RequestDatum surfaces the borrower NFT AssetClass", () => {
+    const datum = C(
+      0,
+      I(200), // apr (basis points)
+      I(6), // duration
+      B("aaaa4de86b80a3df1c02e0494d364cea0296d82b67118de9b407b3262"), // symbol = borrower_pid
+      B("4b3132"), // borrower (asset name)
+      I(100), // requested
+      I(0), // issued
+      I(50_000), // epo_rewards (lovelace/epoch)
+      I(7), // prepaid
+      I(6), // buffer
+      I(500), // fee
+    );
+    const view = danogoPositionToView(parseDanogoPosition(datum));
+    expect(view.kind).toBe("Borrow request");
+    expect(view.assets?.[0]).toEqual({
+      label: "Borrower NFT",
+      policyId: "aaaa4de86b80a3df1c02e0494d364cea0296d82b67118de9b407b3262",
+      assetName: "4b3132",
+    });
   });
 });
 

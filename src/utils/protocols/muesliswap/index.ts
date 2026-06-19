@@ -47,13 +47,30 @@ function assetRow(label: string, asset: AssetClass): DexRow {
   };
 }
 
-// Build a credential row: the "key"/"script" descriptor moves into the label
-// (e.g. "Creator (script)") and the FULL credential hash becomes the hash:true
-// value.
-function credentialRow(label: string, addr: PlutusAddress): DexRow {
+// Render a PlutusAddress as one (or two) rows: the payment credential hash
+// (with its key/script kind), PLUS the stake credential when present. The stake
+// part of the Address (field[1]'s Option) was previously parsed but silently
+// dropped — every V2 order / AMM batch-order address on mainnet carries one, so
+// surface it here.
+function addressRows(label: string, addr: PlutusAddress): DexRow[] {
   const c = addr.paymentCredential;
-  const kind = c.kind === "Script" ? "script" : "key";
-  return { label: `${label} (${kind})`, value: c.hash, hash: true };
+  const rows: DexRow[] = [
+    { label: `${label} (${c.kind === "Script" ? "script" : "key"})`, value: c.hash, hash: true },
+  ];
+  const stake = addr.stakeCredential;
+  if (stake && stake.kind === "Inline") {
+    rows.push({
+      label: `${label} stake (${stake.credential.kind === "Script" ? "script" : "key"})`,
+      value: stake.credential.hash,
+      hash: true,
+    });
+  } else if (stake && stake.kind === "Pointer") {
+    rows.push({
+      label: `${label} stake (pointer slot / txIdx / certIdx)`,
+      value: `${stake.slotNumber} / ${stake.transactionIndex} / ${stake.certificateIndex}`,
+    });
+  }
+  return rows;
 }
 
 // --- SURFACE A: order-book order ------------------------------------------
@@ -107,7 +124,7 @@ export function orderBookV2ToView(datum: MuesliOrderBookV2Datum): DexOrderView {
   const buyAsset: AssetClass = { policyId: datum.buyCurrency, assetName: datum.buyToken };
   const sellAsset: AssetClass = { policyId: datum.sellCurrency, assetName: datum.sellToken };
   const rows: DexRow[] = [
-    credentialRow("Creator", datum.creator),
+    ...addressRows("Creator", datum.creator),
     assetRow("Buy", buyAsset),
     { label: "Buy amount", value: datum.buyAmount.toLocaleString() },
     assetRow("Sell", sellAsset),
@@ -130,6 +147,12 @@ export function orderBookV2ToView(datum: MuesliOrderBookV2Datum): DexOrderView {
     rows,
     assets,
     issues,
+    // Genuine 2-asset trade: the limit order names both the asset it wants to
+    // buy and the asset it gives to sell — surface them as the trading pair.
+    pair: {
+      assetA: { policyId: buyAsset.policyId, assetName: buyAsset.assetName },
+      assetB: { policyId: sellAsset.policyId, assetName: sellAsset.assetName },
+    },
   };
 }
 
@@ -153,6 +176,12 @@ export function poolToView(datum: MuesliPoolDatum): DexOrderView {
     rows,
     assets,
     issues: [],
+    // The pool datum carries both reserve assets directly — surface them as the
+    // trading pair (the two reserves, not the LP token / pool NFT).
+    pair: {
+      assetA: { policyId: datum.coinA.policyId, assetName: datum.coinA.assetName },
+      assetB: { policyId: datum.coinB.policyId, assetName: datum.coinB.assetName },
+    },
   };
 }
 
@@ -202,6 +231,12 @@ export function batchOrderToView(datum: MuesliBatchOrderDatum): DexOrderView {
       assetName: datum.step.desiredCoin.assetName,
     });
   }
+  // Script version is bytes; "MuesliSwap_AMM" (scriptVersionHex) is the expected
+  // value. Decode the ASCII tag when it matches, otherwise surface the raw hex.
+  const scriptVersionValue =
+    datum.scriptVersion === MUESLISWAP.scriptVersionHex
+      ? "MuesliSwap_AMM"
+      : datum.scriptVersion;
   const rows: DexRow[] = [
     ...stepRows(datum.step),
     { label: "Batcher fee", value: datum.batcherFee.toLocaleString() },
@@ -209,11 +244,16 @@ export function batchOrderToView(datum: MuesliBatchOrderDatum): DexOrderView {
     datum.poolNftTokenName
       ? { label: "Pool NFT token name", value: datum.poolNftTokenName, hash: true }
       : { label: "Pool NFT token name", value: "none (legacy layout)" },
-    credentialRow("Sender", datum.sender),
-    credentialRow("Receiver", datum.receiver),
+    ...addressRows("Sender", datum.sender),
+    ...addressRows("Receiver", datum.receiver),
     datum.receiverDatumHash
       ? { label: "Receiver datum hash", value: datum.receiverDatumHash, hash: true }
       : { label: "Receiver datum hash", value: "none" },
+    {
+      label: "Script version",
+      value: scriptVersionValue,
+      mono: scriptVersionValue === datum.scriptVersion,
+    },
   ];
   return {
     protocol: "MuesliSwap (AMM)",

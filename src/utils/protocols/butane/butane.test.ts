@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { PD } from "@/utils/protocols/dex/plutusData";
 import {
+  govActionName,
   parseActiveParams,
   parseCDPCredential,
   parseCDPDatum,
@@ -9,8 +10,10 @@ import {
   parseMonoDatum,
   parsePolicyRedeemer,
   parseSpendAction,
+  parseTreasuryKind,
   validateCDP,
 } from "./butane";
+import { butaneDecode } from "./index";
 import { BUTANE, matchButaneNftPolicy, matchButaneScriptHash } from "./constants";
 
 const C = (tag: number, ...fields: PD[]): PD => ({ constructor: tag, fields });
@@ -149,6 +152,97 @@ describe("parsePolicyRedeemer (synthetics.validate WithdrawFrom)", () => {
   test("BadDebt + Auxilliary", () => {
     expect(parsePolicyRedeemer(C(2, I(3)))).toEqual({ kind: "BadDebt", treasuryOutIdx: BigInt(3) });
     expect(parsePolicyRedeemer(C(3))).toEqual({ kind: "Auxilliary" });
+  });
+});
+
+describe("parseTreasuryKind (inner TreasuryDatum, MonoDatum Constr 3)", () => {
+  test("TreasuryFromFees = Constr2[]", () => {
+    expect(parseTreasuryKind(C(2))).toEqual({ kind: "TreasuryFromFees" });
+  });
+  test("TreasuryWithDebt = Constr0[TreasuryDebt, Option<PosixTime>]", () => {
+    // TreasuryDebt = Constr0[amount, assetName]; Some = Constr0[time]
+    const t = parseTreasuryKind(C(0, C(0, I(123), B(USDB)), C(0, I(1_730_000_000_000))));
+    expect(t.kind).toBe("TreasuryWithDebt");
+    if (t.kind !== "TreasuryWithDebt") throw new Error("expected debt");
+    expect(t.debt).toEqual({ amount: BigInt(123), asset: USDB });
+    expect(t.creationTime).toBe(BigInt(1_730_000_000_000));
+  });
+  test("TreasuryWithDebt with None creation_time", () => {
+    const t = parseTreasuryKind(C(0, C(0, I(5), B("")), C(1)));
+    if (t.kind !== "TreasuryWithDebt") throw new Error("expected debt");
+    expect(t.creationTime).toBeNull();
+  });
+});
+
+describe("govActionName (inner GovAction, MonoDatum Constr 2)", () => {
+  test("maps declaration-order ctor to variant name", () => {
+    expect(govActionName(C(0, C(0)))).toBe("NewParamsAuth");
+    expect(govActionName(C(3, B(USDB), I(1)))).toBe("TreasuryMintAuth");
+    expect(govActionName(C(8, B(POLICY)))).toBe("GovNewCompat");
+    expect(govActionName(C(99))).toBeNull();
+  });
+});
+
+describe("butaneDecode view — surfaced fields (completeness)", () => {
+  test("CDP surfaces owner verification key when non-empty", () => {
+    const cdp = C(1, C(0, B(PKH), B(VKEY)), B(USDB), I(1_000_000), I(1_730_000_000_000));
+    const view = butaneDecode(cdp, "vault");
+    const labels = view.rows.map((r) => r.label);
+    expect(labels).toContain("Owner (pubkey)");
+    expect(labels.some((l) => /verification key/i.test(l))).toBe(true);
+    const vkRow = view.rows.find((r) => /verification key/i.test(r.label));
+    expect(vkRow?.value).toBe(VKEY);
+  });
+
+  test("CDP omits verification-key row when empty (common case)", () => {
+    const cdp = C(1, C(0, B(PKH), B("")), B(USDB), I(1_000_000), I(1_730_000_000_000));
+    const view = butaneDecode(cdp, "vault");
+    expect(view.rows.some((r) => /verification key/i.test(r.label))).toBe(false);
+  });
+
+  test("ParamsWrapper surfaces every collateral asset (not a count) + fee components", () => {
+    const asset2: PD = C(0, B(POLICY), B("4254")); // 2nd asset
+    const activeParams: PD = C(
+      0,
+      L(asset, asset2), // collateral_assets (2)
+      L(I(12), I(15)), // weights
+      I(10), // denominator
+      I(40_000_000), // minimum_outstanding_synthetic
+      L(L(I(1_730_000_000_000), I(900))), // interest_rates
+      L(I(10_000), I(5_000)), // max_proportions
+      I(15_000), // max_liquidation_return
+      I(4_000), // treasury_liquidation_share
+      I(9_950), // redemption_share
+      I(5_000), // fee_token_discount
+      L(L(I(1_730_000_000_000), I(500))), // staking_interest_rates
+    );
+    const paramsWrapper: PD = C(0, C(0, activeParams));
+    const view = butaneDecode(paramsWrapper, "vault");
+    // two collateral asset rows, each rendered as an asset (not collapsed count)
+    const assetRows = view.rows.filter((r) => r.asset);
+    expect(assetRows).toHaveLength(2);
+    expect(assetRows[0].asset).toEqual({ policyId: POLICY, assetName: USDB });
+    const labels = view.rows.map((r) => r.label);
+    expect(labels).toContain("Max liquidation return");
+    expect(labels).toContain("Treasury liquidation share");
+    expect(labels).toContain("Redemption share");
+    expect(labels).toContain("Fee token (BTN) discount");
+    expect(labels.some((l) => /interest rate/i.test(l))).toBe(true);
+    expect(labels.some((l) => /staking interest rate/i.test(l))).toBe(true);
+    // no bare "Collateral assets: N" count row
+    expect(view.rows.some((r) => r.label === "Collateral assets")).toBe(false);
+  });
+
+  test("TreasuryDatum surfaces the variant discriminant", () => {
+    const view = butaneDecode(C(3, C(2)), "vault");
+    const t = view.rows.find((r) => r.label === "Treasury type");
+    expect(t?.value).toBe("TreasuryFromFees");
+  });
+
+  test("GovDatum surfaces the gov action discriminant", () => {
+    const view = butaneDecode(C(2, C(5, B("68656c6c6f"))), "vault");
+    const g = view.rows.find((r) => r.label === "Gov action");
+    expect(g?.value).toBe("TextProposalAuth");
   });
 });
 

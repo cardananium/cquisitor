@@ -7,6 +7,8 @@ import {
   validateSaturnOrder,
 } from "./saturnswap";
 import { matchSaturnSwapScriptHash, SATURNSWAP } from "./constants";
+import { getDexAdapter } from "@/utils/protocols/dex/registry";
+import "./index"; // registers the saturnswap adapter (decode path)
 
 const C = (tag: number, ...fields: PD[]): PD => ({ constructor: tag, fields });
 const I = (n: number | bigint): PD => ({ int: BigInt(n) });
@@ -101,6 +103,42 @@ describe("parseSaturnRedeemer", () => {
     expect(classifySaturnRedeemer(C(1))).toBe("Cancel");
     expect(classifySaturnRedeemer(C(0))).toBeNull(); // Fill needs ≥1 field
     expect(classifySaturnRedeemer(C(1, I(1)))).toBeNull(); // Cancel takes no field
+  });
+});
+
+describe("orderToView — owner stake credential is surfaced", () => {
+  const decode = getDexAdapter("saturnswap")!.decode!;
+
+  test("pool order: Inline stake credential becomes its own row", () => {
+    const view = decode(liveOrder, "order");
+    const owner = view.rows.find((r) => r.label === "Owner (script)");
+    const ownerStake = view.rows.find((r) => r.label === "Owner stake (key)");
+    expect(owner?.value).toBe(SCRIPT);
+    // The project stake cred (field[0] inner Inline) must not be dropped.
+    expect(ownerStake?.value).toBe(STAKE);
+    expect(ownerStake?.hash).toBe(true);
+  });
+
+  test("trading pair = offered / asked (exact datum legs, ada = '','')", () => {
+    const view = decode(liveOrder, "order");
+    expect(view.pair).toEqual({
+      assetA: { policyId: OFFERED_POLICY, assetName: OFFERED_NAME },
+      assetB: { policyId: "", assetName: "" }, // asked = ADA
+    });
+  });
+
+  test("user order with NO stake part renders an explicit 'none' row", () => {
+    const noStake: PD = C(
+      0,
+      keyOwner, // Constr0[ Constr0[PKH], Constr1[] ] — stake None
+      B(""), B(""), I(5_000_000),
+      B(OFFERED_POLICY), B(OFFERED_NAME), I(10),
+      C(1), // expiry None
+      nonce,
+    );
+    const view = decode(noStake, "order");
+    const ownerStake = view.rows.find((r) => r.label === "Owner stake");
+    expect(ownerStake?.value).toBe("none");
   });
 });
 

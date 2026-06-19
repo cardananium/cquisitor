@@ -66,7 +66,10 @@ function v1ToView(feed: OrcfaxV1Feed): DexOrderView {
     { label: "Collector", value: feed.collector, hash: true },
   ];
   if (feed.collectAfter !== null) {
-    rows.push({ label: "Collect after", value: `${feed.collectAfter.toLocaleString()} (POSIX ms)` });
+    // Orcfax docs define Context.collect_after as a slot number (validity gate),
+    // distinct from the millisecond `created_at`. Surface the raw value without
+    // asserting a ms unit.
+    rows.push({ label: "Collect after", value: `${feed.collectAfter.toLocaleString()} (slot)` });
   }
   return {
     protocol: "Orcfax",
@@ -87,12 +90,13 @@ function v0ToView(feed: OrcfaxV0Feed): DexOrderView {
     { label: "Feed name", value: feed.name ?? "unknown" },
     { label: "Pair", value: pair },
   ];
-  if (feed.values[0]) {
-    rows.push({ label: "Value (rate)", value: formatV0Value(feed.values[0].significand, feed.values[0].exponent) });
-  }
-  if (feed.values[1]) {
-    rows.push({ label: "Value (inverse)", value: formatV0Value(feed.values[1].significand, feed.values[1].exponent) });
-  }
+  // V0 "value" is a list of ValuePairs. Canonically [rate, inverse] (datum-demo
+  // builds PricePair(ada_usd, usd_ada) from exactly the first two), but render
+  // EVERY pair so a feed carrying extra entries never silently drops them.
+  feed.values.forEach((vp, i) => {
+    const label = i === 0 ? "Value (rate)" : i === 1 ? "Value (inverse)" : `Value [${i}]`;
+    rows.push({ label, value: formatV0Value(vp.significand, vp.exponent) });
+  });
   if (feed.validFrom !== null) {
     rows.push({ label: "Valid from", value: `${feed.validFrom.toLocaleString()} (POSIX ms)` });
   }

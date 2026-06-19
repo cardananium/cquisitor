@@ -128,6 +128,8 @@ export interface SplashPoolConfig {
   treasuryFee: bigint | null;
   treasuryX: bigint | null;
   treasuryY: bigint | null;
+  /** DAOPolicy: governance credential(s) authorized for DAO/admin actions. */
+  daoPolicy: Credential[];
   lqBound: bigint | null;
 }
 
@@ -152,7 +154,8 @@ export function parseSplashPool(data: PD): SplashPoolConfig {
       treasuryFee: asInt(f[5]),
       treasuryX: f.length > 6 ? asInt(f[6]) : null,
       treasuryY: f.length > 7 ? asInt(f[7]) : null,
-      // DAOPolicy at 8 (skipped), lqBound at 9.
+      // DAOPolicy (List<StakingCredential>) at 8, lqBound at 9.
+      daoPolicy: f.length > 8 ? parseDaoPolicy(f[8]) : [],
       lqBound: f.length > 9 && isInt(f[9]) ? asInt(f[9]) : null,
     };
   }
@@ -162,9 +165,20 @@ export function parseSplashPool(data: PD): SplashPoolConfig {
     treasuryFee: null,
     treasuryX: null,
     treasuryY: null,
-    // classic: DAOPolicy (List) at 5 (skipped), lqBound at 6 (optional).
+    // classic: DAOPolicy (List<StakingCredential>) at 5, lqBound at 6 (optional).
+    daoPolicy: parseDaoPolicy(f[5]),
     lqBound: f.length > 6 && isInt(f[6]) ? asInt(f[6]) : null,
   };
+}
+
+// DAOPolicy = List<StakingCredential>, each StakingCredential = Constr0[Credential].
+// Returns the inner Credentials. Tolerant: returns [] for a non-list / odd shape.
+function parseDaoPolicy(d: PD): Credential[] {
+  try {
+    return asList(d).map(parseStakingCredential);
+  } catch {
+    return [];
+  }
 }
 
 // Const-product / balance pool spend redeemer = Constr0[ pool_in_ix, pool_out_ix ]
@@ -199,6 +213,8 @@ export interface SplashStablePool {
   tradableTokensMultipliers: bigint[];
   lpToken: AssetClass;
   lpFeeIsEditable: boolean;
+  /** A second Bool flag at idx 8; the deployed off-chain does not name it. */
+  flag2: boolean;
   lpFeeNum: bigint;
   protocolFeeNum: bigint;
   daoStableProxyWitness: string;
@@ -219,7 +235,8 @@ export function parseSplashStablePool(data: PD): SplashStablePool {
     tradableTokensMultipliers: [asInt(f[4]), asInt(f[5])],
     lpToken: parseAssetClass(f[6]),
     lpFeeIsEditable: asBool(f[7]),
-    // f[8] is an additional Bool flag (not surfaced).
+    // f[8] is an additional Bool flag the deployed off-chain does not name.
+    flag2: asBool(f[8]),
     lpFeeNum: asInt(f[9]),
     protocolFeeNum: asInt(f[10]),
     daoStableProxyWitness: asBytes(f[11]),
@@ -257,6 +274,8 @@ export interface SplashBalancePool {
   treasuryFee: bigint;
   treasuryX: bigint;
   treasuryY: bigint;
+  /** DAOPolicy: governance credential(s) authorized for DAO/admin actions (idx 8). */
+  daoPolicy: Credential[];
   /** treasuryAddress (ValidatorHash) at idx 9, after the DAOPolicy List at 8. */
   treasuryAddress: string | null;
 }
@@ -275,7 +294,8 @@ export function parseSplashBalancePool(data: PD): SplashBalancePool {
     treasuryFee: asInt(f[5]),
     treasuryX: asInt(f[6]),
     treasuryY: asInt(f[7]),
-    // DAOPolicy List at idx 8 (skipped), treasuryAddress at idx 9.
+    // DAOPolicy (List<StakingCredential>) at idx 8, treasuryAddress at idx 9.
+    daoPolicy: f.length > 8 ? parseDaoPolicy(f[8]) : [],
     treasuryAddress: f.length > 9 && !isInt(f[9]) ? safeBytes(f[9]) : null,
   };
 }

@@ -81,19 +81,23 @@ export function danogoOrderToView(order: DanogoOrder): DexOrderView {
 
 export function danogoPositionToView(pos: DanogoPosition): DexOrderView {
   if (pos.kind === "RequestDatum") {
+    // apr/fee are basis points (base 10_000); duration/prepaid/buffer are epoch
+    // counts; epo_rewards is the per-epoch interest in lovelace; symbol+borrower
+    // form the borrower NFT AssetClass (symbol == borrower_pid per
+    // borrow_request/request_nft.ak). See danogo2023/daken RequestDatum.
     const rows: DexRow[] = [
-      { label: "APR", value: pos.apr.toLocaleString() },
-      { label: "Duration", value: pos.duration.toLocaleString() },
+      { label: "APR (basis points)", value: pos.apr.toLocaleString() },
+      { label: "Duration (epochs)", value: pos.duration.toLocaleString() },
       { label: "Requested", value: pos.requested.toLocaleString() },
       { label: "Issued", value: pos.issued.toLocaleString() },
-      { label: "Epoch rewards", value: pos.epoRewards.toLocaleString() },
-      { label: "Prepaid", value: pos.prepaid.toLocaleString() },
-      { label: "Buffer", value: pos.buffer.toLocaleString() },
-      { label: "Fee", value: pos.fee.toLocaleString() },
+      { label: "Epoch reward (lovelace)", value: pos.epoRewards.toLocaleString() },
+      { label: "Prepaid (epochs)", value: pos.prepaid.toLocaleString() },
+      { label: "Buffer (epochs)", value: pos.buffer.toLocaleString() },
+      { label: "Fee (basis points)", value: pos.fee.toLocaleString() },
       { label: "Borrower", value: pos.borrower, hash: true },
     ];
     const assets: DexAssetRow[] = [
-      { label: "Bond policy", policyId: pos.symbol, assetName: pos.borrower },
+      { label: "Borrower NFT", policyId: pos.symbol, assetName: pos.borrower },
     ];
     return {
       protocol: "Danogo",
@@ -104,20 +108,33 @@ export function danogoPositionToView(pos: DanogoPosition): DexOrderView {
       issues: validateDanogoPosition(pos),
     };
   }
+  // epo_rewards is a PValue (Dict<PolicyId, Dict<AssetName, Int>>) holding the
+  // actual per-epoch interest value escrowed in the bond UTxO — verified equal
+  // to bond_amount * bond_face_value * apr / basis / year_to_epoch in
+  // borrow_request/bond_create.ak. Surface each entry as its own asset row (ada
+  // = ("",""), amount = lovelace) instead of collapsing to a policy count.
+  const epoRewardAssets: DexAssetRow[] = pos.epoRewards.flatMap((entry) =>
+    entry.assets.map((a) => ({
+      label: "Epoch reward",
+      policyId: entry.policyId,
+      assetName: a.assetName,
+      amount: a.quantity,
+    })),
+  );
   const rows: DexRow[] = [
-    { label: "Duration", value: pos.duration.toLocaleString() },
+    { label: "Duration (epochs)", value: pos.duration.toLocaleString() },
     { label: "Bond amount", value: pos.bondAmount.toLocaleString() },
-    { label: "Buffer", value: pos.buffer.toLocaleString() },
-    { label: "Fee", value: pos.fee.toLocaleString() },
-    { label: "Start", value: pos.start.toLocaleString() },
+    { label: "Buffer (epochs)", value: pos.buffer.toLocaleString() },
+    { label: "Fee (basis points)", value: pos.fee.toLocaleString() },
+    { label: "Start epoch", value: pos.start.toLocaleString() },
     { label: "Borrower", value: pos.borrower, hash: true },
-    {
-      label: "Epoch rewards",
-      value: pos.epoRewards.length === 0 ? "none" : `${pos.epoRewards.length} policies`,
-    },
   ];
+  if (epoRewardAssets.length === 0) {
+    rows.push({ label: "Epoch rewards", value: "none" });
+  }
   const assets: DexAssetRow[] = [
     { label: "Bond token", policyId: pos.bondSymbol, assetName: pos.tokenName },
+    ...epoRewardAssets,
   ];
   return {
     protocol: "Danogo",

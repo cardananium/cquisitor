@@ -7,10 +7,11 @@ import { CopyButton } from "./CopyButton";
 import { HashWithTooltip } from "./HashWithTooltip";
 import { AssetTooltipContent, AssetAmount } from "./AssetNameWithTooltip";
 import { useAssetMeta } from "../AssetInfoContext";
+import { usePoolPair, usePoolPairEnabled } from "../PoolInfoContext";
 import { decodeAssetName } from "../utils";
 import { formatDexRole, dexThemeKey } from "@/utils/protocols/dex";
 import type { DexDetection } from "@/utils/protocols/dex";
-import type { DexIssue } from "@/utils/protocols/dex";
+import type { DexIssue, PoolPair, PoolRef } from "@/utils/protocols/dex";
 import type { PD } from "@/utils/protocols/dex/plutusData";
 
 interface DexOrderPanelProps {
@@ -86,6 +87,44 @@ function AssetValue({
   );
 }
 
+// The actual trading pair an order trades — "assetA / assetB" with the usual
+// metadata tooltips. The order datum rarely carries it, so it comes either from
+// a known per-pool registry (static `view.pair`) or is resolved from the chain
+// (`view.poolRef` -> the pool UTxO's datum), streaming in when ready.
+function PairAssets({ pair }: { pair: PoolPair }) {
+  return (
+    <div className="tcv-dex-section tcv-dex-pair">
+      <div className="tcv-dex-row">
+        <span className="tcv-dex-leg-label">Pair</span>
+        <span className="tcv-dex-pair-assets">
+          <AssetValue policyId={pair.assetA.policyId} assetName={pair.assetA.assetName} />
+          <span className="tcv-dex-pair-sep">/</span>
+          <AssetValue policyId={pair.assetB.policyId} assetName={pair.assetB.assetName} />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function ResolvedPoolPairRow({ poolRef, adapterId }: { poolRef: PoolRef; adapterId: string }) {
+  const enabled = usePoolPairEnabled();
+  const pair = usePoolPair(poolRef, adapterId);
+  if (pair) return <PairAssets pair={pair} />;
+  // While the fetch is in flight (only when enrichment is configured), show a
+  // hint instead of nothing, so a slow/failed resolve isn't silently invisible.
+  if (enabled && pair === undefined) {
+    return (
+      <div className="tcv-dex-section tcv-dex-pair">
+        <div className="tcv-dex-row">
+          <span className="tcv-dex-leg-label">Pool pair</span>
+          <span className="tcv-dex-pair-loading">resolving…</span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
 function worstSeverity(issues: DexIssue[]): "ok" | "warning" | "error" {
   if (issues.some((i) => i.severity === "error")) return "error";
   if (issues.some((i) => i.severity === "warning")) return "warning";
@@ -118,6 +157,12 @@ export function DexOrderPanel({ detection }: DexOrderPanelProps) {
           <div className="tcv-dex-header-row">
             <span className="tcv-dex-order-kind">{view.kind}</span>
           </div>
+
+          {view.pair ? (
+            <PairAssets pair={view.pair} />
+          ) : view.poolRef ? (
+            <ResolvedPoolPairRow poolRef={view.poolRef} adapterId={detection.adapterId} />
+          ) : null}
 
           {view.assets && view.assets.length > 0 && (
             <div className="tcv-dex-section">

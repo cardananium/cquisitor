@@ -16,8 +16,10 @@ export {
   type DexRow,
   type DexAssetRow,
   type DexOrderView,
+  type PoolRef,
+  type PoolPair,
 } from "./registry";
-export { detectDexOutput, type DexDetection } from "./detect";
+export { detectDexOutput, detectDexWithdrawal, type DexDetection, type DexWithdrawalDetection } from "./detect";
 export { dexThemeKey } from "./themes";
 export {
   buildDexTxContext,

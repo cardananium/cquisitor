@@ -24,6 +24,7 @@ export {
   type SundaeIssue,
 } from "./v3";
 export { parseV1PoolDatum, type V1PoolDatum } from "./v1";
+export { buildSundaeOrderView, buildSundaePoolView } from "./view";
 export {
   SUNDAE_REGISTRY,
   lookupSundaeScript,

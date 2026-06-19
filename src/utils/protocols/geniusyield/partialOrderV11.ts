@@ -57,13 +57,22 @@ function parseAssetWithAmount(d: PD): AssetWithAmount {
 /**
  * f5 is a tagged union observed in two shapes on-chain:
  *   - "plain": Constr0[ price:Rational, extra:Maybe<Rational> ]
- *   - "record": Constr1[ nft:Bytes(32), price:Rational, nested:Rational ]
- *     where the original on-chain shapes are
- *       Constr1[ Bytes, Constr0[Rational,Rational], Constr0[Constr0[Rational,Rational]] ].
+ *   - "record": Constr1[ nft:Bytes(32), Constr0[price:Rational, price2:Rational],
+ *                        Constr0[ Constr0[nested:Rational, nested2:Rational] ] ]
+ *     i.e. the leading Rational of each pair (price / nested) plus the trailing
+ *     Rational of each pair (price2 / nested2). All four are captured so none
+ *     is silently dropped; the view surfaces them.
  */
 export type PartialOrderV11Record =
   | { kind: "plain"; price: Rational; extra: Rational | null }
-  | { kind: "record"; nft: string; price: Rational; nested: Rational };
+  | {
+      kind: "record";
+      nft: string;
+      price: Rational;
+      price2: Rational;
+      nested: Rational;
+      nested2: Rational;
+    };
 
 function parsePartialOrderV11Record(d: PD): PartialOrderV11Record {
   const c = asConstr(d);
@@ -81,12 +90,12 @@ function parsePartialOrderV11Record(d: PD): PartialOrderV11Record {
     if (c.fields.length !== 3) {
       throw new Error(`V1.1 record(1): expected 3 fields, got ${c.fields.length}`);
     }
-    // f5.1 = Constr0[Rational, Rational] — take the leading Rational as price.
+    // f5.1 = Constr0[Rational, Rational] — leading Rational is the price.
     const inner = asConstr(c.fields[1]);
     if (inner.tag !== 0 || inner.fields.length !== 2) {
       throw new Error("V1.1 record(1): expected Constr0[Rational, Rational]");
     }
-    // f5.2 = Constr0[ Constr0[Rational, Rational] ] — take the leading Rational.
+    // f5.2 = Constr0[ Constr0[Rational, Rational] ].
     const wrap = asConstr(c.fields[2]);
     if (wrap.tag !== 0 || wrap.fields.length !== 1) {
       throw new Error("V1.1 record(1): expected Constr0[ Constr0[Rational, Rational] ]");
@@ -99,7 +108,9 @@ function parsePartialOrderV11Record(d: PD): PartialOrderV11Record {
       kind: "record",
       nft: asBytes(c.fields[0]),
       price: parseRational(inner.fields[0]),
+      price2: parseRational(inner.fields[1]),
       nested: parseRational(nestedPair.fields[0]),
+      nested2: parseRational(nestedPair.fields[1]),
     };
   }
   throw new Error(`V1.1 record: unexpected ctor ${c.tag}`);

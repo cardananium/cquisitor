@@ -68,6 +68,69 @@ describe("parseMinswapOrderDatum — SwapExactIn", () => {
     expect(view.assets?.[0]).toMatchObject({ policyId: POLICY, assetName: NAME });
     expect(view.issues).toHaveLength(0);
   });
+
+  test("toView surfaces success + refund receiver addresses", () => {
+    const view = minswapOrderToView(parseMinswapOrderDatum(datum));
+    const success = view.rows.find((r) => r.label === "Success receiver (key)");
+    const refund = view.rows.find((r) => r.label === "Refund receiver (key)");
+    expect(success?.value).toBe(PKH);
+    expect(success?.hash).toBe(true);
+    expect(refund?.value).toBe(PKH);
+  });
+});
+
+describe("MinswapOrderDatum — receiver datum hashes + multi-routing", () => {
+  const DH = "abababababababababababababababababababababababababababababababab0";
+  test("EODDatumHash / EODInlineDatum receiver datums surface as rows", () => {
+    const datum: PD = C(
+      0,
+      C(0, B(PKH)),
+      vkeyAddr(PKH),
+      C(1, B(DH)), // refund_receiver_datum: EODDatumHash
+      vkeyAddr(PKH),
+      C(2, B(DH)), // success_receiver_datum: EODInlineDatum
+      C(0, B(POLICY), B(NAME)),
+      C(0, TRUE, C(0, I(1000)), I(950), FALSE),
+      I(2_000_000),
+      C(1),
+    );
+    const view = minswapOrderToView(parseMinswapOrderDatum(datum));
+    expect(view.rows.find((r) => r.label === "Success receiver datum (inline datum hash)")?.value).toBe(DH);
+    expect(view.rows.find((r) => r.label === "Refund receiver datum (datum hash)")?.value).toBe(DH);
+  });
+
+  test("SwapMultiRouting surfaces every routing's LP asset + direction", () => {
+    const NAME2 = "4d535032";
+    const datum: PD = C(
+      0,
+      C(0, B(PKH)),
+      vkeyAddr(PKH),
+      C(0),
+      vkeyAddr(PKH),
+      C(0),
+      C(0, B(POLICY), B(NAME)),
+      C(
+        9, // SwapMultiRouting
+        L(
+          C(0, C(0, B(POLICY), B(NAME)), TRUE), // routing 0: lpAsset, a->b
+          C(0, C(0, B(POLICY), B(NAME2)), FALSE), // routing 1: lpAsset, b->a
+        ),
+        C(0, I(250_000_000)),
+        I(100),
+      ),
+      I(2_000_000),
+      C(1),
+    );
+    const view = minswapOrderToView(parseMinswapOrderDatum(datum));
+    expect(view.rows.find((r) => r.label === "Routings")?.value).toBe("2 pool(s)");
+    expect(view.rows.find((r) => r.label === "Routing 1 pool LP")?.asset).toMatchObject({ policyId: POLICY, assetName: NAME });
+    expect(view.rows.find((r) => r.label === "Routing 1 direction")?.value).toBe("A → B");
+    expect(view.rows.find((r) => r.label === "Routing 2 pool LP")?.asset).toMatchObject({ policyId: POLICY, assetName: NAME2 });
+    expect(view.rows.find((r) => r.label === "Routing 2 direction")?.value).toBe("B → A");
+    // No single poolRef for a multi-hop swap — the entry pool's pair would
+    // mislead; the per-routing rows carry the path instead.
+    expect(view.poolRef).toBeUndefined();
+  });
 });
 
 describe("parseMinswapOrderDatum — Deposit + Withdraw + expiry", () => {
@@ -156,6 +219,13 @@ describe("parseMinswapPoolDatum", () => {
     expect(view.kind).toBe("Liquidity Pool");
     expect(view.assets).toHaveLength(2);
     expect(view.assets?.[0].amount).toBe(BigInt(500_000_000));
+  });
+
+  test("toView surfaces pool batching stake credential", () => {
+    const view = minswapPoolToView(parseMinswapPoolDatum(datum));
+    const cred = view.rows.find((r) => r.label === "Pool batching stake credential (script)");
+    expect(cred?.value).toBe(SCRIPT);
+    expect(cred?.hash).toBe(true);
   });
 });
 

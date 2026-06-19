@@ -15,7 +15,8 @@
 // Match a UTxO by the 28-byte PAYMENT credential only.
 
 import type { CardanoNetwork } from "@/components/TransactionCardView/types";
-import type { DexRole } from "@/utils/protocols/dex/registry";
+import type { DexRole, PoolPair } from "@/utils/protocols/dex/registry";
+import { VYFINANCE_POOLS } from "./pools.generated";
 
 export const VYFINANCE = {
   // ADA/USDA order validator — payment hash of orderValidatorUtxoAddress
@@ -33,19 +34,20 @@ export const VYFINANCE = {
   operatorTokenPolicy: "4d07e0ceae00e6c53598cea00a53c54a94c6b6aa071482244cc0adb5",
 } as const;
 
+// Every v2 pool's order + pool payment-script hash is enumerated in the
+// generated registry (from the VyFi /lp API), which also carries each pool's
+// trading pair. Matching against it covers all ~307 pools, not just ADA/USDA.
 export function matchVyFinanceScriptHash(
   hash: string,
   network: CardanoNetwork | undefined,
 ): DexRole | null {
   if (network && network !== "mainnet") return null;
-  const lower = hash.toLowerCase();
-  if (lower === VYFINANCE.orderValidatorHash) return "order";
-  if (lower === VYFINANCE.poolValidatorHash) return "pool";
-  // NOTE: VYFINANCE.poolStakeKey is the pools' shared *stake/delegation* credential,
-  // NOT a payment script hash — getPaymentScriptHash never returns it, so matching
-  // it here was a dead no-op. Pools match via
-  // poolValidatorHash above and the per-pool mainNftPolicy.
-  return null;
+  return VYFINANCE_POOLS[hash.toLowerCase()]?.role ?? null;
+}
+
+/** The trading pair for a per-pool order/pool script hash, or null if unknown. */
+export function vyFinancePairForHash(hash: string): PoolPair | null {
+  return VYFINANCE_POOLS[hash.toLowerCase()]?.pair ?? null;
 }
 
 // A pool UTxO carries exactly one token of the pool's mainNFT policy. The

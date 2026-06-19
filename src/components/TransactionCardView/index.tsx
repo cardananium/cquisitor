@@ -23,6 +23,9 @@ const datumJson = JSONBig({
 });
 import { SectionCard, InputCard, OutputCard, VKeyCard, RedeemerCard, MintSection, DiagnosticBadge, CertificateCard, WithdrawalCard, AuxiliaryDataSection, BootstrapWitnessCard, NativeScriptCard, TransactionDetailsSection, RequiredSignersCard, VotingProcedureCard, VotingProposalCard, PlutusScriptCard, PlutusDataCard, SundaeScoopBanner } from "./components";
 import { AssetInfoProvider } from "./AssetInfoContext";
+import { PoolInfoProvider } from "./PoolInfoContext";
+import { UtxoInfoProvider } from "./UtxoInfoContext";
+import { DatumInfoProvider } from "./DatumInfoContext";
 import {
   buildDiagnosticsMap,
   formatAda,
@@ -371,6 +374,19 @@ export default function TransactionCardView({
     return units;
   }, [data.transaction, inputUtxoInfoMap]);
 
+  // Every input / collateral / reference-input ref ("txHash#index"), so the
+  // UtxoInfoProvider can resolve them on decode (no validation run needed).
+  const inputRefs = useMemo<ReadonlySet<string>>(() => {
+    const refs = new Set<string>();
+    if (data.transaction && isTransactionData(data.transaction)) {
+      const b = data.transaction.body;
+      for (const i of [...(b.inputs ?? []), ...(b.collateral ?? []), ...(b.reference_inputs ?? [])]) {
+        refs.add(`${i.transaction_id}#${i.index}`);
+      }
+    }
+    return refs;
+  }, [data.transaction]);
+
   // Sum of all redeemer-declared budgets; these are what gets charged against
   // the protocol-level per-tx execution unit caps. Kept ABOVE the early return
   // below so the hook order stays stable when the tx becomes (in)valid.
@@ -440,6 +456,9 @@ export default function TransactionCardView({
 
   return (
     <AssetInfoProvider provider={provider} apiKey={apiKey} network={network} units={assetUnits}>
+    <PoolInfoProvider provider={provider} apiKey={apiKey} network={network}>
+    <UtxoInfoProvider provider={provider} apiKey={apiKey} network={network} refs={inputRefs}>
+    <DatumInfoProvider provider={provider} apiKey={apiKey} network={network}>
     <div className="tcv-wrapper">
       <div className="tcv-container">
         {/* Transaction Summary */}
@@ -548,6 +567,7 @@ export default function TransactionCardView({
                   inlineDatumHash={extractedHashes?.output_inline_datum_hashes?.[i] ?? null}
                   inlineScriptInfo={extractedHashes?.output_inline_scripts?.[i] ?? null}
                   witnessDatums={witnessDatums}
+                  txHash={data.transaction_hash ?? undefined}
                 />
               ))}
             </div>
@@ -947,6 +967,9 @@ export default function TransactionCardView({
         )}
       </div>
     </div>
+    </DatumInfoProvider>
+    </UtxoInfoProvider>
+    </PoolInfoProvider>
     </AssetInfoProvider>
   );
 }

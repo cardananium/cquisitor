@@ -71,10 +71,22 @@ describe("midnightToView", () => {
     const v = midnightToView(configDatum, "config");
     expect(v.protocol).toBe("Midnight (NIGHT)");
     expect(v.kind).toBe("Glacier Drop config");
-    const alloc = v.rows.find((r) => r.label === "Allocations");
+    const alloc = v.rows.find((r) => r.label === "Foundation wallets");
     expect(alloc?.value).toContain("2 entries");
     expect(alloc?.value).toContain("996,976,778.76 NIGHT");
-    expect(v.rows.some((r) => r.label.startsWith("Alloc 1"))).toBe(true);
+    expect(v.rows.some((r) => r.label.startsWith("Foundation wallet 1"))).toBe(true);
+  });
+
+  test("config view surfaces each TGE auth key and allocation stake credentials", () => {
+    const v = midnightToView(configDatum, "config");
+    // tge_agent_auth_keys are listed, not just counted.
+    expect(v.rows.find((r) => r.label === "TGE auth key 1")?.value).toBe(S1);
+    expect(v.rows.find((r) => r.label === "TGE auth key 2")?.value).toBe(S2);
+    // Foundation wallet #1 has an inline stake credential that must be surfaced.
+    const alloc1Pay = v.rows.find((r) => r.label.startsWith("Foundation wallet 1") && r.label.includes("payment"));
+    expect(alloc1Pay?.value).toBe(A1);
+    const alloc1Stake = v.rows.find((r) => r.label.startsWith("Foundation wallet 1") && r.label.includes("stake"));
+    expect(alloc1Stake?.value).toBe(STAKE);
   });
 
   test("distribution view is a recognizer (unit datum)", () => {
@@ -138,9 +150,20 @@ describe("Glacier Drop thaw datum", () => {
   test("position view shows owner, amount and next thaw", () => {
     const v = midnightToView(thawPosition, "thaw");
     expect(v.kind).toBe("Glacier Drop thaw position");
-    expect(v.rows.find((r) => r.label === "Owner")?.value).toBe(OWNER);
+    expect(v.rows.find((r) => r.label.startsWith("Owner") && r.label.includes("payment"))?.value).toBe(OWNER);
     expect(v.rows.find((r) => r.label === "Amount")?.value).toBe("179.404114 NIGHT");
     expect(v.rows.find((r) => r.label === "Tranche")?.value).toBe("2");
+  });
+
+  // Per-user position with an inline stake credential on the owner address.
+  const STAKE_OWNER = "9521be31c548e20ced3ea72f2ba2dc56caae65664e34d2d9cbdba544";
+  const ownerAddrWithStake = C(0, C(0, B(OWNER)), C(0, C(0, C(0, B(STAKE_OWNER)))));
+  const thawPositionStaked = C(0, ownerAddrWithStake, I(179404114), I("1781395200000"), I(2), I(INTERVAL));
+
+  test("position view surfaces the owner's stake credential when present", () => {
+    const v = midnightToView(thawPositionStaked, "thaw");
+    expect(v.rows.find((r) => r.label.startsWith("Owner") && r.label.includes("payment"))?.value).toBe(OWNER);
+    expect(v.rows.find((r) => r.label.startsWith("Owner") && r.label.includes("stake"))?.value).toBe(STAKE_OWNER);
   });
 });
 

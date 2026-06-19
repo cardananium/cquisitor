@@ -63,6 +63,8 @@ describe("parseSplashOrder — LimitOrder", () => {
     expect(o.basePrice).toEqual({ numerator: BigInt(3), denominator: BigInt(2) });
     expect(o.cancellationPkh).toBe(PKH);
     expect(o.permittedExecutors).toEqual([PKH]);
+    // redeemer_address (where execution proceeds settle) + cancellation_pkh are
+    // surfaced in the view; assert they parse, not just the swap amounts.
     expect(o.redeemerAddress.paymentCredential).toEqual({ kind: "VKey", hash: PKH });
     expect(o.redeemerAddress.stakeCredential).toEqual({ kind: "Inline", credential: { kind: "VKey", hash: STAKE } });
   });
@@ -90,28 +92,35 @@ describe("parseSplashOrder — InstantOrder", () => {
     expect(o.minLovelace).toBe(BigInt(2_000_000));
     expect(o.permittedExecutor).toBe(PKH);
     expect(o.cancellationAfter).toBe(BigInt(1_730_000_000_000));
+    expect(o.redeemerAddress.paymentCredential).toEqual({ kind: "VKey", hash: PKH });
+    expect(o.cancellationPkh).toBe(PKH);
   });
 });
 
 describe("parseSplashPool", () => {
   const poolNft: PD = C(0, B(POLICY), B("706f6f6c"));
 
+  // StakingCredential = Constr0[ Credential = Constr1[hash] (script) ].
+  const daoScript: PD = C(0, C(1, B(PKH)));
+
   test("classic const-product (DAOPolicy list at idx 5, lqBound at 6)", () => {
-    const datum: PD = C(0, poolNft, ada, token, token, I(997), L(), I(10));
+    const datum: PD = C(0, poolNft, ada, token, token, I(997), L(daoScript), I(10));
     const p = parseSplashPool(datum);
     expect(p.feeSwitch).toBe(false);
     expect(p.feeNum).toBe(BigInt(997));
     expect(p.lqBound).toBe(BigInt(10));
     expect(p.treasuryFee).toBeNull();
     expect(p.assetX).toEqual({ policyId: "", assetName: "" });
+    expect(p.daoPolicy).toEqual([{ kind: "Script", hash: PKH }]);
   });
 
-  test("fee-switch (treasuryFee Int at idx 5)", () => {
-    const datum: PD = C(0, poolNft, ada, token, token, I(99000), I(100), I(0), I(0), L(), I(5), B(PKH), I(1));
+  test("fee-switch (treasuryFee Int at idx 5, DAOPolicy at idx 8)", () => {
+    const datum: PD = C(0, poolNft, ada, token, token, I(99000), I(100), I(0), I(0), L(daoScript), I(5), B(PKH), I(1));
     const p = parseSplashPool(datum);
     expect(p.feeSwitch).toBe(true);
     expect(p.treasuryFee).toBe(BigInt(100));
     expect(p.lqBound).toBe(BigInt(5));
+    expect(p.daoPolicy).toEqual([{ kind: "Script", hash: PKH }]);
   });
 });
 
@@ -162,6 +171,7 @@ describe("parseSplashStablePool", () => {
     ]);
     expect(p.tradableTokensMultipliers).toEqual([BigInt(1), BigInt(1)]);
     expect(p.lpFeeIsEditable).toBe(false);
+    expect(p.flag2).toBe(false);
     expect(p.lpFeeNum).toBe(BigInt(100));
     expect(p.protocolFeeNum).toBe(BigInt(100));
     expect(p.daoStableProxyWitness).toBe(PKH);
@@ -185,16 +195,17 @@ describe("parseSplashBalancePool", () => {
     I(99700), // poolFeeNum
     I(100), // treasuryFee
     I(5), I(7), // treasuryX, treasuryY
-    L(), // daoPolicy
+    L(C(0, C(1, B(PKH)))), // daoPolicy = [StakingCredential[ScriptCredential]]
     B(PKH), // treasuryAddress
   );
 
-  test("parses idx 0-7 + treasury address at idx 9", () => {
+  test("parses idx 0-7 + DAOPolicy at idx 8 + treasury address at idx 9", () => {
     const p = parseSplashBalancePool(datum);
     expect(p.feeNum).toBe(BigInt(99700));
     expect(p.treasuryFee).toBe(BigInt(100));
     expect(p.treasuryX).toBe(BigInt(5));
     expect(p.treasuryY).toBe(BigInt(7));
+    expect(p.daoPolicy).toEqual([{ kind: "Script", hash: PKH }]);
     expect(p.treasuryAddress).toBe(PKH);
     expect(p.assetX).toEqual({ policyId: "", assetName: "" });
   });

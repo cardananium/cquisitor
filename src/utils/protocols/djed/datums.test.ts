@@ -18,51 +18,54 @@ const ORACLE_INPUT = "5562f7b7ec8e563fef15b9006febdff02aba0b73a0b962a170088d28e4
 const ORACLE_REF = "362e24ab3b1aacf8108c52aec7ddc6c2e007fef3c3a125eebe849a0be4203902";
 const PRIOR_REF = "37116bb7647aeccd235c4e3dbd8e186bb209ca2eef7fc801298d96727e8d3879";
 
-// Reserve datum fixture (Constr0, 10 fields).
+// Reserve/Pool datum fixture (Constr0, 10 fields). Field names + the field [6]
+// Nullable semantics follow artifi-labs/open-djed packages/data/src/pool-datum.ts
+// (PoolDatumSchema + its committed CBOR test vector).
 const liveDatum: PD = C(
   0,
-  I(BigInt("31794195172111")), // [0] reserveAmount (lovelace)
-  I(BigInt("2989240361350")), // [1] djedAmount (micro-DJED)
-  I(BigInt("28911296606227")), // [2] shenAmount (micro-SHEN)
-  // [3] lastOracle = Constr0[ Constr0[ Constr0[ TxOutRef, Int ] ] ]
+  I(BigInt("31794195172111")), // [0] adaInReserve (lovelace)
+  I(BigInt("2989240361350")), // [1] djedInCirculation (micro-DJED)
+  I(BigInt("28911296606227")), // [2] shenInCirculation (micro-SHEN)
+  // [3] lastOrder = Constr0[ Constr0[ { order: TxOutRef, time: Int } ] ]
   C(0, C(0, C(0, ref(ORACLE_INPUT, 0), I(BigInt("1781621805000"))))),
-  I(1823130), // [4] paramA
-  I(1530050), // [5] paramB
-  C(1), // [6] paused = Constr1 [] = True
-  B(DJED.mintingPolicyId), // [7] policyId
-  ref(ORACLE_REF, 0), // [8] oracleRef
-  ref(PRIOR_REF, 0), // [9] priorRef
+  I(1823130), // [4] minADA
+  I(1530050), // [5] _1 (unnamed)
+  C(1), // [6] _2 Nullable = Constr1 [] = Nothing
+  B(DJED.mintingPolicyId), // [7] mintingPolicyId
+  ref(ORACLE_REF, 0), // [8] mintingPolicyUniqRef
+  ref(PRIOR_REF, 0), // [9] _3 (unnamed OutputReference)
 );
 
 describe("parseDjedReserveState", () => {
   test("parses all 10 fields of the live datum", () => {
     const s = parseDjedReserveState(liveDatum);
-    expect(s.reserveAmount).toBe(BigInt("31794195172111"));
-    expect(s.djedAmount).toBe(BigInt("2989240361350"));
-    expect(s.shenAmount).toBe(BigInt("28911296606227"));
-    expect(s.paramA).toBe(BigInt(1823130));
-    expect(s.paramB).toBe(BigInt(1530050));
-    expect(s.paused).toBe(true);
-    expect(s.policyId).toBe(DJED.mintingPolicyId);
+    expect(s.adaInReserve).toBe(BigInt("31794195172111"));
+    expect(s.djedInCirculation).toBe(BigInt("2989240361350"));
+    expect(s.shenInCirculation).toBe(BigInt("28911296606227"));
+    expect(s.minADA).toBe(BigInt(1823130));
+    expect(s.field1).toBe(BigInt(1530050));
+    // Constr1 [] is Nullable Nothing, not a paused/locked boolean.
+    expect(s.optionPresent).toBe(false);
+    expect(s.mintingPolicyId).toBe(DJED.mintingPolicyId);
   });
 
-  test("peels the nested lastOracle wrappers to (TxOutRef, posix-ms)", () => {
+  test("peels the nested lastOrder wrappers to (TxOutRef, posix-ms)", () => {
     const s = parseDjedReserveState(liveDatum);
-    expect(s.lastOracle.timestamp).toBe(BigInt("1781621805000"));
-    expect(s.lastOracle.oracleInput).toEqual({ txHash: ORACLE_INPUT, index: BigInt(0) });
+    expect(s.lastOrder.timestamp).toBe(BigInt("1781621805000"));
+    expect(s.lastOrder.order).toEqual({ txHash: ORACLE_INPUT, index: BigInt(0) });
   });
 
-  test("parses the oracle + prior TxOutRefs", () => {
+  test("parses the minting-policy unique ref + field[9] ref", () => {
     const s = parseDjedReserveState(liveDatum);
-    expect(s.oracleRef).toEqual({ txHash: ORACLE_REF, index: BigInt(0) });
-    expect(s.priorRef).toEqual({ txHash: PRIOR_REF, index: BigInt(0) });
+    expect(s.mintingPolicyUniqRef).toEqual({ txHash: ORACLE_REF, index: BigInt(0) });
+    expect(s.field3).toEqual({ txHash: PRIOR_REF, index: BigInt(0) });
   });
 
   test("rejects wrong field count", () => {
     expect(() => parseDjedReserveState(C(0, I(1)))).toThrow();
   });
 
-  test("reads a false paused flag (Constr0)", () => {
+  test("reads a present (Some) field[6] option (Constr0[x])", () => {
     const d: PD = C(
       0,
       I(0),
@@ -71,15 +74,15 @@ describe("parseDjedReserveState", () => {
       C(0, C(0, C(0, ref(ORACLE_INPUT, 0), I(0)))),
       I(0),
       I(0),
-      C(0), // paused = False
+      C(0, I(7)), // field[6] = Some(7)
       B(DJED.mintingPolicyId),
       ref(ORACLE_REF, 1),
       ref(PRIOR_REF, 2),
     );
     const s = parseDjedReserveState(d);
-    expect(s.paused).toBe(false);
-    expect(s.oracleRef.index).toBe(BigInt(1));
-    expect(s.priorRef.index).toBe(BigInt(2));
+    expect(s.optionPresent).toBe(true);
+    expect(s.mintingPolicyUniqRef.index).toBe(BigInt(1));
+    expect(s.field3.index).toBe(BigInt(2));
   });
 });
 

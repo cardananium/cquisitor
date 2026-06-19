@@ -14,6 +14,7 @@ import {
   asConstr,
   asInt,
   asOptional,
+  isInt,
   parseAssetClass,
   parseCredential,
   parsePlutusAddress,
@@ -235,14 +236,188 @@ export function parseCollateralDatum(d: PD): CollateralDatum {
   };
 }
 
+// --- ROLE "loan" variant : leftovers UTxO datum ----------------------------
+
+// leftovers.LeftoversDatum = AssetClass (a type alias). On-chain this is the
+// bare AssetClass Constr 0 [ policy_id, asset_name ] — the pool NFT asset class
+// that ties the liquidation leftovers back to its originating pool. Held at the
+// leftover validator (9b99fef5…), which shares the "loan" role with the
+// collateral validator but carries this 2-field datum instead of the 14-field
+// CollateralDatum.
+export interface LeftoversDatum {
+  poolNft: AssetClass;
+}
+
+export function parseLeftoversDatum(d: PD): LeftoversDatum {
+  const c = asConstr(d);
+  if (c.tag !== 0) throw new Error(`LeftoversDatum: unexpected ctor ${c.tag}`);
+  if (c.fields.length !== 2) {
+    throw new Error(`LeftoversDatum: expected 2 fields, got ${c.fields.length}`);
+  }
+  return { poolNft: parseAssetClass(d) };
+}
+
+// --- ROLE "order" : batcher request UTxO datum -----------------------------
+//
+// order.Datum<order_type> = Constr 0 [ control_credential: Credential,
+// pool_nft_cs: AssetClass, batcher_fee_ada: Int, order: order_type ]. The
+// inner `order` is one of the *Request variants below; all are Constr 0 and are
+// disambiguated by field count + the first field's shape (batchers deploy one
+// validator per request kind, but the role we receive is the generic "order").
+
+// The five inner request kinds. We surface the high-signal scalar/address fields
+// and leave the embedded full `Output`/`PartialOutput`/`Value` structures (which
+// the redeemer re-validates) summarized rather than fully expanded.
+export type OrderRequest =
+  | {
+      kind: "Borrow";
+      // expected_output.address — where the loan + borrower NFT are returned.
+      destinationAddress: PlutusAddress | null;
+      borrowerNftPolicy: string;
+      minCollateralAmount: bigint;
+      minDepositTime: bigint;
+      maxInterestRate: bigint;
+      collateralAddress: PlutusAddress;
+    }
+  | { kind: "Deposit"; destinationAddress: PlutusAddress | null; depositAmount: bigint; lpAsset: AssetClass }
+  | {
+      kind: "Withdraw";
+      destinationAddress: PlutusAddress | null;
+      lpTokensBurn: bigint;
+      receiveAsset: AssetClass;
+      lpAsset: AssetClass;
+    }
+  | {
+      kind: "Repay";
+      destinationAddress: PlutusAddress | null;
+      order: OutputReference;
+      burnAsset: AssetClass;
+    }
+  | { kind: "Liquidate"; destinationAddress: PlutusAddress | null }
+  | { kind: "Unknown"; fieldCount: number };
+
+export interface OrderDatum {
+  controlCredential: Credential;
+  poolNftCs: AssetClass;
+  batcherFeeAda: bigint;
+  request: OrderRequest;
+}
+
+// Output = Constr 0 [ address: Address, value: Value, datum, reference_script ]
+// and PartialOutput = Constr 0 [ address: Address, value: Value, datum ]. Both
+// carry the user's destination Address as their first field; the embedded Value
+// is the user-provided ADA/asset baseline (the batcher tops it up). We surface
+// only the destination address — the full Value is re-derived by the redeemer.
+function parseOrderOutputAddress(d: PD): PlutusAddress | null {
+  try {
+    const c = asConstr(d);
+    if (c.tag !== 0 || c.fields.length < 1) return null;
+    return parsePlutusAddress(c.fields[0]);
+  } catch {
+    return null;
+  }
+}
+
+// BorrowRequest = Constr 0 [ expected_output: Output, partial_output:
+// PartialOutput, borrower_nft_policy: PolicyId, min_collateral_amount: Int,
+// min_deposit_time: POSIXTime, max_interest_rate: Int, collateral_address:
+// Address ].
+function parseBorrowRequest(fields: PD[]): OrderRequest {
+  return {
+    kind: "Borrow",
+    destinationAddress: parseOrderOutputAddress(fields[0]),
+    borrowerNftPolicy: asBytes(fields[2]),
+    minCollateralAmount: asInt(fields[3]),
+    minDepositTime: asInt(fields[4]),
+    maxInterestRate: asInt(fields[5]),
+    collateralAddress: parsePlutusAddress(fields[6]),
+  };
+}
+
+// Decode the inner request by structure. order.Datum is generic, so the on-chain
+// datum gives no explicit tag for which request it carries; we discriminate on
+// the (constructor-0) field count, and on the first field's type for the 3-field
+// collision between DepositRequest (Int first) and RepayRequest (Output first).
+function parseOrderRequest(d: PD): OrderRequest {
+  const c = asConstr(d);
+  if (c.tag !== 0) {
+    throw new Error(`order request: unexpected ctor ${c.tag}`);
+  }
+  const f = c.fields;
+  switch (f.length) {
+    case 1:
+      // LiquidateRequest = Constr 0 [ expected_output: Output ].
+      return { kind: "Liquidate", destinationAddress: parseOrderOutputAddress(f[0]) };
+    case 3:
+      if (isInt(f[0])) {
+        // DepositRequest = Constr 0 [ deposit_amount: Int, partial_output,
+        // lp_asset: AssetClass ].
+        return {
+          kind: "Deposit",
+          destinationAddress: parseOrderOutputAddress(f[1]),
+          depositAmount: asInt(f[0]),
+          lpAsset: parseAssetClass(f[2]),
+        };
+      }
+      // RepayRequest = Constr 0 [ expected_output: Output, order:
+      // OutputReference, burn_asset: AssetClass ].
+      return {
+        kind: "Repay",
+        destinationAddress: parseOrderOutputAddress(f[0]),
+        order: parseOutputReference(f[1]),
+        burnAsset: parseAssetClass(f[2]),
+      };
+    case 4:
+      // WithdrawRequest = Constr 0 [ lp_tokens_burn: Int, partial_output,
+      // receive_asset: AssetClass, lp_asset: AssetClass ].
+      return {
+        kind: "Withdraw",
+        destinationAddress: parseOrderOutputAddress(f[1]),
+        lpTokensBurn: asInt(f[0]),
+        receiveAsset: parseAssetClass(f[2]),
+        lpAsset: parseAssetClass(f[3]),
+      };
+    case 7:
+      return parseBorrowRequest(f);
+    default:
+      return { kind: "Unknown", fieldCount: f.length };
+  }
+}
+
+export function parseOrderDatum(d: PD): OrderDatum {
+  const c = asConstr(d);
+  if (c.tag !== 0) throw new Error(`order.Datum: unexpected ctor ${c.tag}`);
+  if (c.fields.length !== 4) {
+    throw new Error(`order.Datum: expected 4 fields, got ${c.fields.length}`);
+  }
+  return {
+    controlCredential: parseCredential(c.fields[0]),
+    poolNftCs: parseAssetClass(c.fields[1]),
+    batcherFeeAda: asInt(c.fields[2]),
+    request: parseOrderRequest(c.fields[3]),
+  };
+}
+
 // Single decode entry point (one decode per spec). role is a string.
 export type LenfiDatum =
   | { kind: "pool"; datum: PoolDatum }
-  | { kind: "loan"; datum: CollateralDatum };
+  | { kind: "loan"; datum: CollateralDatum }
+  | { kind: "leftovers"; datum: LeftoversDatum }
+  | { kind: "order"; datum: OrderDatum };
 
 export function parseLenfiDatum(data: PD, role: string): LenfiDatum {
   if (role === "pool") return { kind: "pool", datum: parsePoolDatum(data) };
-  if (role === "loan") return { kind: "loan", datum: parseCollateralDatum(data) };
+  if (role === "loan") {
+    // The "loan" role covers two validators: the collateral validator
+    // (14-field CollateralDatum) and the leftover validator (2-field
+    // LeftoversDatum / AssetClass). Disambiguate by field count.
+    const c = asConstr(data);
+    if (c.tag === 0 && c.fields.length === 2) {
+      return { kind: "leftovers", datum: parseLeftoversDatum(data) };
+    }
+    return { kind: "loan", datum: parseCollateralDatum(data) };
+  }
+  if (role === "order") return { kind: "order", datum: parseOrderDatum(data) };
   throw new Error(`Lenfi: no datum parser for role "${role}"`);
 }
 
