@@ -15,8 +15,11 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   
-  // Empty turbopack config to silence the warning
-  turbopack: {},
+  // Pin the workspace root so Turbopack doesn't misinfer it (it sometimes guesses
+  // src/app, which then breaks @/ imports that live outside it).
+  turbopack: {
+    root: process.cwd(),
+  },
   
   webpack: (config, { isServer }) => {
     // Enable WebAssembly
