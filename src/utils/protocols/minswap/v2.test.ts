@@ -123,12 +123,13 @@ describe("MinswapOrderDatum — receiver datum hashes + multi-routing", () => {
     );
     const view = minswapOrderToView(parseMinswapOrderDatum(datum));
     expect(view.rows.find((r) => r.label === "Routings")?.value).toBe("2 pool(s)");
-    expect(view.rows.find((r) => r.label === "Routing 1 pool LP")?.asset).toMatchObject({ policyId: POLICY, assetName: NAME });
-    expect(view.rows.find((r) => r.label === "Routing 1 direction")?.value).toBe("A → B");
-    expect(view.rows.find((r) => r.label === "Routing 2 pool LP")?.asset).toMatchObject({ policyId: POLICY, assetName: NAME2 });
-    expect(view.rows.find((r) => r.label === "Routing 2 direction")?.value).toBe("B → A");
+    // Each hop's pool LP + direction is exposed via view.routings, so the panel
+    // can resolve every hop to its pair and render the full route.
+    expect(view.routings).toHaveLength(2);
+    expect(view.routings?.[0]).toMatchObject({ poolRef: { policyId: POLICY, assetName: NAME }, aToB: true });
+    expect(view.routings?.[1]).toMatchObject({ poolRef: { policyId: POLICY, assetName: NAME2 }, aToB: false });
     // No single poolRef for a multi-hop swap — the entry pool's pair would
-    // mislead; the per-routing rows carry the path instead.
+    // mislead; the per-routing hops carry the path instead.
     expect(view.poolRef).toBeUndefined();
   });
 });

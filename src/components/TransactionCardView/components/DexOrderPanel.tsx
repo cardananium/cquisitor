@@ -125,6 +125,65 @@ function ResolvedPoolPairRow({ poolRef, adapterId }: { poolRef: PoolRef; adapter
   return null;
 }
 
+// One hop of a multi-routing swap: resolve the hop's pool LP to its pair, then
+// render it as a directional flow "from → to" (using the hop's swap direction),
+// so the whole route reads as a path. Falls back to the LP token while resolving
+// or when chain enrichment is off.
+function RoutingHop({
+  hop,
+  index,
+  adapterId,
+}: {
+  hop: { poolRef: PoolRef; aToB: boolean };
+  index: number;
+  adapterId: string;
+}) {
+  const enabled = usePoolPairEnabled();
+  const pair = usePoolPair(hop.poolRef, adapterId);
+  let body: React.ReactNode;
+  if (pair) {
+    const from = hop.aToB ? pair.assetA : pair.assetB;
+    const to = hop.aToB ? pair.assetB : pair.assetA;
+    body = (
+      <span className="tcv-dex-pair-assets">
+        <AssetValue policyId={from.policyId} assetName={from.assetName} />
+        <span className="tcv-dex-pair-sep">→</span>
+        <AssetValue policyId={to.policyId} assetName={to.assetName} />
+      </span>
+    );
+  } else if (enabled && pair === undefined) {
+    body = <span className="tcv-dex-pair-loading">resolving…</span>;
+  } else {
+    body = <AssetValue policyId={hop.poolRef.policyId} assetName={hop.poolRef.assetName} />;
+  }
+  return (
+    <div className="tcv-dex-row">
+      <span className="tcv-dex-leg-label">Hop {index + 1}</span>
+      {body}
+    </div>
+  );
+}
+
+function RouteSection({
+  routings,
+  adapterId,
+}: {
+  routings: Array<{ poolRef: PoolRef; aToB: boolean }>;
+  adapterId: string;
+}) {
+  return (
+    <div className="tcv-dex-section tcv-dex-pair">
+      <div className="tcv-dex-row">
+        <span className="tcv-dex-leg-label">Route</span>
+        <span>{routings.length} hops</span>
+      </div>
+      {routings.map((hop, i) => (
+        <RoutingHop key={i} hop={hop} index={i} adapterId={adapterId} />
+      ))}
+    </div>
+  );
+}
+
 function worstSeverity(issues: DexIssue[]): "ok" | "warning" | "error" {
   if (issues.some((i) => i.severity === "error")) return "error";
   if (issues.some((i) => i.severity === "warning")) return "warning";
@@ -160,6 +219,8 @@ export function DexOrderPanel({ detection }: DexOrderPanelProps) {
 
           {view.pair ? (
             <PairAssets pair={view.pair} />
+          ) : view.routings && view.routings.length > 0 ? (
+            <RouteSection routings={view.routings} adapterId={detection.adapterId} />
           ) : view.poolRef ? (
             <ResolvedPoolPairRow poolRef={view.poolRef} adapterId={detection.adapterId} />
           ) : null}

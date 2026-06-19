@@ -89,6 +89,14 @@ export interface DexOrderView {
    * same way as a resolved `poolRef`. Takes precedence over `poolRef`.
    */
   pair?: PoolPair;
+  /**
+   * For a multi-hop (multi-routing) swap, each hop's pool ref + swap direction.
+   * The panel resolves every hop's pool to its pair (like `poolRef`) and renders
+   * the full route. A single `poolRef`/`pair` is intentionally unset — no one
+   * pair represents a multi-hop swap. `aToB` true = the hop swaps the pool's
+   * asset A into asset B (so the flow is assetA → assetB), false = B → A.
+   */
+  routings?: Array<{ poolRef: PoolRef; aToB: boolean }>;
 }
 
 export interface DexAdapter {

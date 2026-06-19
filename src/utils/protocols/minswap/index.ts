@@ -231,12 +231,10 @@ function stepRows(step: OrderStep): DexRow[] {
         { label: "Killable", value: String(step.killable) },
       ];
     case "SwapMultiRouting":
+      // Each hop's pool is resolved to its pair + rendered as a route by the
+      // panel (view.routings); only the scalar fields stay as rows here.
       return [
         { label: "Routings", value: `${step.routings.length} pool(s)` },
-        ...step.routings.flatMap((r, i): DexRow[] => [
-          assetRow(`Routing ${i + 1} pool LP`, r.lpAsset),
-          { label: `Routing ${i + 1} direction`, value: direction(r.aToBDirection) },
-        ]),
         { label: "Swap amount", value: describeSwapAmount(step.swapAmountOption) },
         { label: "Minimum receive", value: step.minimumReceive.toLocaleString() },
       ];
@@ -298,6 +296,15 @@ export function minswapOrderToView(datum: MinswapOrderDatum): DexOrderView {
     poolRef:
       datum.step.kind !== "SwapMultiRouting" && datum.lpAsset.policyId
         ? { policyId: datum.lpAsset.policyId, assetName: datum.lpAsset.assetName }
+        : undefined,
+    // Multi-hop: expose each hop's pool LP + direction so the panel resolves and
+    // renders the route (assetA→assetB per the hop's direction).
+    routings:
+      datum.step.kind === "SwapMultiRouting"
+        ? datum.step.routings.map((r) => ({
+            poolRef: { policyId: r.lpAsset.policyId, assetName: r.lpAsset.assetName },
+            aToB: r.aToBDirection,
+          }))
         : undefined,
   };
 }
