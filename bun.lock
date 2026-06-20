@@ -5,7 +5,7 @@
     "": {
       "name": "cquisitor",
       "dependencies": {
-        "@cardananium/cquisitor-lib": "^0.1.0-beta.59",
+        "@cardananium/cquisitor-lib": "^0.1.0-beta.61",
         "@emotion/react": "^11.14.0",
         "@emotion/styled": "^11.14.1",
         "@mui/material": "^7.3.6",
@@ -82,7 +82,7 @@
 
     "@babel/types": ["@babel/types@7.28.5", "", { "dependencies": { "@babel/helper-string-parser": "^7.27.1", "@babel/helper-validator-identifier": "^7.28.5" } }, "sha512-qQ5m48eI/MFLQ5PxQj4PFaprjyCTLI37ElWMmNs0K8Lk3dVeOdNpB3ks8jc7yM5CDmVC73eMVk/trk3fgmrUpA=="],
 
-    "@cardananium/cquisitor-lib": ["@cardananium/cquisitor-lib@0.1.0-beta.59", "", {}, "sha512-TyU9CnfRRQCExEn/ZJ+fYv1BTnqn2ZD+uc7qf2pFv2Djy37VR2TWw6QJu203xIGt9kNdDCJ99tJpl2u8BKqTGg=="],
+    "@cardananium/cquisitor-lib": ["@cardananium/cquisitor-lib@0.1.0-beta.61", "", {}, "sha512-T2Px97L7ZgA0+yemlkXCJXSPfrD4oNaYgRNN9KS9ivZr62PK6pBrGsr5nkjLr4L3emg4uifGkMakJZ8vnGE6Uw=="],
 
     "@cbor-extract/cbor-extract-darwin-arm64": ["@cbor-extract/cbor-extract-darwin-arm64@2.2.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-P7swiOAdF7aSi0H+tHtHtr6zrpF3aAq/W9FXx5HektRvLTM2O89xCyXF3pk7pLc7QpaY7AoaE8UowVf9QBdh3w=="],
 
