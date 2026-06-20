@@ -411,11 +411,6 @@ export interface TransactionCardViewProps {
    * built after Validate (they need the resolved context + utxos). Null until then.
    */
   deUplcLinks?: DeUplcLinkMaps | null;
-  /**
-   * Bytecode-only ("Open in de-uplc-web") program links per witness plutus_scripts
-   * index. Available without Validate (needs only the script hex + version).
-   */
-  deUplcProgramUrls?: (string | null)[] | null;
   /** Active data provider — used to fetch asset metadata for enrichment. */
   provider?: DataProvider;
   /** API key/project_id for the active provider (asset-metadata fetch). */

@@ -2857,16 +2857,7 @@ input, textarea, select, button {
   border-color: #1e293b;
 }
 
-/* "Open in de-uplc-web" buttons on redeemer / plutus-script cards */
-.tcv-script-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.tcv-script-header > .tcv-cdi-trigger {
-  flex: 1 1 auto;
-  min-width: 0;
-}
+/* "Debug in de-uplc" button on redeemer cards */
 .tcv-deuplc-slot {
   display: inline-flex;
   align-items: center;
@@ -4216,6 +4207,19 @@ input, textarea, select, button {
 
 .plutus-accordion-header {
   margin: 0;
+  position: relative;
+}
+
+/* "Debug in de-uplc" button overlaid on the right of the eval-result header, clearing the chevron.
+   Absolute (not a flex sibling) so the trigger stays full-width and clickable. */
+.plutus-deuplc-slot {
+  position: absolute;
+  right: 38px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
 }
 
 .plutus-accordion-trigger {

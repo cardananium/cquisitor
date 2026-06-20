@@ -297,7 +297,6 @@ export default function TransactionCardView({
   protocolMaxes,
   actualExUnits,
   deUplcLinks,
-  deUplcProgramUrls,
   provider,
   apiKey,
 }: TransactionCardViewProps): React.ReactElement {
@@ -869,8 +868,6 @@ export default function TransactionCardView({
                   diagnosticsMap={diagnosticsMap}
                   focusedPath={focusedPath}
                   plutusScriptsInfo={extractedHashes?.witness_plutus_scripts}
-                  deUplcByScript={deUplcLinks?.byScript}
-                  deUplcProgramUrls={deUplcProgramUrls}
                 />
               </SectionCard>
             )}
@@ -982,16 +979,12 @@ function ScriptsList({
   diagnosticsMap,
   focusedPath,
   plutusScriptsInfo,
-  deUplcByScript,
-  deUplcProgramUrls,
 }: {
   scripts: string[];
   path: string;
   diagnosticsMap: Map<string, ValidationDiagnostic[]>;
   focusedPath?: string[] | null;
   plutusScriptsInfo?: (PlutusScriptInfo | null)[];
-  deUplcByScript?: DeUplcLinkMaps["byScript"];
-  deUplcProgramUrls?: (string | null)[] | null;
 }) {
   return (
     <div className="tcv-scripts-list">
@@ -1004,8 +997,6 @@ function ScriptsList({
           diagnosticsMap={diagnosticsMap}
           focusedPath={focusedPath}
           scriptInfo={plutusScriptsInfo?.[i]}
-          deUplcLink={deUplcByScript?.[i] ?? null}
-          deUplcProgramUrl={deUplcProgramUrls?.[i] ?? null}
         />
       ))}
     </div>

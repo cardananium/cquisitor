@@ -25,7 +25,8 @@ import {
 } from "@/components/Icons";
 import { buildCardanoCborUrl, buildExplorerTxUrl, buildTxStudioUrl, openExternalUrl } from "@/utils/externalApps";
 import { buildJsonViewerUrl } from "@/utils/jsonViewerHandoff";
-import { buildAllDeUplcLinks, fieldsToUrl, programFields, type DeUplcLinkMaps } from "@/utils/deUplcLink";
+import { buildAllDeUplcLinks, type DeUplcLinkMaps } from "@/utils/deUplcLink";
+import { DeUplcButton, DEUPLC_ENABLED } from "@/components/TransactionCardView/components/DeUplcButton";
 import { ErrorDataDetails, getCleanedErrorMessage, DecompositionModalProvider } from "@/components/ErrorDataFormatters";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
@@ -676,7 +677,13 @@ function ScriptContextSection({
 }
 
 // Plutus Script Results component with Accordion
-function PlutusScriptResults({ results }: { results: EvalRedeemerResult[] }) {
+function PlutusScriptResults({
+  results,
+  deUplcLinks,
+}: {
+  results: EvalRedeemerResult[];
+  deUplcLinks?: DeUplcLinkMaps | null;
+}) {
   if (results.length === 0) {
     return (
       <div className="plutus-empty-state">
@@ -725,6 +732,11 @@ function PlutusScriptResults({ results }: { results: EvalRedeemerResult[] }) {
                 </div>
                 <ChevronDownIcon size={16} className="plutus-accordion-chevron" />
               </Accordion.Trigger>
+              {DEUPLC_ENABLED && (
+                <span className="plutus-deuplc-slot">
+                  <DeUplcButton link={deUplcLinks?.byEval.get(`${result.tag}:${result.index}`) ?? null} />
+                </span>
+              )}
             </Accordion.Header>
             
             <Accordion.Content className="plutus-accordion-content">
@@ -963,56 +975,23 @@ export default function TransactionValidatorContent() {
     return processTransactionInput(txInput).hex;
   }, [txInput]);
 
-  // Bytecode-only "Open in de-uplc-web" program links per witness plutus_scripts index.
-  // Needs only the script hex + version, so it's available without running Validate. Async because
-  // a large validator's link is gzip-compressed (fieldsToUrl: plain if small, else compressed).
-  const [deUplcProgramUrls, setDeUplcProgramUrls] = useState<(string | null)[] | null>(null);
-  useEffect(() => {
-    const scripts = decodedTx?.transaction?.witness_set?.plutus_scripts;
-    const infos = extractedHashes?.witness_plutus_scripts;
-    if (!scripts) {
-      setDeUplcProgramUrls(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const urls = await Promise.all(
-          scripts.map(async (s, i) => {
-            const info = infos?.[i];
-            return info ? await fieldsToUrl(programFields(s, info.version)) : null;
-          }),
-        );
-        if (!cancelled) setDeUplcProgramUrls(urls);
-      } catch {
-        if (!cancelled) setDeUplcProgramUrls(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [decodedTx, extractedHashes]);
-
-  // Contextful per-redeemer / per-script "Open in de-uplc-web" links. Built after Validate (they need
-  // the resolved script context + utxos) and async because large links are gzip-compressed.
+  // Per-redeemer / per-eval "Debug in de-uplc" links. Built after Validate from the eval results
+  // (which carry the resolved script bytecode + context + args verbatim) and async because large
+  // links are gzip-compressed.
   const [deUplcLinks, setDeUplcLinks] = useState<DeUplcLinkMaps | null>(null);
   useEffect(() => {
     const tx = decodedTx?.transaction;
-    if (!tx || !result?.eval_redeemer_results?.length || !fetchedContext) {
+    if (!tx || !result?.eval_redeemer_results?.length) {
       setDeUplcLinks(null);
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-        const utxoSet = buildValidationContext(fetchedContext, network).utxoSet;
-        const maps = await buildAllDeUplcLinks({
-          body: tx.body,
-          witnessSet: tx.witness_set,
-          extractedHashes,
-          evalResults: result.eval_redeemer_results,
-          utxoSet,
-        });
+        const maps = await buildAllDeUplcLinks(
+          result.eval_redeemer_results,
+          tx.witness_set.redeemers ?? [],
+        );
         if (!cancelled) setDeUplcLinks(maps);
       } catch {
         if (!cancelled) setDeUplcLinks(null);
@@ -1021,7 +1000,7 @@ export default function TransactionValidatorContent() {
     return () => {
       cancelled = true;
     };
-  }, [decodedTx, result, fetchedContext, extractedHashes, network]);
+  }, [decodedTx, result]);
 
   // Actual (calculated) tx-wide ex units, summed from successful script evals.
   // Failed evals don't contribute a meaningful calculated_ex_units, so we skip
@@ -1767,7 +1746,7 @@ export default function TransactionValidatorContent() {
 
         <Tabs.Content value="plutus" className="validator-tab-content">
           {result ? (
-            <PlutusScriptResults results={result.eval_redeemer_results} />
+            <PlutusScriptResults results={result.eval_redeemer_results} deUplcLinks={deUplcLinks} />
           ) : (
             <div className="empty-state">
               <p className="empty-hint">
@@ -1846,7 +1825,6 @@ export default function TransactionValidatorContent() {
             }
             actualExUnits={actualExUnits}
             deUplcLinks={deUplcLinks}
-            deUplcProgramUrls={deUplcProgramUrls}
             provider={provider}
             apiKey={apiKey}
           />
