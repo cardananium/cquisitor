@@ -165,6 +165,10 @@ export function poolToView(datum: MuesliPoolDatum): DexOrderView {
     assetRow("Coin A", datum.coinA),
     assetRow("Coin B", datum.coinB),
   ];
+  if (datum.clp) {
+    datum.clp.params.forEach((p, i) => rows.push({ label: `CLP param ${i + 1}`, value: `${p.num} / ${p.den}` }));
+    rows.push({ label: "CLP param 4", value: datum.clp.tail.toLocaleString() });
+  }
   const assets: DexAssetRow[] = [
     { label: "Coin A", policyId: datum.coinA.policyId, assetName: datum.coinA.assetName },
     { label: "Coin B", policyId: datum.coinB.policyId, assetName: datum.coinB.assetName },
@@ -172,7 +176,7 @@ export function poolToView(datum: MuesliPoolDatum): DexOrderView {
   return {
     protocol: "MuesliSwap (AMM)",
     role: "pool",
-    kind: "Liquidity Pool (constant product)",
+    kind: datum.clp ? "Constant liquidity pool" : "Liquidity Pool (constant product)",
     rows,
     assets,
     issues: [],

@@ -33,6 +33,10 @@ export const MUESLISWAP = {
   // UTxO holds a unique NFT under this policy; the NFT TokenName links a
   // batch-order (odPoolNftTokenName) to its pool.
   poolNftPolicy: "909133088303c49f3a30f1cc8ed553a73857a29779f6c6561cd8093f",
+  // SURFACE C — Constant-Liquidity-Pool (CLP, the 2nd AMM); pool datum +
+  // appended curve params, decoded by the same CLP-aware pool parser.
+  clpPoolHash: "4136eeede1a49030451ee3a09d900959bafeafd9b536e59345ac780f",
+  clpNftPolicy: "f33bf12af1c23d660e29ebb0d3206b0bfc56ffd87ffafe2d36c42a45",
   // Factory / script-version token name "MuesliSwap_AMM".
   scriptVersionHex: "4d7565736c69537761705f414d4d",
 } as const;
@@ -49,7 +53,7 @@ export function matchMuesliSwapScriptHash(
   // The production V2 order-book carries a distinct richer datum shape; give it
   // its own role so `decode` dispatches to the V2 parser/view.
   if (lower === MUESLISWAP.orderBookV2Hash) return "orderbook-v2-order";
-  if (lower === MUESLISWAP.poolHash) return "pool";
+  if (lower === MUESLISWAP.poolHash || lower === MUESLISWAP.clpPoolHash) return "pool";
   // The AMM batch-order escrow also belongs to the "pool" surface — it carries
   // the liquidity OrderDatum (B3) tied to a pool NFT.
   if (lower === MUESLISWAP.batchOrderHash) return "pool";
@@ -66,7 +70,8 @@ export function matchMuesliSwapNftPolicy(
   network: CardanoNetwork | undefined,
 ): DexRole | null {
   if (network && network !== "mainnet") return null;
-  if (policyId.toLowerCase() === MUESLISWAP.poolNftPolicy && assetNames.length > 0) {
+  const lower = policyId.toLowerCase();
+  if ((lower === MUESLISWAP.poolNftPolicy || lower === MUESLISWAP.clpNftPolicy) && assetNames.length > 0) {
     return "pool";
   }
   return null;

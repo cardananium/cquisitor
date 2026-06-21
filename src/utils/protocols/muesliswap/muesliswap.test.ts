@@ -173,6 +173,24 @@ describe("parsePoolDatum", () => {
     expect(p.coinB).toEqual({ policyId: POLICY, assetName: TOKEN });
     expect(p.totalLiquidity).toBe(BigInt(5_000_000));
     expect(p.swapFee).toBe(BigInt(30));
+    expect(p.clp).toBeUndefined();
+  });
+
+  test("CLP (8 fields) captures the appended curve params + renders as a CLP", () => {
+    const datum: PD = C(0, ada, token, I(7_923_872), I(30), C(0, I(4), I(9)), C(0, I(2), I(3)), C(0, I(1), I(3)), I(30));
+    const p = parsePoolDatum(datum);
+    expect(p.coinA).toEqual({ policyId: "", assetName: "" });
+    expect(p.swapFee).toBe(BigInt(30));
+    expect(p.clp?.params).toEqual([
+      { num: BigInt(4), den: BigInt(9) },
+      { num: BigInt(2), den: BigInt(3) },
+      { num: BigInt(1), den: BigInt(3) },
+    ]);
+    expect(p.clp?.tail).toBe(BigInt(30));
+    const view = poolToView(p);
+    expect(view.kind).toBe("Constant liquidity pool");
+    expect(view.pair).toMatchObject({ assetA: { policyId: "" }, assetB: { policyId: POLICY } });
+    expect(view.rows.find((r) => r.label === "CLP param 1")?.value).toBe("4 / 9");
   });
 });
 

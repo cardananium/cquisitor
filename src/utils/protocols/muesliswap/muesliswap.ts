@@ -186,12 +186,15 @@ export function classifyOrderBookV2Redeemer(data: PD): MuesliOrderBookV2Action |
 // ===========================================================================
 
 // B1. PoolDatum = Constr 0 [ pdCoinA, pdCoinB, pdTotalLiquidity, pdSwapFee ].
+// The CLP (2nd AMM) variant appends 4 curve params (8 fields total).
 export interface MuesliPoolDatum {
   surface: "pool";
   coinA: AssetClass;
   coinB: AssetClass;
   totalLiquidity: bigint;
   swapFee: bigint; // fee numerator, e.g. 30 ≈ 0.3%
+  // CLP-only appended curve params (no published schema → kept neutral).
+  clp?: { params: Array<{ num: bigint; den: bigint }>; tail: bigint };
 }
 
 export function parsePoolDatum(data: PD): MuesliPoolDatum {
@@ -201,13 +204,25 @@ export function parsePoolDatum(data: PD): MuesliPoolDatum {
   if (f.length < 4) {
     throw new Error(`MuesliSwap PoolDatum: expected ≥4 fields, got ${f.length}`);
   }
-  return {
+  const base: MuesliPoolDatum = {
     surface: "pool",
     coinA: parseAssetClass(f[0]),
     coinB: parseAssetClass(f[1]),
     totalLiquidity: asInt(f[2]),
     swapFee: asInt(f[3]),
   };
+  if (f.length >= 8) {
+    try {
+      const rat = (x: PD) => {
+        const cc = asConstr(x);
+        return { num: asInt(cc.fields[0]), den: asInt(cc.fields[1]) };
+      };
+      base.clp = { params: [rat(f[4]), rat(f[5]), rat(f[6])], tail: asInt(f[7]) };
+    } catch {
+      // not the CLP shape
+    }
+  }
+  return base;
 }
 
 // B2. PoolRedeemer:
