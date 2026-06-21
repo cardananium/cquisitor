@@ -181,23 +181,29 @@ describe("parseWrPoolDatum", () => {
 
 describe("WingRiders matching (cp = V1 nested, stableswap = V2)", () => {
   test("order/request hashes map to cp vs stableswap roles", () => {
-    expect(matchWingRidersScriptHash(WINGRIDERS_V2.cpRequestHash, "mainnet")).toBe("order");
-    expect(matchWingRidersScriptHash(WINGRIDERS_V2.stableRequestHash, undefined)).toBe("stableswap-order");
-    expect(matchWingRidersScriptHash(WINGRIDERS_V2.cpRequestHash, "preprod")).toBeNull();
+    expect(matchWingRidersScriptHash(WINGRIDERS_V2.cpRequestHashes[0], "mainnet")).toBe("order");
+    expect(matchWingRidersScriptHash(WINGRIDERS_V2.stableRequestHashes[0], undefined)).toBe("stableswap-order");
+    expect(matchWingRidersScriptHash(WINGRIDERS_V2.cpRequestHashes[0], "preprod")).toBeNull();
     expect(matchWingRidersScriptHash(VH, "mainnet")).toBeNull();
   });
 
   test("pool SPEND validator hashes also map to pool roles (NFT-independent)", () => {
-    expect(matchWingRidersScriptHash(WINGRIDERS_V2.cpPoolHash, "mainnet")).toBe("pool");
-    expect(matchWingRidersScriptHash(WINGRIDERS_V2.stablePoolHash, undefined)).toBe("stableswap-pool");
+    expect(matchWingRidersScriptHash(WINGRIDERS_V2.cpPoolHashes[0], "mainnet")).toBe("pool");
+    expect(matchWingRidersScriptHash(WINGRIDERS_V2.stablePoolHashes[0], undefined)).toBe("stableswap-pool");
   });
 
   test("pool validity NFT maps to cp vs stableswap roles", () => {
-    expect(matchWingRidersNftPolicy(WINGRIDERS_V2.cpLiquidityPolicy, ["4c"], "mainnet")).toBe("pool");
-    expect(matchWingRidersNftPolicy(WINGRIDERS_V2.stableLiquidityPolicy, ["4c", "abcd"], undefined)).toBe("stableswap-pool");
+    expect(matchWingRidersNftPolicy(WINGRIDERS_V2.cpLiquidityPolicies[0], ["4c"], "mainnet")).toBe("pool");
+    expect(matchWingRidersNftPolicy(WINGRIDERS_V2.stableLiquidityPolicies[0], ["4c", "abcd"], undefined)).toBe("stableswap-pool");
     // policy present but only an LP-share token (not the validity asset) → no match
-    expect(matchWingRidersNftPolicy(WINGRIDERS_V2.cpLiquidityPolicy, ["abcd"], "mainnet")).toBeNull();
-    expect(matchWingRidersNftPolicy(WINGRIDERS_V2.cpLiquidityPolicy, ["4c"], "preview")).toBeNull();
+    expect(matchWingRidersNftPolicy(WINGRIDERS_V2.cpLiquidityPolicies[0], ["abcd"], "mainnet")).toBeNull();
+    expect(matchWingRidersNftPolicy(WINGRIDERS_V2.cpLiquidityPolicies[0], ["4c"], "preview")).toBeNull();
+  });
+
+  test("recognizes the second CP deployment (af97793b / c134d839 / 6fdc63a1)", () => {
+    expect(matchWingRidersScriptHash("c134d839a64a5dfb9b155869ef3f34280751a622f69958baa8ffd29c", "mainnet")).toBe("order");
+    expect(matchWingRidersScriptHash("af97793b8702f381976cec83e303e9ce17781458c73c4bb16fe02b83", "mainnet")).toBe("pool");
+    expect(matchWingRidersNftPolicy("6fdc63a1d71dc2c65502b79baae7fb543185702b12c3c5fb639ed737", ["4c"], "mainnet")).toBe("pool");
   });
 });
 
@@ -209,12 +215,12 @@ describe("WingRiders LIVE nested layout (LiquidityPoolDatumV1 / RequestDatumV1)"
   test("nested pool datum (Constr0[reqHash, Constr0[Constr0[a,b], lastInt, treasA, treasB]])", () => {
     const datum: PD = C(
       0,
-      B(WINGRIDERS_V2.cpRequestHash),
+      B(WINGRIDERS_V2.cpRequestHashes[0]),
       // lpState = Constr0[ lp:Constr0[assetA, assetB], lastInteracted, treasA, treasB ]
       C(0, C(0, asset(POLICY_B, NAME_B), asset("", "")), I(1652560283000), I(0), I(0)),
     );
     const d = parseWrNestedPoolDatum(datum);
-    expect(d.requestValidatorHash).toBe(WINGRIDERS_V2.cpRequestHash);
+    expect(d.requestValidatorHash).toBe(WINGRIDERS_V2.cpRequestHashes[0]);
     expect(d.assetA).toEqual({ policyId: POLICY_B, assetName: NAME_B });
     expect(d.assetB).toEqual({ policyId: "", assetName: "" });
     expect(d.lastInteraction).toBe(BigInt(1652560283000));

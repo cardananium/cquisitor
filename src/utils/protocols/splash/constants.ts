@@ -11,6 +11,11 @@ import type { DexRole } from "@/utils/protocols/dex/registry";
 export const SPLASH = {
   limitOrderHash: "464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff02",
   instantOrderHash: "d9143ac63473b17a215d1b7484dfb6ac6b4a0005beb0e26a6ca02c96",
+  // Additional spot/limit-order validator deployments (decode as Limit order).
+  spotOrderHashes: [
+    "dbe7a3d8a1d82990992a38eea1a2efaa68e931e252fc92ca1383809b", // spotOrder v1
+    "2025463437ee5d64e89814a66ce7f98cb184a66ae85a2fbbfd750106", // spotOrder v2
+  ],
   // Constant-product CFMM pool families (classic + fee-switch variants).
   constProductPoolHashes: [
     "e628bfd68c07a7a38fcd7d8df650812a9dfdbee54b1ed4c25c87ffbf", // constFnPoolV1
@@ -43,7 +48,12 @@ export function matchSplashScriptHash(
 ): DexRole | null {
   if (network && network !== "mainnet") return null;
   const lower = hash.toLowerCase();
-  if (lower === SPLASH.limitOrderHash || lower === SPLASH.instantOrderHash) return "order";
+  if (
+    lower === SPLASH.limitOrderHash ||
+    lower === SPLASH.instantOrderHash ||
+    (SPLASH.spotOrderHashes as readonly string[]).includes(lower)
+  )
+    return "order";
   if ((SPLASH.constProductPoolHashes as readonly string[]).includes(lower)) return "pool";
   if (lower === SPLASH.stablePoolHash) return "stable-pool";
   if ((SPLASH.balancePoolHashes as readonly string[]).includes(lower)) return "balance-pool";

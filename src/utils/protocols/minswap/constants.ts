@@ -70,7 +70,7 @@ export function matchMinswapV1ScriptHash(
 // the StableswapConstant.CONFIG[MAINNET] orderAddress/poolAddress entries
 // (plutusV2). Order is index-aligned with pool by pool.
 export const MINSWAP_STABLESWAP = {
-  // 13 mainnet stable pools.
+  // 14 mainnet stable pools.
   orderScriptHashes: [
     "4c4d65a0616f60adc2cba70f533705233b1d7e8cb3e9868cdca39d86", // DJED-iUSD
     "62d3e3975c6ec02d4002640413368a2d46ea10548b1cd217a3e9b7cd", // USDC-DJED
@@ -85,6 +85,7 @@ export const MINSWAP_STABLESWAP = {
     "2c3a242850258ed3ebf501bb9515a159370de774a86fa70e27f24075", // wETH-iETH
     "9fb4b54c367463bd3da3d2e8aa9357133ef7b489adb1cf9cb2e8dd70", // wBTC-iBTC
     "baef35198c17567a43cf11a5d049b83f664241b35a666f5988f08092", // wSOL-iSOL
+    "01dbf30889e419e67f38dde1cc0c265da01d83c42f868128a87376b6", // USDT-iUSD
   ],
   poolScriptHashes: [
     "3d6b603c4c4abe4273223b45a858e7f546b8c520048f43218e250c66",
@@ -100,6 +101,7 @@ export const MINSWAP_STABLESWAP = {
     "85c162aaf17039cb3f9949dcd7fc5d81020bcb18dd764d2b21dddabc",
     "5ec0bf47958dfa60def3b4e96b89953fa51f99c288fcb61495f9b9c7",
     "a2f52338d5ab1d9f0c603a51c07168aafebf54f5d708b2abe71988c6",
+    "71b00bb6a54422cad7de4e784ced3a1aa9cd2974303f89d026b8756c", // USDT-iUSD
   ],
 } as const;
 
