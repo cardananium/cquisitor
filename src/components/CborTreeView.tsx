@@ -586,29 +586,57 @@ function TreeNode({
 
     if ("type" in node) {
       if (node.type === "Array") {
-        return node.values.map((child, index) => (
-          <TreeNode
-            key={index}
-            node={child}
-            depth={depth + 1}
-            path={`${path}[${index}]`}
-            hexValue={hexValue}
-            defaultExpanded={defaultExpanded}
-            onContextMenu={onContextMenu}
-            onHover={onHover}
-            keyLabel={`[${index}]`}
-            highlightedPosition={highlightedPosition}
-            expandedPaths={expandedPaths}
-          />
-        ));
+        return node.values.map((child, index) => {
+          // Indefinite-length arrays surface the terminating Break as the last
+          // child; label it "end" for consistency with maps/strings/bytes.
+          const isBreak = "type" in child && child.type === "Break";
+          return (
+            <TreeNode
+              key={index}
+              node={child}
+              depth={depth + 1}
+              path={`${path}[${index}]`}
+              hexValue={hexValue}
+              defaultExpanded={defaultExpanded}
+              onContextMenu={onContextMenu}
+              onHover={onHover}
+              keyLabel={isBreak ? "end" : `[${index}]`}
+              highlightedPosition={highlightedPosition}
+              expandedPaths={expandedPaths}
+            />
+          );
+        });
       }
       if (node.type === "Map") {
         return node.values.map((entry, index) => {
+          // Indefinite-length maps surface the terminating Break as a bare node
+          // (`{type: "Break"}`) — the last child — mirroring how indefinite
+          // arrays/strings show it. It is not a {key, value} pair, so render it
+          // as a standalone node instead of trying to split it into key/value.
+          if ("type" in entry) {
+            const bareNode = entry as unknown as CborValue;
+            const bareType = (bareNode as { type?: string }).type;
+            return (
+              <TreeNode
+                key={index}
+                node={bareNode}
+                depth={depth + 1}
+                path={`${path}[${index}]`}
+                hexValue={hexValue}
+                defaultExpanded={defaultExpanded}
+                onContextMenu={onContextMenu}
+                onHover={onHover}
+                keyLabel={bareType === "Break" ? "end" : `[${index}]`}
+                highlightedPosition={highlightedPosition}
+                expandedPaths={expandedPaths}
+              />
+            );
+          }
           // Partial map entries (from CborDecodeResult.partial) may have an
-          // undefined key or value on the entry where decoding stopped.
+          // undefined/null key or value on the entry where decoding stopped.
           const partialEntry = entry as { key?: CborValue; value?: CborValue; incomplete?: true; incomplete_at?: "key" | "value" };
-          const hasKey = partialEntry.key !== undefined;
-          const hasValue = partialEntry.value !== undefined;
+          const hasKey = partialEntry.key != null;
+          const hasValue = partialEntry.value != null;
           return (
             <div key={index} className="cbor-map-entry">
               {hasKey ? (
