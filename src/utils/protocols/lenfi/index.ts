@@ -8,8 +8,9 @@ import {
   type DexRow,
   type PoolPair,
 } from "@/utils/protocols/dex/registry";
+import { asConstr } from "@/utils/protocols/dex/plutusData";
 import type { AssetClass, PD, PlutusAddress } from "@/utils/protocols/dex/plutusData";
-import { matchLenfiNftPolicy, matchLenfiScriptHash } from "./constants";
+import { LENFI_V2, matchLenfiNftPolicy, matchLenfiScriptHash } from "./constants";
 import {
   parseCollateralRedeemer,
   parseOrderDatum,
@@ -356,6 +357,25 @@ export function classifyLenfiRedeemer(redeemer: PD, role: string): string | null
       const r = parseCollateralRedeemer(redeemer);
       return collateralActionLabel(r.action);
     }
+    if (role === "order") {
+      // Shared order.Redeemer of all four order validators: Cancel=0 (by
+      // owner) | Process{pool_oref, additional_data}=1 (executed by batcher).
+      const c = asConstr(redeemer);
+      if (c.tag === 0) return "Cancel";
+      if (c.tag === 1) return "Process (execute)";
+      return null;
+    }
+    if (role === "config") {
+      // ConfigRedeemer: single ctor
+      // [pool_config_output_index, fee_collector_output_index].
+      const c = asConstr(redeemer);
+      return c.tag === 0 && c.fields.length === 2 ? "Update pool config" : null;
+    }
+    if (role === "feed") {
+      // The oracle validator IGNORES its spend redeemer; spending the oracle
+      // UTxO is gated on the governance NFT alone.
+      return "Governance update";
+    }
   } catch {
     return null;
   }
@@ -369,6 +389,21 @@ registerDexAdapter({
   matchNftPolicy: matchLenfiNftPolicy,
   decode: (datum: PD, role) => lenfiToView(datum, role),
   classifyRedeemer: (redeemer: PD, role) => classifyLenfiRedeemer(redeemer, role),
+  // The oracle validator doubles as a withdraw-zero: pool actions that need a
+  // price reference the oracle via a 0-amount withdrawal whose OracleRedeemer
+  // (Constr0[ data: Aggregated=0 | Pooled=1, signatures ]) carries the feed.
+  matchWithdrawalHash: (stakeHash, network) => {
+    if (network && network !== "mainnet") return null;
+    return stakeHash.toLowerCase() === LENFI_V2.oracleHash ? "oracle price feed" : null;
+  },
+  classifyWithdrawRedeemer: (redeemer) => {
+    const c = asConstr(redeemer);
+    if (c.tag !== 0 || c.fields.length !== 2) return null;
+    const feed = asConstr(c.fields[0]);
+    if (feed.tag === 0) return "Price feed (aggregated)";
+    if (feed.tag === 1) return "Price feed (pooled)";
+    return null;
+  },
   // An order references its pool by the pool NFT (the view's poolRef). Decode
   // that resolved pool UTxO's datum back into the pool's loan/collateral pair —
   // Lenfi is a lending pool, but its pool datum carries exactly two asset

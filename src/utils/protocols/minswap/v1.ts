@@ -145,6 +145,16 @@ export function classifyMinswapV1OrderRedeemer(data: PD): MinswapV1OrderRedeemer
   return null;
 }
 
+// V1 pool spend redeemer. Only ctor 0 is known reliably:
+// ApplyPool [batcherAddress: Address, licenseIndex]. Other constructors exist
+// (UpdateFeeTo / WithdrawLiquidityShare) but their indices are not certain —
+// do not guess them.
+export function classifyMinswapV1PoolRedeemer(data: PD): string | null {
+  const c = asConstr(data);
+  if (c.tag === 0 && c.fields.length === 2) return "ApplyPool";
+  return null;
+}
+
 // --- Stableswap sub-types --------------------------------------------------
 
 export type StableswapOrderStep =

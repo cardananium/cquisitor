@@ -23,6 +23,8 @@ import {
 import { MINSWAP_STABLESWAP_PAIRS } from "./stableswapPairs.generated";
 import {
   classifyMinswapOrderRedeemer,
+  classifyMinswapPoolRedeemer,
+  classifyMinswapPoolBatchingRedeemer,
   parseMinswapOrderDatum,
   parseMinswapPoolDatum,
   type ExtraOrderDatum,
@@ -34,7 +36,9 @@ import {
 } from "./v2";
 import {
   classifyMinswapV1OrderRedeemer,
+  classifyMinswapV1PoolRedeemer,
   classifyMinswapStableswapOrderRedeemer,
+  classifyMinswapStableswapPoolRedeemer,
   parseMinswapV1OrderDatum,
   parseMinswapV1PoolDatum,
   parseMinswapStableswapOrderDatum,
@@ -580,8 +584,11 @@ registerDexAdapter({
   },
   classifyRedeemer: (redeemer: PD, role) => {
     if (role === "order") return classifyMinswapOrderRedeemer(redeemer);
+    if (role === "pool") return classifyMinswapPoolRedeemer(redeemer);
     if (role === "v1-order") return classifyMinswapV1OrderRedeemer(redeemer);
+    if (role === "v1-pool") return classifyMinswapV1PoolRedeemer(redeemer);
     if (role === "stableswap-order") return classifyMinswapStableswapOrderRedeemer(redeemer);
+    if (role === "stableswap-pool") return classifyMinswapStableswapPoolRedeemer(redeemer);
     return null;
   },
   // A V2 order references its pool by the LP token; resolve that pool UTxO's
@@ -604,6 +611,9 @@ registerDexAdapter({
       ? "batch validator"
       : null;
   },
+  // The batch validator's PoolBatchingRedeemer says how many orders this
+  // withdraw-zero batches.
+  classifyWithdrawRedeemer: (redeemer: PD) => classifyMinswapPoolBatchingRedeemer(redeemer),
 });
 
 export * from "./v2";

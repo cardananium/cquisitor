@@ -11,6 +11,8 @@ import {
   parseLenfiDatum,
 } from "./lenfi";
 import { matchLenfiNftPolicy, matchLenfiScriptHash, LENFI_V2 } from "./constants";
+import { classifyLenfiRedeemer } from "./index";
+import { getDexAdapter } from "@/utils/protocols/dex/registry";
 
 const C = (tag: number, ...fields: PD[]): PD => ({ constructor: tag, fields });
 const I = (n: number | bigint): PD => ({ int: BigInt(n) });
@@ -403,5 +405,39 @@ describe("Lenfi matching", () => {
     expect(matchLenfiNftPolicy(LENFI_V2.collateralHash, [BORROWER_TN], undefined)).toBe("loan");
     expect(matchLenfiNftPolicy(POLICY, [NAME], "mainnet")).toBeNull();
     expect(matchLenfiNftPolicy(LENFI_V2.poolHash, [POOL_NFT_NAME], "preview")).toBeNull();
+  });
+});
+
+describe("classifyLenfiRedeemer — order / config / feed", () => {
+  test("order: Cancel=0, Process=1", () => {
+    expect(classifyLenfiRedeemer(C(0), "order")).toBe("Cancel");
+    // Process { pool_oref: OutputReference, additional_data }
+    const oref = C(0, C(0, B("aa".repeat(32))), I(1));
+    expect(classifyLenfiRedeemer(C(1, oref, C(0)), "order")).toBe("Process (execute)");
+    expect(classifyLenfiRedeemer(C(5), "order")).toBeNull();
+  });
+
+  test("config: single-ctor [config_out_idx, fee_collector_out_idx]", () => {
+    expect(classifyLenfiRedeemer(C(0, I(0), I(1)), "config")).toBe("Update pool config");
+    expect(classifyLenfiRedeemer(C(1, I(0), I(1)), "config")).toBeNull();
+  });
+
+  test("feed spend: redeemer ignored by validator → governance update", () => {
+    expect(classifyLenfiRedeemer(C(0), "feed")).toBe("Governance update");
+  });
+});
+
+describe("lenfi oracle withdraw-zero (price feed)", () => {
+  const adapter = getDexAdapter("lenfi-v2")!;
+  test("matches the oracle stake hash", () => {
+    expect(adapter.matchWithdrawalHash!(LENFI_V2.oracleHash, "mainnet")).toBe("oracle price feed");
+    expect(adapter.matchWithdrawalHash!(LENFI_V2.oracleHash, "preprod")).toBeNull();
+  });
+  test("classifies OracleRedeemer Aggregated/Pooled", () => {
+    // OracleRedeemer = Constr0[ data, signatures ]; data: Aggregated=0 | Pooled=1
+    const agg = C(0, C(0, C(0, B(""), B("")), I(1000000), I(1), I(9999)), { list: [] } as PD);
+    expect(adapter.classifyWithdrawRedeemer!(agg, "oracle price feed")).toBe("Price feed (aggregated)");
+    const pooled = C(0, C(1, C(0, B(""), B("")), I(5), I(6), I(9999)), { list: [] } as PD);
+    expect(adapter.classifyWithdrawRedeemer!(pooled, "oracle price feed")).toBe("Price feed (pooled)");
   });
 });

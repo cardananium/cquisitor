@@ -19,9 +19,10 @@ import type {
   CardanoNetwork,
 } from "@/components/TransactionCardView/types";
 import type { KoiosUtxoInfo } from "@/utils/koiosTypes";
-import { getPaymentScriptHash } from "./address";
+import { getPaymentScriptHash, rewardAccountSortKey } from "./address";
 import { decodePlutusJsonOrHex } from "./datum";
-import { listDexAdapters } from "./registry";
+import { detectDexWithdrawal } from "./detect";
+import { getDexAdapter, listDexAdapters } from "./registry";
 import type { DexAdapter, DexRole } from "./registry";
 
 export interface DexInputDetection {
@@ -30,6 +31,25 @@ export interface DexInputDetection {
   role: DexRole;
   /** Classified spend redeemer (e.g. "Apply", "Cancel"), when recognized. */
   redeemer?: string;
+}
+
+/**
+ * Protocol annotation for one witness-set redeemer, so the Redeemers section
+ * can say what a redeemer actually DOES ("Minswap V2 Order · Cancel") instead
+ * of only showing its tag + raw data.
+ */
+export interface DexRedeemerNote {
+  adapterId: string;
+  /** Protocol display label, e.g. "Minswap V2". */
+  label: string;
+  /** Role of the spent UTxO, for Spend redeemers ("order", "pool", …). */
+  role?: DexRole;
+  /** Classified action (e.g. "Apply", "Cancel"), when recognized. */
+  action?: string;
+  /** Withdraw-zero purpose, for Reward redeemers (e.g. "batch validator"). */
+  purpose?: string;
+  /** Body index of the input a Spend redeemer targets. */
+  inputIndex?: number;
 }
 
 export interface DexTxContext {
@@ -43,6 +63,8 @@ export interface DexTxContext {
   spendRedeemers: Map<number, Redeemer>;
   /** sorted_withdrawal_index → the Reward/Withdraw redeemer (decoded `data` is the action). */
   withdrawRedeemers: Map<number, Redeemer>;
+  /** witness-set redeemer ARRAY POSITION → protocol annotation for that redeemer. */
+  redeemerNotes: Map<number, DexRedeemerNote>;
 }
 
 function compareInputs(a: TransactionInput, b: TransactionInput): number {
@@ -75,56 +97,123 @@ export function buildDexTxContext(
     bodyToSorted: new Map(),
     spendRedeemers: buildRedeemerMap(redeemers, "spend"),
     withdrawRedeemers: buildRedeemerMap(redeemers, "reward"),
+    redeemerNotes: new Map(),
   };
 
   const inputs = body.inputs ?? [];
-  if (inputs.length === 0) return ctx;
-
   const indexed = inputs.map((inp, i) => ({ inp, i }));
   indexed.sort((a, b) => compareInputs(a.inp, b.inp));
   ctx.sortedToBody = indexed.map((x) => x.i);
   ctx.sortedToBody.forEach((bodyIdx, sortedIdx) => ctx.bodyToSorted.set(bodyIdx, sortedIdx));
 
-  if (!inputUtxoInfoMap) return ctx;
-  const adapters = listDexAdapters();
+  if (inputUtxoInfoMap) {
+    const adapters = listDexAdapters();
 
-  for (let i = 0; i < inputs.length; i++) {
-    const inp = inputs[i];
-    const utxoInfo = inputUtxoInfoMap.get(`${inp.transaction_id}#${inp.index}`);
-    if (!utxoInfo) continue;
-    const scriptHash = getPaymentScriptHash(utxoInfo.address);
-    if (!scriptHash) continue;
+    for (let i = 0; i < inputs.length; i++) {
+      const inp = inputs[i];
+      const utxoInfo = inputUtxoInfoMap.get(`${inp.transaction_id}#${inp.index}`);
+      if (!utxoInfo) continue;
+      const scriptHash = getPaymentScriptHash(utxoInfo.address);
+      if (!scriptHash) continue;
 
-    let matched: { adapter: DexAdapter; role: DexRole } | null = null;
-    for (const adapter of adapters) {
-      const role = adapter.matchScriptHash?.(scriptHash, network);
-      if (role) {
-        matched = { adapter, role };
-        break;
-      }
-    }
-    if (!matched) continue;
-
-    const detection: DexInputDetection = {
-      adapterId: matched.adapter.id,
-      label: matched.adapter.label,
-      role: matched.role,
-    };
-
-    if (matched.adapter.classifyRedeemer) {
-      const sortedIdx = ctx.bodyToSorted.get(i);
-      const r = sortedIdx !== undefined ? ctx.spendRedeemers.get(sortedIdx) : undefined;
-      if (r) {
-        const pd = decodePlutusJsonOrHex(r.data);
-        if (pd) {
-          const classified = matched.adapter.classifyRedeemer(pd, matched.role);
-          if (classified) detection.redeemer = classified;
+      let matched: { adapter: DexAdapter; role: DexRole } | null = null;
+      for (const adapter of adapters) {
+        const role = adapter.matchScriptHash?.(scriptHash, network);
+        if (role) {
+          matched = { adapter, role };
+          break;
         }
       }
-    }
+      if (!matched) continue;
 
-    ctx.inputs.set(i, detection);
+      const detection: DexInputDetection = {
+        adapterId: matched.adapter.id,
+        label: matched.adapter.label,
+        role: matched.role,
+      };
+
+      if (matched.adapter.classifyRedeemer) {
+        const sortedIdx = ctx.bodyToSorted.get(i);
+        const r = sortedIdx !== undefined ? ctx.spendRedeemers.get(sortedIdx) : undefined;
+        if (r) {
+          const pd = decodePlutusJsonOrHex(r.data);
+          if (pd) {
+            const classified = matched.adapter.classifyRedeemer(pd, matched.role);
+            if (classified) detection.redeemer = classified;
+          }
+        }
+      }
+
+      ctx.inputs.set(i, detection);
+    }
   }
 
+  annotateRedeemers(ctx, body, redeemers, network);
   return ctx;
+}
+
+/** Withdrawal reward addresses in canonical script-context order (byte order). */
+function sortedWithdrawalAddresses(
+  withdrawals: Record<string, string> | null | undefined,
+): string[] {
+  const addrs = Object.keys(withdrawals ?? {});
+  if (addrs.length <= 1) return addrs;
+  return addrs
+    .map((a) => ({ a, key: rewardAccountSortKey(a) }))
+    .sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0))
+    .map((x) => x.a);
+}
+
+// Attach a protocol note to every redeemer we can attribute: a Spend redeemer
+// inherits its target input's detection (protocol + role + classified action);
+// a Reward redeemer is matched against the withdraw-zero batcher registry via
+// the withdrawal it targets (sorted position → reward address).
+function annotateRedeemers(
+  ctx: DexTxContext,
+  body: TransactionBody,
+  redeemers: Redeemer[] | null | undefined,
+  network: CardanoNetwork | undefined,
+): void {
+  let sortedWithdrawals: string[] | null = null;
+  (redeemers ?? []).forEach((r, pos) => {
+    const tag = String(r.tag).toLowerCase();
+    if (tag === "spend") {
+      const bodyIdx = ctx.sortedToBody[Number(r.index)];
+      const det = bodyIdx !== undefined ? ctx.inputs.get(bodyIdx) : undefined;
+      if (det) {
+        ctx.redeemerNotes.set(pos, {
+          adapterId: det.adapterId,
+          label: det.label,
+          role: det.role,
+          action: det.redeemer,
+          inputIndex: bodyIdx,
+        });
+      }
+    } else if (tag === "reward") {
+      sortedWithdrawals ??= sortedWithdrawalAddresses(body.withdrawals);
+      const addr = sortedWithdrawals[Number(r.index)];
+      const batcher = addr ? detectDexWithdrawal(addr, network) : null;
+      if (batcher) {
+        const note: DexRedeemerNote = {
+          adapterId: batcher.adapterId,
+          label: batcher.label,
+          purpose: batcher.purpose,
+        };
+        // Protocols with dummy spend redeemers carry the REAL action here.
+        const classify = getDexAdapter(batcher.adapterId)?.classifyWithdrawRedeemer;
+        if (classify) {
+          const pd = decodePlutusJsonOrHex(r.data);
+          if (pd) {
+            try {
+              const action = classify(pd, batcher.purpose);
+              if (action) note.action = action;
+            } catch {
+              // malformed / unexpected redeemer shape — keep the bare purpose
+            }
+          }
+        }
+        ctx.redeemerNotes.set(pos, note);
+      }
+    }
+  });
 }

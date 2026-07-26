@@ -32,7 +32,7 @@ import {
   isTransactionData
 } from "./utils";
 import { buildSundaeTxContext } from "@/utils/protocols/sundae";
-import { buildDexTxContext } from "@/utils/protocols/dex";
+import { buildDexTxContext, type DexRedeemerNote } from "@/utils/protocols/dex";
 import "@/utils/protocols/dex/adapters";
 import type { 
   TransactionCardViewProps, 
@@ -321,6 +321,30 @@ export default function TransactionCardView({
       inputUtxoInfoMap ?? null
     );
   }, [data.transaction, network, inputUtxoInfoMap]);
+
+  // Per-redeemer protocol annotations for the Redeemers section ("Minswap V2
+  // Order · Cancel"). DEX-registry notes first; Sundae orders (own context,
+  // not in the generic registry) fill the remaining Spend redeemers.
+  const redeemerNotes = useMemo(() => {
+    const map = new Map<number, DexRedeemerNote>(dexCtx?.redeemerNotes ?? []);
+    const t = data.transaction;
+    if (sundaeCtx && t && isTransactionData(t)) {
+      (t.witness_set.redeemers ?? []).forEach((r, pos) => {
+        if (map.has(pos) || String(r.tag).toLowerCase() !== "spend") return;
+        const bodyIdx = sundaeCtx.sortedToBody[Number(r.index)];
+        const det = bodyIdx !== undefined ? sundaeCtx.inputs.get(bodyIdx) : undefined;
+        if (!det) return;
+        map.set(pos, {
+          adapterId: "sundaeswap",
+          label: `Sundae ${det.match.protocol}`,
+          role: det.match.role,
+          action: det.redeemer?.kind,
+          inputIndex: bodyIdx,
+        });
+      });
+    }
+    return map;
+  }, [dexCtx, sundaeCtx, data.transaction]);
 
   // Map of witness-set datum hash → parsed plutus data, for outputs that store
   // their datum by hash rather than inline.
@@ -845,6 +869,7 @@ export default function TransactionCardView({
                       diagnosticsMap={diagnosticsMap}
                       focusedPath={focusedPath}
                       deUplcLink={deUplcLinks?.byRedeemer.get(i) ?? null}
+                      dexNote={redeemerNotes.get(i)}
                     />
                   ))}
                 </div>

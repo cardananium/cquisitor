@@ -5,6 +5,7 @@ import { DiagnosticBadge } from "./DiagnosticBadge";
 import { CollapsibleDataItem } from "./CollapsibleDataItem";
 import { DeUplcButton, DEUPLC_ENABLED } from "./DeUplcButton";
 import { getPathDiagnostics } from "../utils";
+import { formatDexRole, dexThemeKey, type DexRedeemerNote } from "@/utils/protocols/dex";
 import type { Redeemer, ValidationDiagnostic } from "../types";
 import type { DeUplcResolved } from "@/utils/deUplcLink";
 
@@ -15,9 +16,31 @@ interface RedeemerCardProps {
   focusedPath?: string[] | null;
   /** "Open in de-uplc-web" link for this redeemer (null until Validate has run). */
   deUplcLink?: DeUplcResolved | null;
+  /** Protocol annotation ("Minswap V2 Order · Cancel"), when the redeemer was attributed. */
+  dexNote?: DexRedeemerNote;
 }
 
 const REDEEMER_ACCENT = "#f97316"; // orange
+
+// "Minswap V2 Order · Cancel" for a spend, "Splash · batch validator" for a
+// withdraw-zero. Cancels reuse the red cancel-tag styling so an order being
+// cancelled vs executed is visible at a glance.
+function DexRedeemerBadge({ note }: { note: DexRedeemerNote }) {
+  const subject = note.role ? `${note.label} ${formatDexRole(note.role)}` : note.label;
+  const action = note.action ?? note.purpose;
+  const text = action ? `${subject} · ${action}` : subject;
+  const isCancel = (note.action ?? "").toLowerCase().includes("cancel");
+  const title = note.inputIndex !== undefined ? `${text} — spends input #${note.inputIndex}` : text;
+  return (
+    <span
+      className={`tcv-tag ${isCancel ? "tcv-tag-sundae-cancel" : "tcv-tag-dex"}`}
+      data-dex={dexThemeKey(note.adapterId)}
+      title={title}
+    >
+      {text}
+    </span>
+  );
+}
 
 export function RedeemerCard({
   redeemer,
@@ -25,6 +48,7 @@ export function RedeemerCard({
   diagnosticsMap,
   focusedPath,
   deUplcLink,
+  dexNote,
 }: RedeemerCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
@@ -47,6 +71,7 @@ export function RedeemerCard({
       <div className="tcv-item-header">
         <span className="tcv-redeemer-tag">{redeemer.tag}</span>
         <span className="tcv-redeemer-index">[{redeemer.index}]</span>
+        {dexNote && <DexRedeemerBadge note={dexNote} />}
         <DiagnosticBadge diagnostics={diagnostics} />
         {DEUPLC_ENABLED && (
           <span className="tcv-deuplc-slot">

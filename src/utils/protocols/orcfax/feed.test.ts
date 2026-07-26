@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { PD } from "@/utils/protocols/dex/plutusData";
 import { parseOrcfaxFeed } from "./feed";
-import { orcfaxFeedToView } from "./index";
+import { classifyOrcfaxRedeemer, orcfaxFeedToView } from "./index";
 import { matchOrcfaxNftPolicy, matchOrcfaxScriptHash, ORCFAX } from "./constants";
 
 const C = (tag: number, ...fields: PD[]): PD => ({ constructor: tag, fields });
@@ -189,5 +189,20 @@ describe("orcfaxFeedToView — completeness", () => {
     expect(labels).toContain("Value (rate)");
     expect(labels).toContain("Value (inverse)");
     expect(labels).toContain("Value [2]");
+  });
+});
+
+describe("classifyOrcfaxRedeemer (multi-validator spend wrapper)", () => {
+  test("fs spend: wrapped FsCollect + legacy v0 unit", () => {
+    expect(classifyOrcfaxRedeemer(C(1, C(0)), "feed")).toBe("Collect (burn expired fact)");
+    expect(classifyOrcfaxRedeemer(C(0), "feed")).toBe("Collect (burn fact, v0 COOP)");
+    expect(classifyOrcfaxRedeemer(C(2), "feed")).toBeNull();
+  });
+  test("fsp spend: FspUpdate / FspClose", () => {
+    expect(classifyOrcfaxRedeemer(C(1, C(0, I(0))), "feed-pointer")).toBe(
+      "FspUpdate (repoint FS validator)",
+    );
+    expect(classifyOrcfaxRedeemer(C(1, C(1)), "feed-pointer")).toBe("FspClose");
+    expect(classifyOrcfaxRedeemer(C(0), "feed-pointer")).toBeNull();
   });
 });

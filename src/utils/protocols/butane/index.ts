@@ -12,7 +12,7 @@ import {
   type DexRow,
 } from "@/utils/protocols/dex/registry";
 import type { PD } from "@/utils/protocols/dex/plutusData";
-import { matchButaneNftPolicy, matchButaneScriptHash } from "./constants";
+import { BUTANE, matchButaneNftPolicy, matchButaneScriptHash } from "./constants";
 import {
   govActionName,
   parseLeftoversDatum,
@@ -280,6 +280,16 @@ registerDexAdapter({
   matchNftPolicy: matchButaneNftPolicy,
   decode: butaneDecode,
   classifyRedeemer: classifyButaneRedeemer,
+  // synthetics.validate is the withdraw-zero business-logic validator: the CDP
+  // spend redeemer is a forwarding stub and the real action (PolicyRedeemer)
+  // rides the 0-amount withdrawal keyed by this stake hash.
+  matchWithdrawalHash: (stakeHash, network) => {
+    if (network && network !== "mainnet") return null;
+    return (BUTANE.syntheticsValidateHashes as readonly string[]).includes(stakeHash.toLowerCase())
+      ? "synthetics validator"
+      : null;
+  },
+  classifyWithdrawRedeemer: (redeemer) => classifyButaneRedeemer(redeemer, "vault"),
 });
 
 export * from "./butane";

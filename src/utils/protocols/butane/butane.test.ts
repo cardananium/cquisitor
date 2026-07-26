@@ -14,6 +14,7 @@ import {
   validateCDP,
 } from "./butane";
 import { butaneDecode } from "./index";
+import { getDexAdapter } from "@/utils/protocols/dex/registry";
 import { BUTANE, matchButaneNftPolicy, matchButaneScriptHash } from "./constants";
 
 const C = (tag: number, ...fields: PD[]): PD => ({ constructor: tag, fields });
@@ -275,5 +276,23 @@ describe("Butane matching", () => {
     expect(matchButaneNftPolicy(BUTANE.pointersMintPolicy, [], undefined)).toBe("vault");
     expect(matchButaneNftPolicy(BUTANE.pointersMintPolicy, [USDB], "preview")).toBeNull();
     expect(matchButaneNftPolicy(POLICY, [USDB], "mainnet")).toBeNull();
+  });
+});
+
+describe("butane withdraw-zero (synthetics validator)", () => {
+  const adapter = getDexAdapter("butane-synthetics")!;
+  test("matches both known synthetics.validate deployments", () => {
+    for (const h of BUTANE.syntheticsValidateHashes) {
+      expect(adapter.matchWithdrawalHash!(h, "mainnet")).toBe("synthetics validator");
+    }
+    expect(adapter.matchWithdrawalHash!(BUTANE.pointersSpendHash, "mainnet")).toBeNull();
+  });
+  test("classifies PolicyRedeemer via the withdraw hook", () => {
+    // SyntheticsMain [SpendAction{Constr0,0,Constr0}] []
+    const main = C(0, { list: [C(0, C(0, C(0, C(0))), I(0), C(0))] } as PD, { list: [] } as PD);
+    expect(adapter.classifyWithdrawRedeemer!(main, "synthetics validator")).toBe(
+      "Synthetics main (1 spend, 0 create)",
+    );
+    expect(adapter.classifyWithdrawRedeemer!(C(3), "synthetics validator")).toBe("Auxilliary");
   });
 });

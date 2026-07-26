@@ -298,3 +298,29 @@ export function classifyMinswapOrderRedeemer(data: PD): MinswapOrderRedeemer | n
   if (c.tag === 2) return "CancelExpiredOrderByAnyone";
   return null;
 }
+
+// V2 pool spend redeemer:
+//   PoolRedeemer = Batching | UpdatePoolParameters{action} | WithdrawFeeSharing
+//   UpdatePoolParametersAction = UpdatePoolFee | UpdateDynamicFee | UpdatePoolStakeCredential
+export function classifyMinswapPoolRedeemer(data: PD): string | null {
+  const c = asConstr(data);
+  if (c.tag === 0) return "Batching";
+  if (c.tag === 1) {
+    const sub = asConstr(c.fields[0]).tag;
+    const action = ["UpdatePoolFee", "UpdateDynamicFee", "UpdatePoolStakeCredential"][sub];
+    return action ? `UpdatePoolParameters (${action})` : "UpdatePoolParameters";
+  }
+  if (c.tag === 2) return "WithdrawFeeSharing";
+  return null;
+}
+
+// V2 order-batching WITHDRAW redeemer (the withdraw-zero staking validator):
+//   PoolBatchingRedeemer = Constr0[ batcher_index, orders_fee: List<Int>,
+//     input_indexes: ByteArray, pool_input_indexes_opt, vol_fees ]
+// One orders_fee entry per batched order.
+export function classifyMinswapPoolBatchingRedeemer(data: PD): string | null {
+  const c = asConstr(data);
+  if (c.tag !== 0 || c.fields.length !== 5) return null;
+  const orders = asList(c.fields[1]).length;
+  return `Batching (${orders} order${orders === 1 ? "" : "s"})`;
+}

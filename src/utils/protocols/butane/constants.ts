@@ -26,6 +26,12 @@ export const BUTANE = {
   // synthetics.validate — withdraw-zero CDP business-logic validator (NOT an
   // address credential). Stake cred key for the PolicyRedeemer withdrawal.
   syntheticsValidateHash: "40628e112b44bfc78858150a1ce9549caa4bfc0169762402004f5719",
+  // Butane is upgradeable (control_state can swap the applied logic); every
+  // known mainnet synthetics.validate deployment goes here.
+  syntheticsValidateHashes: [
+    "40628e112b44bfc78858150a1ce9549caa4bfc0169762402004f5719",
+    "48700f5e36479abbf1f9f354bdbca4c489c42cb678005f3d712c5191",
+  ],
   // pointers.mint — vanity-mined synth mint policy. Stake cred on every CDP UTxO
   // and the policy minting USDb/USDs/MIDAS + the empty-name CDP lock token.
   pointersMintPolicy: "00000000000410c2d9e01e8ec78ab1dc6bbc383fae76cbe2689beb02",

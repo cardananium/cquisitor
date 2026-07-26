@@ -11,7 +11,7 @@ import {
   type DexRole,
   type DexRow,
 } from "@/utils/protocols/dex/registry";
-import { asBytes, isBytes, type PD } from "@/utils/protocols/dex/plutusData";
+import { asBytes, asConstr, isBytes, type PD } from "@/utils/protocols/dex/plutusData";
 import { ORCFAX, matchOrcfaxNftPolicy, matchOrcfaxScriptHash } from "./constants";
 import {
   parseOrcfaxFeed,
@@ -152,6 +152,29 @@ function fspPointerToView(datum: PD): DexOrderView {
   return { protocol: "Orcfax", role: "feed-pointer", kind: "Fact Statement Pointer", rows, issues };
 }
 
+// The fs/fsp scripts are Aiken MULTI-validators, so every SPEND redeemer is
+// wrapped: Constr1[ inner ]. fs inner: FsCollect=Constr0[] (the only spend —
+// the collector garbage-collects an expired fact, burning its FS token). fsp
+// inner: FspUpdate(cont_output_idx)=Constr0[Int] | FspClose=Constr1[]. Legacy
+// v0 COOP fs spends pass a bare unit Constr0[] (the redeemer is ignored;
+// a spend is always a collect/burn).
+export function classifyOrcfaxRedeemer(redeemer: PD, role: DexRole): string | null {
+  const c = asConstr(redeemer);
+  if (role === "feed-pointer") {
+    if (c.tag !== 1 || c.fields.length !== 1) return null;
+    const inner = asConstr(c.fields[0]);
+    if (inner.tag === 0) return "FspUpdate (repoint FS validator)";
+    if (inner.tag === 1) return "FspClose";
+    return null;
+  }
+  // role "feed"
+  if (c.tag === 1 && c.fields.length === 1 && asConstr(c.fields[0]).tag === 0) {
+    return "Collect (burn expired fact)";
+  }
+  if (c.tag === 0 && c.fields.length === 0) return "Collect (burn fact, v0 COOP)";
+  return null;
+}
+
 registerDexAdapter({
   id: "orcfax",
   label: "Orcfax",
@@ -164,6 +187,7 @@ registerDexAdapter({
     if (role === "feed-pointer") return fspPointerToView(datum);
     return orcfaxFeedToView(parseOrcfaxFeed(datum));
   },
+  classifyRedeemer: classifyOrcfaxRedeemer,
 });
 
 export * from "./feed";

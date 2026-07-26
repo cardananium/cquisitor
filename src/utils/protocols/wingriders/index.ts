@@ -329,10 +329,29 @@ registerDexAdapter({
     if (role === "pool" || role === "stableswap-pool") return decodePool(datum, isStable);
     return decodeOrder(datum, isStable);
   },
-  // The V2 action is read from the request datum (no classifier); rapid-dex
-  // has a spend redeemer.
-  classifyRedeemer: (redeemer: PD, role): string | null =>
-    role === "rapid-pool" ? rapidRedeemerLabel(parseRapidPoolRedeemer(redeemer)) : null,
+  // Request/pool spend redeemers (shared by constant-product and stableswap,
+  // and identical in V1):
+  //   RequestRedeemer: Apply(poolInputLocation)=0 | Reclaim=1
+  //   PoolRedeemer: Evolve=0 | EmergencyWithdrawal=1 | ChangeFees=2 | ChangeAgentFee=3
+  // (What the applied request DOES — swap/add/withdraw — lives in the request
+  // datum's action field, already decoded into the view's `kind`.)
+  classifyRedeemer: (redeemer: PD, role): string | null => {
+    if (role === "rapid-pool") return rapidRedeemerLabel(parseRapidPoolRedeemer(redeemer));
+    const c = asConstr(redeemer);
+    if (role === "order" || role === "stableswap-order") {
+      if (c.tag === 0) return "Apply";
+      if (c.tag === 1) return "Reclaim (cancel)";
+      return null;
+    }
+    if (role === "pool" || role === "stableswap-pool") {
+      if (c.tag === 0) return "Evolve (apply requests)";
+      if (c.tag === 1) return "EmergencyWithdrawal";
+      if (c.tag === 2) return "ChangeFees";
+      if (c.tag === 3) return "ChangeAgentFee";
+      return null;
+    }
+    return null;
+  },
   // WingRiders V2 batches via a withdraw-zero staking validator: the request
   // spends defer swap/batch validation to this 0-amount withdrawal.
   matchWithdrawalHash: (stakeHash: string, network?: CardanoNetwork): string | null => {

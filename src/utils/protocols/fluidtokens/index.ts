@@ -9,12 +9,12 @@ import {
   type DexOrderView,
   type DexRow,
 } from "@/utils/protocols/dex/registry";
+import { asConstr, asList } from "@/utils/protocols/dex/plutusData";
 import type { AssetClass, PD, PlutusAddress } from "@/utils/protocols/dex/plutusData";
-import { matchFluidTokensNftPolicy, matchFluidTokensScriptHash } from "./constants";
+import { FLUIDTOKENS, matchFluidTokensNftPolicy, matchFluidTokensScriptHash } from "./constants";
 import {
   parseFtDatum,
   parseLoanWithdrawRedeemer,
-  parsePoolWithdrawRedeemer,
   parseRequestWithdrawRedeemer,
   type FtAuthorizationMethod,
   type FtCollateralAsset,
@@ -285,27 +285,61 @@ export function ftDatumToView(datum: FtDatum): DexOrderView {
   }
 }
 
-// Classify the REAL action from a withdrawal redeemer. The role string carries
-// which withdraw script matched: "loan" (default) reads the loan dispatcher;
-// callers can pass "loan:request" / "loan:pool" / "loan:loan" to pick the side.
-// NOTE: the spend redeemer of the consumed UTxO is dummy `Data` and is NOT the
-// action — do not pass it here.
-export function classifyFtWithdrawRedeemer(redeemer: PD, role: string): string | null {
+// Pool-side withdraw redeemer:
+// Constr0[ configRefInputIndex, List<action-data> ] — the action is
+// NOT a dispatcher enum; it is discriminated by the SHAPE of the list entries:
+//   • Constr0[ bytes ]                       → Cancel   (poolId per input)
+//   • Constr  with 8 fields, [0] = Address   → Borrow   (FtBorrowData)
+//   • Constr0[ List, bytes ]                 → SellLenderPosition
+function classifyFtPoolWithdraw(redeemer: PD): string | null {
+  const c = asConstr(redeemer);
+  const entries = asList(c.fields[1]).map((x) => asConstr(x));
+  if (entries.length === 0) return null;
+  const kinds = new Set(
+    entries.map((e) => {
+      if (e.fields.length === 1) return "Cancel";
+      if (e.fields.length === 8) return "Borrow";
+      if (e.fields.length === 2) return "SellLenderPosition";
+      throw new Error(`pool action: unexpected ${e.fields.length} fields`);
+    }),
+  );
+  return Array.from(kinds).join(", ");
+}
+
+// Classify the REAL action from a withdrawal redeemer. The side string carries
+// which withdraw dispatcher matched (see FT_WITHDRAW_PURPOSES): "request
+// actions" / "pool actions" / "loan actions"; the bare legacy "loan" /
+// "loan:loan" also reads the loan dispatcher. NOTE: the spend redeemer of the
+// consumed UTxO is dummy `Data` and is NOT the action — do not pass it here.
+export function classifyFtWithdrawRedeemer(redeemer: PD, side: string): string | null {
   try {
-    if (role === "loan:request") {
+    if (side === "request actions" || side === "loan:request") {
       const r = parseRequestWithdrawRedeemer(redeemer);
       const kinds = Array.from(new Set(r.actionsForEachInput.map((a) => a.kind)));
       return kinds.length ? kinds.join(", ") : "Request action";
     }
-    if (role === "loan:pool") {
-      return parsePoolWithdrawRedeemer(redeemer).actionType;
+    if (side === "pool actions" || side === "loan:pool") {
+      return classifyFtPoolWithdraw(redeemer);
     }
-    // default / "loan" / "loan:loan": loan-side dispatcher.
+    // default / "loan actions" / "loan" / "loan:loan": loan-side dispatcher.
     return parseLoanWithdrawRedeemer(redeemer).actionType;
   } catch {
     return null;
   }
 }
+
+// The action withdraw-zero dispatchers are DUAL-PURPOSE scripts: their stake
+// hash EQUALS the sub-role minted-NFT policy id (mint + withdraw in one
+// validator). The two extra hashes below are per-action data validators
+// (ConfigDatum fields 12/13) that accompany the dispatchers; their action is
+// already labelled by the dispatcher, so they carry no classifier of their own.
+const FT_WITHDRAW_PURPOSES: Record<string, string> = {
+  [FLUIDTOKENS.requestPolicyId]: "request actions",
+  [FLUIDTOKENS.poolPolicyId]: "pool actions",
+  [FLUIDTOKENS.loanPolicyId]: "loan actions",
+  "5fcd23d021add45fdb25e8c7c674d6e2dbc445feafe246c5a0fab02f": "action validator",
+  "6ca3b95015bbef6237db91322132ebd3ac0c3850f79096eb6f42e1af": "action validator",
+};
 
 registerDexAdapter({
   id: "fluidtokens-loans-v3",
@@ -319,6 +353,11 @@ registerDexAdapter({
   // The consumed-UTxO spend redeemer is dummy Data; the real action lives in the
   // tx withdrawal redeemers (see classifyFtWithdrawRedeemer), which the generic
   // spend-redeemer classifier cannot reach. So no classifyRedeemer here.
+  matchWithdrawalHash: (stakeHash, network) => {
+    if (network && network !== "mainnet") return null;
+    return FT_WITHDRAW_PURPOSES[stakeHash.toLowerCase()] ?? null;
+  },
+  classifyWithdrawRedeemer: classifyFtWithdrawRedeemer,
 });
 
 export * from "./loans";

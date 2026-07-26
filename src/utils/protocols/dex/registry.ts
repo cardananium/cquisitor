@@ -123,6 +123,14 @@ export interface DexAdapter {
    */
   matchWithdrawalHash?(stakeHash: string, network?: CardanoNetwork): string | null;
   /**
+   * Classify the ACTION carried by a withdraw-zero (Reward) redeemer whose
+   * stake hash `matchWithdrawalHash` matched. `purpose` is the label that
+   * match returned, so one adapter can route between several withdraw scripts
+   * (e.g. FluidTokens' request/pool/loan action dispatchers). Protocols whose
+   * spend redeemers are dummies put the real order action here.
+   */
+  classifyWithdrawRedeemer?(redeemer: PD, purpose: string): string | null;
+  /**
    * Decode a datum for the matched role into the normalized view. May throw.
    * `scriptHash` is the matched 28-byte payment script hash (lowercased), for
    * adapters with per-pool validators that key a static pair off it.

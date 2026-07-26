@@ -365,13 +365,30 @@ describe("withdraw redeemers (the real actions)", () => {
     expect(rp.isFinalRepayment).toBe(true);
   });
 
-  test("classifyFtWithdrawRedeemer routes by role", () => {
-    expect(classifyFtWithdrawRedeemer(C(0, I(0), C(1)), "loan")).toBe("Repay");
-    expect(classifyFtWithdrawRedeemer(C(0, I(0), C(1)), "loan:pool")).toBe("Borrow");
+  test("classifyFtWithdrawRedeemer routes by side", () => {
+    expect(classifyFtWithdrawRedeemer(C(0, I(0), C(1)), "loan actions")).toBe("Repay");
     expect(
-      classifyFtWithdrawRedeemer(C(0, I(0), L(C(0, B(NAME)))), "loan:request"),
+      classifyFtWithdrawRedeemer(C(0, I(0), L(C(0, B(NAME)))), "request actions"),
     ).toBe("Cancel");
-    expect(classifyFtWithdrawRedeemer(C(0, B("zz")), "loan")).toBeNull();
+    expect(classifyFtWithdrawRedeemer(C(0, B("zz")), "loan actions")).toBeNull();
+  });
+
+  test("classifyFtWithdrawRedeemer pool side discriminates by entry shape", () => {
+    // Cancel: one bytes field per entry.
+    expect(
+      classifyFtWithdrawRedeemer(C(0, I(1), L(C(0, B("00" + NAME)), C(0, B("00" + NAME)))), "pool actions"),
+    ).toBe("Cancel");
+    // Borrow: 8-field FtBorrowData entries (address, indices, amount, poolId, …).
+    const addr = C(0, C(0, B(PKH)), C(1));
+    const borrow = C(0, addr, I(1), I(2), I(3), I(4), I(5000), B(NAME), I(0));
+    expect(classifyFtWithdrawRedeemer(C(0, I(3), L(borrow)), "pool actions")).toBe("Borrow");
+    // SellLenderPosition: (lenderBondsInfo list, poolId) entries.
+    expect(
+      classifyFtWithdrawRedeemer(C(0, I(5), L(C(0, L(), B(NAME)))), "pool actions"),
+    ).toBe("SellLenderPosition");
+    // Empty action list / garbage → null.
+    expect(classifyFtWithdrawRedeemer(C(0, I(0), L()), "pool actions")).toBeNull();
+    expect(classifyFtWithdrawRedeemer(C(0, I(0), C(1)), "pool actions")).toBeNull();
   });
 });
 

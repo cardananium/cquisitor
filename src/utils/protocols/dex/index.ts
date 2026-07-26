@@ -25,4 +25,5 @@ export {
   buildDexTxContext,
   type DexTxContext,
   type DexInputDetection,
+  type DexRedeemerNote,
 } from "./txContext";

@@ -28,6 +28,26 @@ export function getPaymentScriptHash(addressBech32: string): string | null {
   }
 }
 
+/**
+ * Sort key mirroring reward-account BYTE order for the withdrawals of one tx.
+ * The script context sorts withdrawals by raw reward-account bytes: header
+ * first (0xe_ key credential < 0xf_ script credential; the network bits are
+ * identical within a tx), then the 28-byte credential. Undecodable addresses
+ * fall back to the input string itself.
+ */
+export function rewardAccountSortKey(addressBech32: string): string {
+  try {
+    const decoded = decode_specific_type(addressBech32, "Address", {}) as DecodedAddress;
+    const cred = decoded?.details?.payment_cred;
+    if (cred?.credential) {
+      return (cred.type === "ScriptHash" ? "1" : "0") + cred.credential.toLowerCase();
+    }
+  } catch {
+    // fall through
+  }
+  return addressBech32;
+}
+
 /** Lowercased policy ids of every native asset held in an output's value. */
 export function outputAssetPolicyIds(
   multiasset: Record<string, Record<string, string>> | null | undefined,

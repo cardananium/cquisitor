@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { PD } from "@/utils/protocols/dex/plutusData";
 import {
   classifyMinswapOrderRedeemer,
+  classifyMinswapPoolRedeemer,
+  classifyMinswapPoolBatchingRedeemer,
   parseMinswapOrderDatum,
   parseMinswapPoolDatum,
 } from "./v2";
@@ -255,5 +257,27 @@ describe("validation issues", () => {
     );
     const view = minswapOrderToView(parseMinswapOrderDatum(datum));
     expect(view.issues.some((i) => i.severity === "warning" && i.message.includes("maxBatcherFee"))).toBe(true);
+  });
+});
+
+describe("classifyMinswapPoolRedeemer / PoolBatchingRedeemer", () => {
+  test("pool spend: Batching / UpdatePoolParameters(sub) / WithdrawFeeSharing", () => {
+    expect(classifyMinswapPoolRedeemer(C(0))).toBe("Batching");
+    expect(classifyMinswapPoolRedeemer(C(1, C(0)))).toBe("UpdatePoolParameters (UpdatePoolFee)");
+    expect(classifyMinswapPoolRedeemer(C(1, C(2)))).toBe(
+      "UpdatePoolParameters (UpdatePoolStakeCredential)",
+    );
+    expect(classifyMinswapPoolRedeemer(C(2))).toBe("WithdrawFeeSharing");
+    expect(classifyMinswapPoolRedeemer(C(7))).toBeNull();
+  });
+
+  test("batch-validator withdraw: order count from orders_fee", () => {
+    // Constr0[batcher_index, orders_fee, input_indexes, pool_input_indexes_opt, vol_fees]
+    const ok = C(0, I(0), L(I(700000), I(700000), I(700000)), B("000102"), C(1), L(C(1)));
+    expect(classifyMinswapPoolBatchingRedeemer(ok)).toBe("Batching (3 orders)");
+    const one = C(0, I(0), L(I(700000)), B("00"), C(1), L(C(1)));
+    expect(classifyMinswapPoolBatchingRedeemer(one)).toBe("Batching (1 order)");
+    // Wrong field count → not the shape.
+    expect(classifyMinswapPoolBatchingRedeemer(C(0, I(0), L(I(1))))).toBeNull();
   });
 });

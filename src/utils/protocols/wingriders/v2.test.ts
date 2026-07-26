@@ -7,6 +7,7 @@ import {
   parseWrNestedRequestDatum,
 } from "./v2";
 import { wrPoolToView, wrRequestToView, wrNestedPoolToView, wrNestedRequestToView } from "./index";
+import { getDexAdapter } from "@/utils/protocols/dex/registry";
 import {
   matchWingRidersNftPolicy,
   matchWingRidersScriptHash,
@@ -283,5 +284,29 @@ describe("WingRiders LIVE nested layout (LiquidityPoolDatumV1 / RequestDatumV1)"
     expect(stakeRow?.hash).toBe(true);
     // owner still surfaced
     expect(view.rows.find((r) => r.label === "Owner")?.value).toBe(PKH);
+  });
+});
+
+describe("WingRiders V2 redeemer classification (via registered adapter)", () => {
+  // Shared CP + stableswap: RequestRedeemer Apply=0|Reclaim=1;
+  // PoolRedeemer Evolve=0|EmergencyWithdrawal=1|ChangeFees=2|ChangeAgentFee=3.
+  const classify = (r: PD, role: string) =>
+    getDexAdapter("wingriders-v2")!.classifyRedeemer!(r, role);
+
+  test("request Apply / Reclaim", () => {
+    expect(classify(C(0, I(1)), "order")).toBe("Apply");
+    expect(classify(C(1), "order")).toBe("Reclaim (cancel)");
+    expect(classify(C(1), "stableswap-order")).toBe("Reclaim (cancel)");
+  });
+
+  test("pool Evolve / EmergencyWithdrawal / fee changes", () => {
+    expect(classify(C(0, I(0), I(1), { list: [] }), "pool")).toBe("Evolve (apply requests)");
+    expect(classify(C(1, I(0)), "pool")).toBe("EmergencyWithdrawal");
+    expect(classify(C(2), "stableswap-pool")).toBe("ChangeFees");
+    expect(classify(C(3), "pool")).toBe("ChangeAgentFee");
+  });
+
+  test("unknown ctor → null", () => {
+    expect(classify(C(9), "order")).toBeNull();
   });
 });
