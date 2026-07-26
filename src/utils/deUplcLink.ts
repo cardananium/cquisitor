@@ -30,6 +30,14 @@ export interface DeUplcFields {
   context?: string; // PlutusData CBOR hex
   redeemer?: string; // PlutusData CBOR hex (V1/V2)
   datum?: string; // PlutusData CBOR hex (V1/V2 spend)
+  /**
+   * DECLARED budget of the redeemer this link was built for, [cpu(steps), mem]
+   * — cpu FIRST. Gives the profiler its denominator; without it the Budget
+   * panel shows "—". Must never carry another redeemer's budget.
+   */
+  exUnits?: [number, number];
+  /** Redeemer purpose + index, e.g. "Spending #0". Overrides the inferred kind. */
+  purpose?: string;
 }
 
 export type DeUplcLink =
@@ -38,9 +46,34 @@ export type DeUplcLink =
 
 const V_PARAM: Record<string, DeUplcFields["v"]> = { V1: "v1", V2: "v2", V3: "v3" };
 
+/** RedeemerTag → the purpose label de-uplc-web displays. */
+const PURPOSE_LABEL: Record<string, string> = {
+  Spend: "Spending",
+  Mint: "Minting",
+  Cert: "Certifying",
+  Reward: "Rewarding",
+  Vote: "Voting",
+  Propose: "Proposing",
+};
+
 /** Normalize a redeemer tag: CSL's decoded-tx uses "VotingProposal", eval uses "Propose". */
 function canonTag(t: string): string {
   return t === "VotingProposal" ? "Propose" : t;
+}
+
+/**
+ * [cpu(steps), mem] from the eval result's PROVIDED (tx-declared) ex-units, or
+ * null unless both are non-negative safe integers — a junk budget is worse
+ * than none, so anything else is dropped rather than sent.
+ */
+function declaredExUnits(ex: { steps: bigint | number; mem: bigint | number } | null | undefined): [number, number] | null {
+  if (!ex) return null;
+  const steps = Number(ex.steps);
+  const mem = Number(ex.mem);
+  if (!Number.isSafeInteger(steps) || !Number.isSafeInteger(mem) || steps < 0 || mem < 0) {
+    return null;
+  }
+  return [steps, mem];
 }
 
 /** Build the de-uplc launch fields for one eval result. Pure — all data is already in the result. */
@@ -49,6 +82,10 @@ export function fieldsFromEval(ev: EvalRedeemerResult): DeUplcLink {
     return { ok: false, reason: "Script bytecode not available for this redeemer" };
   }
   const fields: DeUplcFields = { script: ev.script_bytes, v: V_PARAM[ev.plutus_version] };
+  const ex = declaredExUnits(ev.provided_ex_units);
+  if (ex) fields.exUnits = ex;
+  const purposeLabel = PURPOSE_LABEL[ev.tag];
+  if (purposeLabel) fields.purpose = `${purposeLabel} #${ev.index}`;
   if (!ev.script_context_bytes) {
     // eval couldn't build a context (script-lookup/build failure) — degrade to bytecode-only.
     return { ok: true, fields, fidelity: "program-only" };
@@ -72,6 +109,8 @@ export function fieldsToPlainUrl(fields: DeUplcFields, base = DE_UPLC_BASE_URL):
   if (fields.context) p.set("context", fields.context);
   if (fields.redeemer) p.set("redeemer", fields.redeemer);
   if (fields.datum) p.set("datum", fields.datum);
+  if (fields.exUnits) p.set("exUnits", `${fields.exUnits[0]},${fields.exUnits[1]}`);
+  if (fields.purpose) p.set("purpose", fields.purpose);
   return `${base}/#${p.toString()}`;
 }
 

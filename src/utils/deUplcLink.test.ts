@@ -24,6 +24,7 @@ function evalResult(opts: {
   context?: string | null;
   redeemer?: string | null;
   datum?: string | null;
+  provided?: { mem: bigint; steps: bigint };
 }): EvalRedeemerResult {
   return {
     tag: opts.tag,
@@ -38,7 +39,7 @@ function evalResult(opts: {
     error: null,
     logs: [],
     calculated_ex_units: { mem: BigInt(0), steps: BigInt(0) },
-    provided_ex_units: { mem: BigInt(0), steps: BigInt(0) },
+    provided_ex_units: opts.provided ?? { mem: BigInt(0), steps: BigInt(0) },
   } as unknown as EvalRedeemerResult;
 }
 
@@ -72,14 +73,26 @@ describe("fieldsFromEval — apply-order per version", () => {
     expect(link.ok).toBe(true);
     if (!link.ok) return;
     expect(link.fidelity).toBe("full");
-    expect(link.fields).toEqual({ script: "5350563348", v: "v3", context: "d87980ctx3" });
+    expect(link.fields).toEqual({
+      script: "5350563348",
+      v: "v3",
+      context: "d87980ctx3",
+      exUnits: [0, 0],
+      purpose: "Spending #0",
+    });
   });
 
   test("V3 spend WITHOUT datum → still context only (datum optional for V3 spend)", () => {
     const link = fieldsFromEval(
       evalResult({ tag: "Spend", index: 0, version: "V3", script: "aa", context: "ctx", datum: null }),
     );
-    expect(link.ok && link.fields).toEqual({ script: "aa", v: "v3", context: "ctx" });
+    expect(link.ok && link.fields).toEqual({
+      script: "aa",
+      v: "v3",
+      context: "ctx",
+      exUnits: [0, 0],
+      purpose: "Spending #0",
+    });
   });
 
   test("V2 spend → datum + redeemer + context", () => {
@@ -102,6 +115,8 @@ describe("fieldsFromEval — apply-order per version", () => {
       context: "ctxv2",
       redeemer: "d8799f01ff",
       datum: "d8799fdatumff",
+      exUnits: [0, 0],
+      purpose: "Spending #0",
     });
   });
 
@@ -111,7 +126,14 @@ describe("fieldsFromEval — apply-order per version", () => {
     );
     expect(link.ok).toBe(true);
     if (!link.ok) return;
-    expect(link.fields).toEqual({ script: "minthex", v: "v2", context: "mintctx", redeemer: "d8799f00ff" });
+    expect(link.fields).toEqual({
+      script: "minthex",
+      v: "v2",
+      context: "mintctx",
+      redeemer: "d8799f00ff",
+      exUnits: [0, 0],
+      purpose: "Minting #0",
+    });
     expect(link.fields.datum).toBeUndefined();
   });
 
@@ -119,7 +141,65 @@ describe("fieldsFromEval — apply-order per version", () => {
     const link = fieldsFromEval(
       evalResult({ tag: "Spend", index: 0, version: "V1", script: "v1hex", context: "c", redeemer: "r", datum: null }),
     );
-    expect(link.ok && link.fields).toEqual({ script: "v1hex", v: "v1", context: "c", redeemer: "r" });
+    expect(link.ok && link.fields).toEqual({
+      script: "v1hex",
+      v: "v1",
+      context: "c",
+      redeemer: "r",
+      exUnits: [0, 0],
+      purpose: "Spending #0",
+    });
+  });
+});
+
+describe("fieldsFromEval — exUnits & purpose", () => {
+  test("exUnits carries the DECLARED budget as [cpu(steps), mem] — cpu first", () => {
+    const link = fieldsFromEval(
+      evalResult({
+        tag: "Spend",
+        index: 0,
+        version: "V2",
+        script: "aa",
+        context: "c",
+        redeemer: "r",
+        provided: { mem: BigInt(25305), steps: BigInt(8177555) },
+      }),
+    );
+    expect(link.ok && link.fields.exUnits).toEqual([8177555, 25305]);
+  });
+
+  test("out-of-range / negative declared units are dropped, not sent as junk", () => {
+    const huge = fieldsFromEval(
+      evalResult({
+        tag: "Spend", index: 0, version: "V2", script: "aa", context: "c", redeemer: "r",
+        provided: { mem: BigInt(1), steps: BigInt("18446744073709551615") },
+      }),
+    );
+    expect(huge.ok && huge.fields.exUnits).toBeUndefined();
+    const negative = fieldsFromEval(
+      evalResult({
+        tag: "Spend", index: 0, version: "V2", script: "aa", context: "c", redeemer: "r",
+        provided: { mem: BigInt(-1), steps: BigInt(5) },
+      }),
+    );
+    expect(negative.ok && negative.fields.exUnits).toBeUndefined();
+  });
+
+  test("purpose maps every RedeemerTag to its display label + index", () => {
+    const cases: Array<[string, string]> = [
+      ["Spend", "Spending #2"],
+      ["Mint", "Minting #2"],
+      ["Cert", "Certifying #2"],
+      ["Reward", "Rewarding #2"],
+      ["Vote", "Voting #2"],
+      ["Propose", "Proposing #2"],
+    ];
+    for (const [tag, expected] of cases) {
+      const link = fieldsFromEval(
+        evalResult({ tag, index: 2, version: "V3", script: "aa", context: "c" }),
+      );
+      expect(link.ok && link.fields.purpose).toBe(expected);
+    }
   });
 });
 
@@ -129,7 +209,12 @@ describe("fieldsFromEval — degraded & failure paths", () => {
     expect(link.ok).toBe(true);
     if (!link.ok) return;
     expect(link.fidelity).toBe("program-only");
-    expect(link.fields).toEqual({ script: "scripthex", v: "v3" });
+    expect(link.fields).toEqual({
+      script: "scripthex",
+      v: "v3",
+      exUnits: [0, 0],
+      purpose: "Spending #0",
+    });
   });
 
   test("missing script bytecode → ok:false", () => {
@@ -154,6 +239,19 @@ describe("URL encoders", () => {
     expect(p.get("v")).toBe("v3");
     expect(p.get("context")).toBe("ef01");
     expect(p.get("redeemer")).toBeNull();
+    // No exUnits/purpose on the fields → params absent (no invented budget).
+    expect(p.get("exUnits")).toBeNull();
+    expect(p.get("purpose")).toBeNull();
+  });
+
+  test("fieldsToPlainUrl encodes exUnits as 'cpu,mem' and passes purpose through", () => {
+    const url = fieldsToPlainUrl(
+      { ...fields, exUnits: [8177555, 25305], purpose: "Spending #0" },
+      "https://x.test",
+    );
+    const p = parseHashParams(url);
+    expect(p.get("exUnits")).toBe("8177555,25305");
+    expect(p.get("purpose")).toBe("Spending #0");
   });
 
   test("fieldsToCompressedUrl round-trips to the same fields (gzip)", async () => {
@@ -162,6 +260,8 @@ describe("URL encoders", () => {
       v: "v2",
       context: "cd".repeat(1000),
       redeemer: "d8799f00ff",
+      exUnits: [8177555, 25305],
+      purpose: "Spending #0",
     };
     const url = await fieldsToCompressedUrl(big, "https://x.test");
     expect(url.startsWith("https://x.test/#d=")).toBe(true);
