@@ -28,7 +28,7 @@
     "cbor-x": "^1.6.0",
     "idb-keyval": "^6.2.5",
     "json-bigint": "^1.0.0",
-    "next": "^16.2.4",
+    "next": "^16.2.12",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "safe-stable-stringify": "^2.5.0"
@@ -46,6 +46,10 @@
     "typescript": "^5"
   },
   "overrides": {
-    "postcss": "^8.5.10"
+    "postcss": "^8.5.25",
+    "sharp": "^0.35.3",
+    "js-yaml": "^4.3.1",
+    "brace-expansion@1": "^1.1.18",
+    "brace-expansion@2": "^2.1.4"
   }
 }
