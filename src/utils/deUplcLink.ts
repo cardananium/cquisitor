@@ -137,6 +137,126 @@ export async function fieldsToUrl(fields: DeUplcFields, base = DE_UPLC_BASE_URL)
   return fieldsToCompressedUrl(fields, base);
 }
 
+// Decompiler links (not the debugger): #decompile=… or #d= with view:"decompiler".
+// Bare #script= / #d= without view is the debugger. Unknown v/purpose are dropped.
+
+const DECOMPILE_HEX_PLAIN_MAX = 2000;
+
+export const DECOMPILE_PURPOSES = ["spend", "mint", "withdraw", "certificate", "vote", "propose"] as const;
+export type DecompilePurpose = (typeof DECOMPILE_PURPOSES)[number];
+
+export interface DecompileFields {
+  script: string;
+  v?: "v1" | "v2" | "v3";
+  purpose?: DecompilePurpose;
+}
+
+const DECOMPILE_PURPOSE_FROM_TAG: Record<string, DecompilePurpose> = {
+  Spend: "spend",
+  Mint: "mint",
+  Reward: "withdraw",
+  Cert: "certificate",
+  Vote: "vote",
+  Propose: "propose",
+};
+
+const DECOMPILE_PURPOSE_TOKENS = new Set<string>(DECOMPILE_PURPOSES);
+
+export function normalizeCompiledHex(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let s = raw.trim();
+  if (s.startsWith("0x") || s.startsWith("0X")) s = s.slice(2);
+  s = s.replace(/\s+/g, "");
+  if (!s || s.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(s)) return null;
+  return s;
+}
+
+export function decompileVersion(raw: string | null | undefined): DecompileFields["v"] | undefined {
+  if (!raw) return undefined;
+  const n = raw.trim().toLowerCase().replace(/[\s_]/g, "");
+  if (n === "v1" || n === "1" || n === "plutusv1" || n === "plutus1") return "v1";
+  if (n === "v2" || n === "2" || n === "plutusv2" || n === "plutus2") return "v2";
+  if (n === "v3" || n === "3" || n === "plutusv3" || n === "plutus3") return "v3";
+  return undefined;
+}
+
+/** Koios / extractedHashes script_type → a string decompileVersion can read. Native → undefined. */
+export function plutusVersionFromScriptType(scriptType: unknown): string | undefined {
+  if (scriptType == null) return undefined;
+  if (typeof scriptType === "object" && scriptType !== null && "Plutus" in scriptType) {
+    const v = (scriptType as { Plutus: unknown }).Plutus;
+    return typeof v === "string" ? v : undefined;
+  }
+  if (typeof scriptType === "string") {
+    const n = scriptType.trim().toLowerCase();
+    if (n === "native" || n === "timelock" || n === "multisig") return undefined;
+    return scriptType;
+  }
+  return undefined;
+}
+
+/** Redeemer tag or an already-canonical token. Anything else (Spending, publish, …) is dropped. */
+export function decompilePurpose(raw: string | null | undefined): DecompilePurpose | undefined {
+  if (!raw) return undefined;
+  const fromTag = DECOMPILE_PURPOSE_FROM_TAG[canonTag(raw)];
+  if (fromTag) return fromTag;
+  const token = raw.trim().toLowerCase();
+  return DECOMPILE_PURPOSE_TOKENS.has(token) ? (token as DecompilePurpose) : undefined;
+}
+
+export function fieldsFromDecompile(opts: {
+  hex: string | null | undefined;
+  version?: string | null;
+  purpose?: string | null;
+}): DecompileFields | null {
+  const script = normalizeCompiledHex(opts.hex);
+  if (!script) return null;
+  const fields: DecompileFields = { script };
+  const v = decompileVersion(opts.version);
+  if (v) fields.v = v;
+  const purpose = decompilePurpose(opts.purpose);
+  if (purpose) fields.purpose = purpose;
+  return fields;
+}
+
+export function fieldsFromEvalDecompile(ev: EvalRedeemerResult): DecompileFields | null {
+  return fieldsFromDecompile({
+    hex: ev.script_bytes,
+    version: ev.plutus_version,
+    purpose: ev.tag,
+  });
+}
+
+export function fieldsToDecompilePlainUrl(fields: DecompileFields, base = DE_UPLC_BASE_URL): string {
+  const p = new URLSearchParams();
+  p.set("decompile", fields.script);
+  if (fields.v) p.set("v", fields.v);
+  if (fields.purpose) p.set("purpose", fields.purpose);
+  return `${base}/#${p.toString()}`;
+}
+
+export async function fieldsToDecompileCompressedUrl(
+  fields: DecompileFields,
+  base = DE_UPLC_BASE_URL,
+): Promise<string> {
+  const payload: { view: "decompiler"; script: string; v?: DecompileFields["v"]; purpose?: DecompilePurpose } = {
+    view: "decompiler",
+    script: fields.script,
+  };
+  if (fields.v) payload.v = fields.v;
+  if (fields.purpose) payload.purpose = fields.purpose;
+  const d = await gzipToBase64Url(JSON.stringify(payload));
+  return `${base}/#d=${d}`;
+}
+
+export async function fieldsToDecompileUrl(
+  fields: DecompileFields,
+  base = DE_UPLC_BASE_URL,
+): Promise<string> {
+  if (fields.script.length <= DECOMPILE_HEX_PLAIN_MAX) return fieldsToDecompilePlainUrl(fields, base);
+  return fieldsToDecompileCompressedUrl(fields, base);
+}
+
 // ── High-level: resolve + encode all of a validated tx's links ──────────────────────────────────
 
 /** A card-ready link result (URL string + status), or a reason it couldn't be built. */

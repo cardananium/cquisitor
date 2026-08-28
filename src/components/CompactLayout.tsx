@@ -3,6 +3,7 @@
 import Image from "next/image";
 import TabNavigation, { TabId } from "./TabNavigation";
 import GitHubStarButton from "./GitHubStarButton";
+import SiteFooter from "./SiteFooter";
 import logo32 from "../../public/logo-32.png";
 
 interface CompactLayoutProps {
@@ -33,6 +34,7 @@ export default function CompactLayout({ children, activeTab, onTabChange }: Comp
         </div>
       </header>
       <main className="compact-main">{children}</main>
+      <SiteFooter />
     </div>
   );
 }

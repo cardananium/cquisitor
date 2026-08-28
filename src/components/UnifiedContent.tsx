@@ -7,6 +7,7 @@ import CompactLayout from "./CompactLayout";
 import Image from "next/image";
 import logo32 from "../../public/logo-32.png";
 import GitHubStarButton from "./GitHubStarButton";
+import SiteFooter from "./SiteFooter";
 
 // Subscribe to hash changes using useSyncExternalStore
 function subscribeToHash(callback: () => void) {
@@ -142,6 +143,7 @@ function InvalidHashError({ invalidHash }: { invalidHash: string }) {
           </div>
         </div>
       </main>
+      <SiteFooter />
     </div>
   );
 }

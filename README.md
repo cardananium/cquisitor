@@ -60,4 +60,4 @@ Found a vulnerability? Please **don't** open a public issue — follow [SECURITY
 
 ## License
 
-[Apache 2.0](./LICENSE). CQUISITOR is provided **AS IS**, with no warranty and no liability — see the LICENSE for details and [SECURITY.md](./SECURITY.md#disclaimer) for usage caveats.
+[Apache 2.0](./LICENSE). CQUISITOR is provided **AS IS**, with no warranty and no liability for any use of it or its output — see [DISCLAIMER.md](./DISCLAIMER.md), and [SECURITY.md](./SECURITY.md#disclaimer) for usage caveats.

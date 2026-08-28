@@ -5,6 +5,7 @@ import * as Collapsible from "@radix-ui/react-collapsible";
 import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { HashWithTooltip } from "./HashWithTooltip";
+import { DecompileButton, DEUPLC_ENABLED } from "./DeUplcButton";
 import { getPathDiagnostics } from "../utils";
 import type { ValidationDiagnostic } from "../types";
 import type { PlutusScriptInfo } from "@cardananium/cquisitor-lib";
@@ -64,23 +65,30 @@ export function PlutusScriptCard({
         className={`tcv-cdi ${hasErrors ? 'tcv-cdi-has-error' : ''}`} 
         style={{ '--cdi-accent': SCRIPT_ACCENT } as React.CSSProperties}
       >
-        <Collapsible.Trigger className="tcv-cdi-trigger tcv-script-trigger">
-          <svg width="10" height="10" viewBox="0 0 10 10" className="tcv-collapsible-icon">
-            <path d="M2 3L5 6L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-          </svg>
-          <span className="tcv-cdi-label">Script #{index}</span>
-          {scriptInfo?.version && (
-            <span className="tcv-plutus-version-badge">{scriptInfo.version}</span>
+        <div className="tcv-script-card-header">
+          <Collapsible.Trigger className="tcv-cdi-trigger tcv-script-trigger">
+            <svg width="10" height="10" viewBox="0 0 10 10" className="tcv-collapsible-icon">
+              <path d="M2 3L5 6L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+            </svg>
+            <span className="tcv-cdi-label">Script #{index}</span>
+            {scriptInfo?.version && (
+              <span className="tcv-plutus-version-badge">{scriptInfo.version}</span>
+            )}
+            {scriptInfo?.hash && (
+              <>
+                <span className="tcv-script-hash-label">Hash:</span>
+                <HashWithTooltip hash={scriptInfo.hash} className="tcv-script-hash-inline" />
+              </>
+            )}
+            <span className="tcv-script-size">({script.length / 2} bytes)</span>
+            <DiagnosticBadge diagnostics={diagnostics} />
+          </Collapsible.Trigger>
+          {DEUPLC_ENABLED && (
+            <span className="tcv-decompile-slot">
+              <DecompileButton hex={script} version={scriptInfo?.version} />
+            </span>
           )}
-          {scriptInfo?.hash && (
-            <>
-              <span className="tcv-script-hash-label">Hash:</span>
-              <HashWithTooltip hash={scriptInfo.hash} className="tcv-script-hash-inline" />
-            </>
-          )}
-          <span className="tcv-script-size">({script.length / 2} bytes)</span>
-          <DiagnosticBadge diagnostics={diagnostics} />
-        </Collapsible.Trigger>
+        </div>
         <Collapsible.Content className="tcv-cdi-content">
           <pre className="tcv-cdi-code">{formattedScript}</pre>
           <CopyButton text={script} className="tcv-cdi-copy" />

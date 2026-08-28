@@ -50,3 +50,31 @@ export function openExternalUrl(url: string): void {
   if (typeof window === "undefined") return;
   window.open(url, "_blank", "noopener,noreferrer");
 }
+
+/**
+ * Opens a URL that is only known asynchronously (e.g. after compression). The tab is opened
+ * synchronously inside the click handler so it still counts as a user gesture, then navigated
+ * once the URL resolves; opening it after the await is blocked as a popup.
+ */
+export function openExternalUrlDeferred(build: () => Promise<string>): void {
+  if (typeof window === "undefined") return;
+  // `noopener` would make window.open return null, so drop the reference by hand instead.
+  const tab = window.open("about:blank", "_blank");
+  if (tab) {
+    try {
+      tab.opener = null;
+    } catch {
+      /* cross-origin about:blank in some browsers */
+    }
+  }
+  void build().then(
+    (url) => {
+      if (tab && !tab.closed) tab.location.replace(url);
+      else openExternalUrl(url);
+    },
+    (err) => {
+      tab?.close();
+      console.error("Failed to build external link", err);
+    },
+  );
+}

@@ -6,6 +6,13 @@ import {
   buildAllDeUplcLinks,
   fieldsToPlainUrl,
   fieldsToCompressedUrl,
+  fieldsFromDecompile,
+  fieldsFromEvalDecompile,
+  fieldsToDecompilePlainUrl,
+  fieldsToDecompileCompressedUrl,
+  fieldsToDecompileUrl,
+  decompilePurpose,
+  plutusVersionFromScriptType,
   type DeUplcFields,
 } from "./deUplcLink";
 import { fromBase64Url } from "./shareLink/base64url";
@@ -293,5 +300,98 @@ describe("buildAllDeUplcLinks — byEval / byRedeemer mapping", () => {
     const maps = await buildAllDeUplcLinks(evals, [redeemer("VotingProposal", 0)], "https://x.test");
     expect(maps.byRedeemer.get(0)?.ok).toBe(true);
     expect(maps.byRedeemer.get(0)).toBe(maps.byEval.get("Propose:0"));
+  });
+});
+
+describe("decompiler deep-link — not the debugger", () => {
+  test("hex only is enough; v/purpose omitted when unknown (Auto)", () => {
+    const fields = fieldsFromDecompile({ hex: "46010000200101" });
+    expect(fields).toEqual({ script: "46010000200101" });
+    const url = fieldsToDecompilePlainUrl(fields!, "https://x.test");
+    const p = parseHashParams(url);
+    expect(p.get("decompile")).toBe("46010000200101");
+    expect(p.get("script")).toBeNull();
+    expect(p.get("view")).toBeNull();
+    expect(p.get("v")).toBeNull();
+    expect(p.get("purpose")).toBeNull();
+  });
+
+  test("V2 spend → v=v2&purpose=spend, never Spending / Spending #0", () => {
+    const fields = fieldsFromEvalDecompile(
+      evalResult({ tag: "Spend", index: 0, version: "V2", script: "5904ac01" }),
+    );
+    expect(fields).toEqual({ script: "5904ac01", v: "v2", purpose: "spend" });
+    const p = parseHashParams(fieldsToDecompilePlainUrl(fields!, "https://x.test"));
+    expect(p.get("decompile")).toBe("5904ac01");
+    expect(p.get("v")).toBe("v2");
+    expect(p.get("purpose")).toBe("spend");
+    expect(p.get("script")).toBeNull();
+  });
+
+  test("purpose tokens: Cert→certificate, Reward→withdraw; publish/Spending dropped", () => {
+    expect(decompilePurpose("Cert")).toBe("certificate");
+    expect(decompilePurpose("Reward")).toBe("withdraw");
+    expect(decompilePurpose("Vote")).toBe("vote");
+    expect(decompilePurpose("Propose")).toBe("propose");
+    expect(decompilePurpose("Mint")).toBe("mint");
+    expect(decompilePurpose("publish")).toBeUndefined();
+    expect(decompilePurpose("Publish")).toBeUndefined();
+    expect(decompilePurpose("Spending")).toBeUndefined();
+    expect(decompilePurpose("Spending #0")).toBeUndefined();
+    expect(decompilePurpose("Certifying")).toBeUndefined();
+  });
+
+  test("non-hex / UPLC text is rejected", () => {
+    expect(fieldsFromDecompile({ hex: "(program 1.0.0 (con integer 1))" })).toBeNull();
+    expect(fieldsFromDecompile({ hex: "not-hex" })).toBeNull();
+    expect(fieldsFromDecompile({ hex: "" })).toBeNull();
+  });
+
+  test("plutusVersionFromScriptType reads Koios / extractedHashes shapes", () => {
+    expect(plutusVersionFromScriptType({ Plutus: "V2" })).toBe("V2");
+    expect(plutusVersionFromScriptType("plutusV3")).toBe("plutusV3");
+    expect(plutusVersionFromScriptType("Native")).toBeUndefined();
+    expect(plutusVersionFromScriptType("timelock")).toBeUndefined();
+    expect(fieldsFromDecompile({ hex: "aa", version: plutusVersionFromScriptType({ Plutus: "V1" }) })).toEqual({
+      script: "aa",
+      v: "v1",
+    });
+  });
+
+  test("strips 0x and whitespace; PlutusV2 / unknown v", () => {
+    expect(fieldsFromDecompile({ hex: "0x4601", version: "PlutusV2" })).toEqual({ script: "4601", v: "v2" });
+    expect(fieldsFromDecompile({ hex: "46 01", version: "V3" })).toEqual({ script: "4601", v: "v3" });
+    expect(fieldsFromDecompile({ hex: "4601", version: "not-a-version" })).toEqual({ script: "4601" });
+  });
+
+  test("hex > 2000 uses #d= with view=decompiler and no debugger fields", async () => {
+    const script = "ab".repeat(1001); // 2002 chars
+    const url = await fieldsToDecompileUrl(
+      { script, v: "v3", purpose: "certificate" },
+      "https://x.test",
+    );
+    expect(url.startsWith("https://x.test/#d=")).toBe(true);
+    expect(url.includes("decompile=")).toBe(false);
+    const d = parseHashParams(url).get("d")!;
+    expect(JSON.parse(await gunzipBase64Url(d))).toEqual({
+      view: "decompiler",
+      script,
+      v: "v3",
+      purpose: "certificate",
+    });
+  });
+
+  test("compressed payload never carries debugger keys", async () => {
+    const url = await fieldsToDecompileCompressedUrl(
+      { script: "aa", v: "v2", purpose: "mint" },
+      "https://x.test",
+    );
+    const payload = JSON.parse(await gunzipBase64Url(parseHashParams(url).get("d")!)) as Record<string, unknown>;
+    expect(payload).toEqual({ view: "decompiler", script: "aa", v: "v2", purpose: "mint" });
+    expect(payload).not.toHaveProperty("tx");
+    expect(payload).not.toHaveProperty("context");
+    expect(payload).not.toHaveProperty("redeemer");
+    expect(payload).not.toHaveProperty("datum");
+    expect(payload).not.toHaveProperty("exUnits");
   });
 });

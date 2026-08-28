@@ -26,7 +26,7 @@ import {
 import { buildCardanoCborUrl, buildExplorerTxUrl, buildTxStudioUrl, openExternalUrl } from "@/utils/externalApps";
 import { buildJsonViewerUrl } from "@/utils/jsonViewerHandoff";
 import { buildAllDeUplcLinks, type DeUplcLinkMaps } from "@/utils/deUplcLink";
-import { DeUplcButton, DEUPLC_ENABLED } from "@/components/TransactionCardView/components/DeUplcButton";
+import { DeUplcButton, DecompileButton, DEUPLC_ENABLED } from "@/components/TransactionCardView/components/DeUplcButton";
 import { ErrorDataDetails, getCleanedErrorMessage, DecompositionModalProvider } from "@/components/ErrorDataFormatters";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
@@ -734,6 +734,11 @@ function PlutusScriptResults({
               </Accordion.Trigger>
               {DEUPLC_ENABLED && (
                 <span className="plutus-deuplc-slot">
+                  <DecompileButton
+                    hex={result.script_bytes}
+                    version={result.plutus_version}
+                    purpose={result.tag}
+                  />
                   <DeUplcButton link={deUplcLinks?.byEval.get(`${result.tag}:${result.index}`) ?? null} />
                 </span>
               )}
@@ -1061,6 +1066,11 @@ export default function TransactionValidatorContent() {
   const shouldShowModalRef = useRef(false);
   
   const previousTxHashRef = useRef<string | null>(null);
+  const autoValidatedKeyRef = useRef<string | null>(null);
+
+  // Share-link context: validate locally without a provider API key.
+  const hasUsableUrlContext =
+    contextSource === "url" && !!fetchedContext && useUrlContext && !ctxIncompatibleWarning;
 
   // Transform validation paths to actual JSON paths
   // Specific transformations for known path differences
@@ -1187,8 +1197,7 @@ export default function TransactionValidatorContent() {
       }
 
       const { hex } = processTransactionInput(txInput);
-      const canUseUrlContext =
-        !forceRefetch && contextSource === "url" && !!fetchedContext && useUrlContext;
+      const canUseUrlContext = !forceRefetch && hasUsableUrlContext;
 
       if (!canUseUrlContext && !apiKey.trim()) {
         setError(
@@ -1240,9 +1249,8 @@ export default function TransactionValidatorContent() {
       network,
       provider,
       apiKey,
-      contextSource,
+      hasUsableUrlContext,
       fetchedContext,
-      useUrlContext,
       setError,
       setIsLoading,
       setResult,
@@ -1256,6 +1264,23 @@ export default function TransactionValidatorContent() {
 
   const handleValidate = useCallback(() => runValidation(false), [runValidation]);
   const handleRefetch = useCallback(() => runValidation(true), [runValidation]);
+
+  // Auto-run validation when the share link already includes context.
+  useEffect(() => {
+    if (!hasUsableUrlContext || !txInput.trim() || result || isLoading) return;
+    const key = `${txCborHex ?? txInput.trim()}|${contextCapturedAt ?? 0}`;
+    if (autoValidatedKeyRef.current === key) return;
+    autoValidatedKeyRef.current = key;
+    void runValidation(false);
+  }, [
+    hasUsableUrlContext,
+    txInput,
+    txCborHex,
+    contextCapturedAt,
+    result,
+    isLoading,
+    runValidation,
+  ]);
 
   // Called after a witness is spliced into the transaction. Adding a signature
   // leaves the body bytes (and tx hash) unchanged, so the already-fetched
@@ -1649,8 +1674,17 @@ export default function TransactionValidatorContent() {
         </div>
         <button
           onClick={handleValidate}
-          disabled={isLoading || !txInput.trim() || !apiKey.trim()}
+          disabled={isLoading || !txInput.trim() || (!apiKey.trim() && !hasUsableUrlContext)}
           className="validator-validate-btn"
+          title={
+            !txInput.trim()
+              ? "Paste a transaction first"
+              : !apiKey.trim() && !hasUsableUrlContext
+                ? `${provider === "blockfrost" ? "Blockfrost project_id" : "Koios API key"} required to fetch context`
+                : hasUsableUrlContext && !apiKey.trim()
+                  ? "Validate using the context from the URL"
+                  : undefined
+          }
         >
           {isLoading ? (
             <SpinnerIcon size={18} className="animate-spin" />

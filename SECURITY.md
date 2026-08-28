@@ -49,7 +49,7 @@ If you act in good faith and follow this policy, we will treat your report as au
 
 ## Disclaimer
 
-CQUISITOR is provided "AS IS" with no warranty and no liability — see [LICENSE](./LICENSE), Sections 7 (Disclaimer of Warranty) and 8 (Limitation of Liability). Use at your own risk.
+CQUISITOR is provided "AS IS" with no warranty and no liability — see [DISCLAIMER.md](./DISCLAIMER.md). Use at your own risk.
 
 A couple of practical notes worth highlighting:
 

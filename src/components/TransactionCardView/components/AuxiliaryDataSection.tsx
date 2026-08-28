@@ -5,6 +5,7 @@ import * as Collapsible from "@radix-ui/react-collapsible";
 import { CopyButton } from "./CopyButton";
 import { CollapsibleDataItem } from "./CollapsibleDataItem";
 import { SlotWithTooltip } from "./SlotWithTooltip";
+import { DecompileButton, DEUPLC_ENABLED } from "./DeUplcButton";
 import type { AuxiliaryData, NativeScript } from "../types";
 
 interface AuxiliaryDataSectionProps {
@@ -177,6 +178,13 @@ export function AuxiliaryDataSection({ auxData }: AuxiliaryDataSectionProps) {
                   label={`Script #${i} (${script.length / 2} bytes)`}
                   data={script}
                   colorAccent={AUX_DATA_ACCENT}
+                  trailing={
+                    DEUPLC_ENABLED ? (
+                      <span className="tcv-decompile-slot">
+                        <DecompileButton hex={script} />
+                      </span>
+                    ) : undefined
+                  }
                 />
               ))}
             </div>

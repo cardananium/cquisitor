@@ -13,6 +13,8 @@ import { getPathDiagnostics, getAddressLink, formatAda } from "../utils";
 import { AssetNameWithTooltip, AssetAmount } from "./AssetNameWithTooltip";
 import { useUtxoInfo } from "../UtxoInfoContext";
 import { useDatum } from "../DatumInfoContext";
+import { DecompileButton, DEUPLC_ENABLED } from "./DeUplcButton";
+import { plutusVersionFromScriptType } from "@/utils/deUplcLink";
 import { detectSundaeOutput } from "@/utils/protocols/sundae";
 import { detectDexOutput, formatDexRole, dexThemeKey } from "@/utils/protocols/dex";
 import "@/utils/protocols/dex/adapters";
@@ -248,6 +250,11 @@ export function OutputCard({
 
   // Get script size if available from extended info
   const scriptSize = inlineScriptInfo && 'size' in inlineScriptInfo ? inlineScriptInfo.size : null;
+  const plutusHex =
+    hasScriptRef && output.script_ref && "PlutusScript" in output.script_ref
+      ? output.script_ref.PlutusScript
+      : null;
+  const plutusVersion = plutusVersionFromScriptType(inlineScriptInfo?.script_type);
   
   return (
     <div 
@@ -336,15 +343,22 @@ export function OutputCard({
       {(hasScriptRef || inlineScriptInfo) && (
         <div className="tcv-inline-collapsible-wrapper">
           <Collapsible.Root className="tcv-inline-collapsible">
-            <Collapsible.Trigger className="tcv-inline-collapsible-trigger">
-              <svg width="10" height="10" viewBox="0 0 10 10" className="tcv-collapsible-icon">
-                <path d="M2 3L5 6L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-              </svg>
-              <span>Script Reference</span>
-              {inlineScriptInfo && formatScriptType(inlineScriptInfo) && (
-                <span className="tcv-script-type-badge">{formatScriptType(inlineScriptInfo)}</span>
+            <div className="tcv-script-ref-header">
+              <Collapsible.Trigger className="tcv-inline-collapsible-trigger">
+                <svg width="10" height="10" viewBox="0 0 10 10" className="tcv-collapsible-icon">
+                  <path d="M2 3L5 6L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                </svg>
+                <span>Script Reference</span>
+                {inlineScriptInfo && formatScriptType(inlineScriptInfo) && (
+                  <span className="tcv-script-type-badge">{formatScriptType(inlineScriptInfo)}</span>
+                )}
+              </Collapsible.Trigger>
+              {DEUPLC_ENABLED && plutusHex && (
+                <span className="tcv-decompile-slot">
+                  <DecompileButton hex={plutusHex} version={plutusVersion} />
+                </span>
               )}
-            </Collapsible.Trigger>
+            </div>
             <Collapsible.Content className="tcv-inline-collapsible-content">
               {/* Show script hash if available */}
               {inlineScriptInfo?.hash && (

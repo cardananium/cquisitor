@@ -2,8 +2,12 @@
 
 import React from "react";
 import { ExternalLinkIcon } from "@/components/Icons";
-import { openExternalUrl } from "@/utils/externalApps";
-import type { DeUplcResolved } from "@/utils/deUplcLink";
+import { openExternalUrl, openExternalUrlDeferred } from "@/utils/externalApps";
+import {
+  fieldsFromDecompile,
+  fieldsToDecompileUrl,
+  type DeUplcResolved,
+} from "@/utils/deUplcLink";
 
 // Toggle the de-uplc / step-debugger buttons across the UI. Now that de-uplc-web
 // is deployed (https://cardananium.github.io/de-uplc-web/), the buttons are on.
@@ -47,6 +51,47 @@ export function DeUplcButton({
     >
       <ExternalLinkIcon size={12} />
       <span>{label}</span>
+    </button>
+  );
+}
+
+/** Decompiler tab — not the debugger (`#decompile=` / `#d=`+`view`, never `#script=`). */
+export function DecompileButton({
+  hex,
+  version,
+  purpose,
+}: {
+  hex: string | null | undefined;
+  version?: string | null;
+  purpose?: string | null;
+}) {
+  const fields = fieldsFromDecompile({ hex, version, purpose });
+  if (!fields) {
+    return (
+      <button
+        type="button"
+        className="external-link-btn tcv-deuplc-btn"
+        disabled
+        title="Compiled script hex is not available"
+      >
+        <ExternalLinkIcon size={12} />
+        <span>Decompile</span>
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="external-link-btn tcv-deuplc-btn"
+      title="Decompile this script in de-uplc-web"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openExternalUrlDeferred(() => fieldsToDecompileUrl(fields));
+      }}
+    >
+      <ExternalLinkIcon size={12} />
+      <span>Decompile</span>
     </button>
   );
 }

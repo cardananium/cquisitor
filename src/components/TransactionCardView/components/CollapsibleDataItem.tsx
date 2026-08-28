@@ -12,6 +12,8 @@ interface CollapsibleDataItemProps {
   defaultOpen?: boolean;
   colorAccent?: string; // CSS color for left border
   diagnostics?: ValidationDiagnostic[];
+  /** Rendered outside the trigger (no nested buttons). */
+  trailing?: React.ReactNode;
 }
 
 // Helper to format JSON strings
@@ -29,7 +31,8 @@ export function CollapsibleDataItem({
   data, 
   defaultOpen = false,
   colorAccent = "#6366f1", // default indigo
-  diagnostics = []
+  diagnostics = [],
+  trailing,
 }: CollapsibleDataItemProps) {
   const { formatted } = formatJsonString(data);
   const hasErrors = diagnostics.some(d => d.severity === 'error');
@@ -40,13 +43,16 @@ export function CollapsibleDataItem({
       defaultOpen={defaultOpen} 
       style={{ '--cdi-accent': colorAccent } as React.CSSProperties}
     >
-      <Collapsible.Trigger className="tcv-cdi-trigger">
-        <svg width="10" height="10" viewBox="0 0 10 10" className="tcv-collapsible-icon">
-          <path d="M2 3L5 6L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-        </svg>
-        <span className="tcv-cdi-label">{label}</span>
-        <DiagnosticBadge diagnostics={diagnostics} />
-      </Collapsible.Trigger>
+      <div className="tcv-cdi-header">
+        <Collapsible.Trigger className="tcv-cdi-trigger">
+          <svg width="10" height="10" viewBox="0 0 10 10" className="tcv-collapsible-icon">
+            <path d="M2 3L5 6L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+          </svg>
+          <span className="tcv-cdi-label">{label}</span>
+          <DiagnosticBadge diagnostics={diagnostics} />
+        </Collapsible.Trigger>
+        {trailing}
+      </div>
       <Collapsible.Content className="tcv-cdi-content">
         <pre className="tcv-cdi-code">{formatted}</pre>
         <CopyButton text={data} className="tcv-cdi-copy" />
