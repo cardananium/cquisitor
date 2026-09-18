@@ -5,31 +5,15 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import ResizablePanels from "@/components/ResizablePanels";
 import EditableHexView from "@/components/EditableHexView";
 import CborTreeView from "@/components/CborTreeView";
-import { cbor_to_json, type CborPosition, type CborDecodeResult } from "@cardananium/cquisitor-lib";
+import { type CborPosition, type CborDecodeResult } from "@cardananium/cquisitor-lib";
 import { useGeneralCbor } from "@/context/GeneralCborContext";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
-import { convertSerdeNumbers } from "@/utils/serdeNumbers";
+import { callLib, libErrorMessage } from "@/lib/cquisitorWorker";
 import { cborErrorToLocation } from "@/utils/cborError";
-import { base64ToHex, stripWhitespace } from "@/utils/inputNormalization";
-
-// Heuristic base64 check that intentionally rejects pure-hex input so we don't
-// mis-route hex through a base64 decode. Caller must pass whitespace-stripped
-// input. Differs from the strict isValidBase64 in inputNormalization, which
-// considers plain hex (e.g. "deadbeef") a valid base64 string.
-function looksLikeBase64(input: string): boolean {
-  if (input.length === 0) return false;
-  if (!/^[A-Za-z0-9+/]+=*$/.test(input)) return false;
-  if (!/[g-zG-Z+/=]/.test(input)) return false;
-  try {
-    atob(input);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { base64ToHex, looksLikeBase64, stripWhitespace } from "@/utils/inputNormalization";
 
 export default function GeneralCborContent() {
   const {
@@ -63,6 +47,9 @@ export default function GeneralCborContent() {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
+    // Ignore a late worker result after the input has changed.
+    let cancelled = false;
+    const controller = new AbortController();
 
     // Debounce decode to avoid cursor jumping
     debounceRef.current = setTimeout(() => {
@@ -88,32 +75,48 @@ export default function GeneralCborContent() {
       }
 
       hex = hex.toLowerCase();
-
-      // Decode CBOR — the new API never throws; errors come as { ok: false, ... }.
-      const raw = cbor_to_json(hex) as CborDecodeResult;
-      const result = convertSerdeNumbers(raw) as CborDecodeResult;
       const hexByteLength = /^[0-9a-f]*$/.test(hex) ? hex.length / 2 : 0;
 
-      if (hexByteLength > 0) setHexValue(hex);
-      else setHexValue("");
+      void (async () => {
+        let result: CborDecodeResult;
+        try {
+          // { ok: false } is a decode error; a throw means the call never ran.
+          result = await callLib<CborDecodeResult>("cbor_to_json", [hex], {
+            signal: controller.signal,
+          });
+        } catch (e) {
+          if (cancelled) return;
+          setHexValue(hexByteLength > 0 ? hex : "");
+          setDecodedJson(null);
+          setError(libErrorMessage(e));
+          setErrorLocation(null);
+          return;
+        }
+        if (cancelled) return;
 
-      if (result.ok) {
-        setDecodedJson(result.value);
-        setError(null);
-        setErrorLocation(null);
-      } else {
-        setDecodedJson(result.partial ?? null);
-        setError(result.error.message);
-        setErrorLocation(cborErrorToLocation(result.error, hexByteLength));
-      }
+        if (hexByteLength > 0) setHexValue(hex);
+        else setHexValue("");
+
+        if (result.ok) {
+          setDecodedJson(result.value);
+          setError(null);
+          setErrorLocation(null);
+        } else {
+          setDecodedJson(result.partial ?? null);
+          setError(result.error.message);
+          setErrorLocation(cborErrorToLocation(result.error, hexByteLength));
+        }
+      })();
     }, 150); // 150ms debounce
 
     return () => {
+      cancelled = true;
+      controller.abort();
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [input, setDecodedJson, setError, setHexValue, setNotification]);
+  }, [input, setDecodedJson, setError, setErrorLocation, setHexValue, setNotification]);
 
   const handleClear = () => {
     clearAll();
@@ -153,7 +156,11 @@ export default function GeneralCborContent() {
         </HelpTooltip>
         {hoverPath && <span className="panel-path">{hoverPath}</span>}
         {notification && <span className="panel-badge info">{notification}</span>}
-        {error && <span className="panel-badge error">{error}</span>}
+        {error && (
+          <span className="panel-badge error" title={error}>
+            {error}
+          </span>
+        )}
         {errorLocation && errorLocation.path && errorLocation.path !== "$" && (
           <Tooltip.Provider delayDuration={150}>
             <Tooltip.Root>
@@ -220,6 +227,11 @@ export default function GeneralCborContent() {
             highlightedTreePosition={highlightedTreePosition}
             onClearHighlight={handleClearTreeHighlight}
           />
+        ) : error ? (
+          // Header badge truncates; show the full error here when there is no tree.
+          <div className="empty-state">
+            <p className="empty-hint">{error}</p>
+          </div>
         ) : (
           <EmptyStatePlaceholder
             title="CBOR tree view"

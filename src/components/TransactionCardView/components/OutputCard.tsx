@@ -17,6 +17,7 @@ import { DecompileButton, DEUPLC_ENABLED } from "./DeUplcButton";
 import { plutusVersionFromScriptType } from "@/utils/deUplcLink";
 import { detectSundaeOutput } from "@/utils/protocols/sundae";
 import { detectDexOutput, formatDexRole, dexThemeKey } from "@/utils/protocols/dex";
+import { useDecodedAddressVersion } from "@/lib/useDecodedAddress";
 import "@/utils/protocols/dex/adapters";
 import type { PD as SundaePD } from "@/utils/protocols/sundae/plutusData";
 import type { TransactionOutput, ValidationDiagnostic, CardanoNetwork, DataOption } from "../types";
@@ -199,19 +200,24 @@ export function OutputCard({
     return merged;
   }, [witnessDatums, unresolvedHash, fetchedDatum]);
 
+  // Both detectors match on the output address's payment script hash, which
+  // they read out of the decoded-address store rather than decoding here; a
+  // decode that lands after the first pass has to re-run them.
+  const addressVersion = useDecodedAddressVersion();
+
   // Sundae detection — runs only when the output address looks like a script
   // hosted by a known SundaeSwap protocol script.
-  const sundaeDetection = useMemo(
-    () => detectSundaeOutput(output, network, effectiveDatums),
-    [output, network, effectiveDatums]
-  );
+  const sundaeDetection = useMemo(() => {
+    void addressVersion;
+    return detectSundaeOutput(output, network, effectiveDatums);
+  }, [output, network, effectiveDatums, addressVersion]);
 
   // Generic DEX detection (Minswap, WingRiders, Splash, …) — matches the output
   // address against every registered adapter. Disjoint from Sundae's own table.
-  const dexDetection = useMemo(
-    () => detectDexOutput(output, network, effectiveDatums),
-    [output, network, effectiveDatums]
-  );
+  const dexDetection = useMemo(() => {
+    void addressVersion;
+    return detectDexOutput(output, network, effectiveDatums);
+  }, [output, network, effectiveDatums, addressVersion]);
 
   // Parse plutus data to determine type
   const plutusDataInfo = parseDataOption(output.plutus_data);

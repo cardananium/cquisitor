@@ -6,8 +6,6 @@ import JsonViewer from "@/components/JsonViewer";
 import TypeSelectionModal from "@/components/TypeSelectionModal";
 import Select from "@/components/Select";
 import {
-  get_possible_types_for_input,
-  decode_specific_type,
   type NetworkType,
   type PlutusDataSchema,
   type DecodingParams,
@@ -18,14 +16,15 @@ import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
 import { CheckCircleIcon, ExternalLinkIcon } from "@/components/Icons";
-import { convertSerdeNumbers } from "@/utils/serdeNumbers";
+import { callLib, isLibRefusal, libErrorMessage } from "@/lib/cquisitorWorker";
 import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
 import {
   buildTxStudioUrl,
   buildValidatorUrl,
-  openExternalUrl,
+  openExternalUrlDeferred,
 } from "@/utils/externalApps";
-import { isValidBase64, base64ToHex, stripWhitespace } from "@/utils/inputNormalization";
+import { isValidBase64, isValidHex, base64ToHex, stripWhitespace } from "@/utils/inputNormalization";
+import { nestsPastTypedDecoding, TYPED_DECODING_DEPTH_LIMIT } from "@/utils/cborDepth";
 
 // Types that require DecodingParams
 const TYPES_WITH_PLUTUS_SCRIPT_VERSION = ["PlutusScript"];
@@ -36,7 +35,14 @@ interface DetectionResult {
   types: string[];
   processedInput: string;
   notification: string | null;
+  /** True when typed decoding was skipped because the document nests too deep. */
+  deeperThanTypedDecoding: boolean;
 }
+
+/** Typed decoders return no types past this nesting; check depth first so we can say why. */
+const TYPED_DECODING_DEPTH_MESSAGE =
+  `This document nests deeper than the ${TYPED_DECODING_DEPTH_LIMIT}-level typed-decoding limit, so no`
+  + " Cardano type can be tried against it. The general CBOR tab decodes it as plain CBOR.";
 
 // Address subtypes that should be filtered out when "Address" is present
 const ADDRESS_SUBTYPES = [
@@ -57,22 +63,36 @@ function filterTypes(types: string[]): string[] {
 }
 
 // Try to detect types for input, with fallback to base64 conversion
-function detectTypesWithFallback(rawInput: string): DetectionResult {
+async function detectTypesWithFallback(
+  rawInput: string,
+  signal?: AbortSignal,
+): Promise<DetectionResult> {
   const normalized = stripWhitespace(rawInput);
+  const tooDeep = (hex: string): DetectionResult => ({
+    types: [],
+    processedInput: hex,
+    notification: null,
+    deeperThanTypedDecoding: true,
+  });
+
+  if (isValidHex(normalized) && nestsPastTypedDecoding(normalized)) return tooDeep(normalized);
 
   // First, try the normalized input directly
   // This handles: hex, bech32, base58, and potentially base64 if decoder supports it
   try {
-    const rawTypes = get_possible_types_for_input(normalized);
+    const rawTypes = await callLib<string[]>("get_possible_types_for_input", [normalized], { signal });
     const types = filterTypes(rawTypes);
     if (types.length > 0) {
       return {
         types,
         processedInput: normalized,
         notification: null,
+        deeperThanTypedDecoding: false,
       };
     }
-  } catch {
+  } catch (e) {
+    // A refused call never ran; do not treat it as "no Cardano type".
+    if (isLibRefusal(e)) throw e;
     // Continue to fallback
   }
 
@@ -80,16 +100,19 @@ function detectTypesWithFallback(rawInput: string): DetectionResult {
   if (isValidBase64(normalized)) {
     try {
       const hexFromBase64 = base64ToHex(normalized);
-      const rawTypes = get_possible_types_for_input(hexFromBase64);
+      if (nestsPastTypedDecoding(hexFromBase64)) return tooDeep(hexFromBase64);
+      const rawTypes = await callLib<string[]>("get_possible_types_for_input", [hexFromBase64], { signal });
       const types = filterTypes(rawTypes);
       if (types.length > 0) {
         return {
           types,
           processedInput: hexFromBase64,
           notification: "Base64 → hex",
+          deeperThanTypedDecoding: false,
         };
       }
-    } catch {
+    } catch (e) {
+      if (isLibRefusal(e)) throw e;
       // Base64 conversion failed
     }
   }
@@ -99,6 +122,7 @@ function detectTypesWithFallback(rawInput: string): DetectionResult {
     types: [],
     processedInput: normalized,
     notification: null,
+    deeperThanTypedDecoding: false,
   };
 }
 
@@ -136,6 +160,9 @@ export default function CardanoCborContent() {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
+    // Ignore a late worker result after the input has changed.
+    let cancelled = false;
+    const controller = new AbortController();
 
     debounceRef.current = setTimeout(() => {
       if (!input.trim()) {
@@ -148,36 +175,47 @@ export default function CardanoCborContent() {
         return;
       }
 
-      try {
-        // Try to detect types with fallback to base64 conversion
-        const { types, notification: notificationMsg } = detectTypesWithFallback(input);
-        
-        setPossibleTypes(types);
-        setNotification(notificationMsg);
+      void (async () => {
+        try {
+          // Try to detect types with fallback to base64 conversion
+          const { types, notification: notificationMsg, deeperThanTypedDecoding } =
+            await detectTypesWithFallback(input, controller.signal);
+          if (cancelled) return;
 
-        if (types.length === 0) {
+          setPossibleTypes(types);
+          setNotification(notificationMsg);
+
+          if (types.length === 0) {
+            setSelectedType(null);
+            setDecodedJson(null);
+            setError(
+              deeperThanTypedDecoding
+                ? TYPED_DECODING_DEPTH_MESSAGE
+                : "No valid Cardano type detected for this input",
+            );
+            setShowTypeModal(false);
+          } else if (types.length === 1) {
+            // Auto-select if only one type available
+            setSelectedType(types[0]);
+            setShowTypeModal(false);
+          } else if (!selectedType || !types.includes(selectedType)) {
+            // Multiple types available - show modal for selection
+            setPendingTypes(types);
+            setShowTypeModal(true);
+          }
+        } catch (e) {
+          if (cancelled) return;
+          setError(libErrorMessage(e));
+          setPossibleTypes([]);
           setSelectedType(null);
-          setDecodedJson(null);
-          setError("No valid Cardano type detected for this input");
           setShowTypeModal(false);
-        } else if (types.length === 1) {
-          // Auto-select if only one type available
-          setSelectedType(types[0]);
-          setShowTypeModal(false);
-        } else if (!selectedType || !types.includes(selectedType)) {
-          // Multiple types available - show modal for selection
-          setPendingTypes(types);
-          setShowTypeModal(true);
         }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Error detecting types");
-        setPossibleTypes([]);
-        setSelectedType(null);
-        setShowTypeModal(false);
-      }
+      })();
     }, 200);
 
     return () => {
+      cancelled = true;
+      controller.abort();
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
@@ -211,11 +249,14 @@ export default function CardanoCborContent() {
       return;
     }
 
+    let cancelled = false;
+    const controller = new AbortController();
+
     const decode = async () => {
       setIsLoading(true);
       try {
         // Use the same detection logic to get the processed input
-        const { processedInput } = detectTypesWithFallback(input);
+        const { processedInput } = await detectTypesWithFallback(input, controller.signal);
 
         // Build DecodingParams
         const params: DecodingParams = {};
@@ -226,26 +267,38 @@ export default function CardanoCborContent() {
           params.plutus_data_schema = plutusDataSchema;
         }
 
-        const result = decode_specific_type(processedInput, selectedType, params);
-        // Convert serde_json numbers to native BigInt/number
-        let convertedResult = convertSerdeNumbers(result);
-        
+        // Worker already converted serde numbers.
+        let result = await callLib<unknown>(
+          "decode_specific_type",
+          [processedInput, selectedType, params],
+          { signal: controller.signal },
+        );
+        if (cancelled) return;
+
         // Reorder transaction fields for better readability
         if (selectedType === "Transaction") {
-          convertedResult = reorderTransactionFields(convertedResult);
+          result = reorderTransactionFields(result);
         }
-        
-        setDecodedJson(convertedResult);
+
+        setDecodedJson(result);
         setError(null);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Decode error");
+        if (cancelled) return;
+        setError(libErrorMessage(e));
         setDecodedJson(null);
       } finally {
-        setIsLoading(false);
+        // Do not clear loading if a newer decode has already started.
+        if (!cancelled) setIsLoading(false);
       }
     };
 
-    decode();
+    void decode();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      // Stop the spinner if nothing replaces this run (empty input / no type).
+      setIsLoading(false);
+    };
   }, [selectedType, input, plutusScriptVersion, plutusDataSchema, setDecodedJson, setError, setIsLoading]);
 
   const handleClear = useCallback(() => {
@@ -286,7 +339,11 @@ export default function CardanoCborContent() {
           <strong>How to use:</strong> Paste CBOR hex (or base64/bech32) data below. The structure type will be auto-detected, or you&apos;ll see a modal to choose from possible types. You can change the type later using the dropdown.
         </HelpTooltip>
         {notification && <span className="panel-badge info">{notification}</span>}
-        {error && <span className="panel-badge error">{error}</span>}
+        {error && (
+          <span className="panel-badge error" title={error}>
+            {error}
+          </span>
+        )}
         <ShareButton
           disabled={!input.trim()}
           getTarget={() => ({
@@ -306,10 +363,13 @@ export default function CardanoCborContent() {
               type="button"
               className="external-link-btn"
               title="Open this transaction in the Transaction Validator"
-              onClick={() => {
-                const hex = detectTypesWithFallback(input).processedInput;
-                openExternalUrl(buildValidatorUrl(hex, network));
-              }}
+              onClick={() =>
+                // Open the destination in this click; navigate once the worker returns the hex.
+                openExternalUrlDeferred(async () => {
+                  const { processedInput } = await detectTypesWithFallback(input);
+                  return buildValidatorUrl(processedInput, network);
+                })
+              }
             >
               <CheckCircleIcon size={12} />
               <span>Open in Validator</span>
@@ -318,10 +378,13 @@ export default function CardanoCborContent() {
               type="button"
               className="external-link-btn"
               title="Open this transaction in Tx Studio"
-              onClick={() => {
-                const hex = detectTypesWithFallback(input).processedInput;
-                openExternalUrl(buildTxStudioUrl(hex, network));
-              }}
+              onClick={() =>
+                // Open the destination in this click; navigate once the worker returns the hex.
+                openExternalUrlDeferred(async () => {
+                  const { processedInput } = await detectTypesWithFallback(input);
+                  return buildTxStudioUrl(processedInput, network);
+                })
+              }
             >
               <ExternalLinkIcon size={12} />
               <span>Tx Studio</span>
@@ -441,7 +504,15 @@ export default function CardanoCborContent() {
         <JsonViewer data={decodedJson} expanded={3} network={network} />
       ) : error ? (
         <div className="empty-state">
-          <p className="empty-hint">{error}</p>
+          <p className="empty-hint">
+            {error}
+            {error === TYPED_DECODING_DEPTH_MESSAGE && (
+              <>
+                {" "}
+                <a href="#general-cbor">Open the general CBOR tab</a>
+              </>
+            )}
+          </p>
         </div>
       ) : (
         <EmptyStatePlaceholder

@@ -3,12 +3,26 @@ import "@/utils/protocols/dex/adapters";
 import { buildDexTxContext } from "./txContext";
 import type { TransactionBody, Redeemer } from "@/components/TransactionCardView/types";
 import type { KoiosUtxoInfo } from "@/utils/koiosTypes";
+import { primeAddresses } from "@/lib/decodedAddresses";
 
 // Minswap V2 order validator (mainnet), as a hex enterprise address (71 = script payment cred).
 const MINSWAP_V2_ORDER_ADDR = "71" + "c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c";
 // WingRiders V2 withdraw-zero batcher + a key-credential stake address (never a batcher).
 const WINGRIDERS_BATCHER = "stake17xt0tsd7ug6gzv6l7jhvuvh7rhap4fq2j39xd5kkahy6nfg8vjx3m";
 const KEY_STAKE = "stake1uyrx65wjqjgeeksd8hptmcgl5jfyrqkfq0xe8xlp367kphsckq250";
+// FluidTokens loan-action dispatcher, as a hex reward address (f1 = script stake cred).
+const FT_LOAN_DISPATCHER = "f1" + "30f1095a8a2acb68bb0ffa193e18e004b6dd3e12b5d9c2375a1d5c41";
+
+// buildDexTxContext reads addresses that were decoded off the render path,
+// which in the app is the pass that decodes the pasted transaction or the one
+// that resolves a UTxO. Nothing here goes through either, so the same decodes
+// are made here.
+await primeAddresses([
+  MINSWAP_V2_ORDER_ADDR,
+  WINGRIDERS_BATCHER,
+  KEY_STAKE,
+  FT_LOAN_DISPATCHER,
+]);
 
 const TX_A = "ff".repeat(32); // sorts AFTER TX_B
 const TX_B = "00".repeat(32);
@@ -88,10 +102,8 @@ describe("buildDexTxContext — redeemer notes", () => {
 });
 
 describe("buildDexTxContext — withdraw-redeemer ACTION classification", () => {
-  // FluidTokens loan-action dispatcher: stake hash = loanPolicyId (hex reward
-  // address, f1 = script stake cred). Redeemer:
+  // FluidTokens loan-action dispatcher: stake hash = loanPolicyId. Redeemer:
   // Constr0[ configRefInputIndex, ActionType ], ctor 2 = ChangeCollateral.
-  const FT_LOAN_DISPATCHER = "f1" + "30f1095a8a2acb68bb0ffa193e18e004b6dd3e12b5d9c2375a1d5c41";
   const body = {
     inputs: [{ transaction_id: "00".repeat(32), index: 0 }],
     withdrawals: { [FT_LOAN_DISPATCHER]: "0" },

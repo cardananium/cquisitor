@@ -1,11 +1,33 @@
 "use client";
 
-import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
+// Structural CBOR tree: one row per node, linked to hex by hover and right-click.
+// Rendered flat (`flatTree/flatten`): indent by depth, not nested components.
+// Single-child runs fold to one row; closed rows and the panel header report document depth.
+
+import React, { memo, useState, useCallback, useRef, useEffect, useMemo } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import type { CborValue, CborPosition, CborOddity, CborOddityKind, CborPartialValue } from "@cardananium/cquisitor-lib";
 import { CopyIcon, CheckIcon } from "./Icons";
+import type { PanelMenuAction } from "./panelMenuActions";
+import {
+  depthBelowMap,
+  flattenTree,
+  rowKeys,
+  type FlatChild,
+  type FlatRow,
+  type FlatTreeAdapter,
+} from "./flatTree/flatten";
+import { describeDocumentDepth, describeFold, describeLevelsBelow } from "./flatTree/depthNotes";
+import {
+  DiagnosticBadge,
+  DiagnosticCaption,
+  placementOf,
+  selectedIn,
+  type TreeDiagnostic,
+  type TreeDiagnosticRows,
+} from "./treeDiagnostics";
 
-interface CborTreeViewProps {
+export interface CborTreeViewProps {
   // CborPartialValue is structurally compatible with CborValue for our traversal
   // (same fields), plus optional `incomplete` flags on containers and the rare
   // partial map-entry with a missing key/value. We accept both.
@@ -16,8 +38,23 @@ interface CborTreeViewProps {
   // Position to highlight in tree (from hex view context menu)
   highlightedTreePosition?: CborPosition | null;
   onClearHighlight?: () => void;
-  /** Right-click on a tree node → fired with that node's CBOR position. */
-  onPinPosition?: (position: CborPosition) => void;
+  /** Pinned row: opened and persistently marked. Independent of `highlightedTreePosition` (a self-clearing pulse). */
+  pinnedPosition?: CborPosition | null;
+  /** Extra rows kept open (stepped pin instances) without the pin mark or a scroll. */
+  openPositions?: readonly CborPosition[];
+  /**
+   * Scroll the pinned row into view when it becomes pinned. Default true.
+   * Pass whether this tree is on screen: a hidden row has no box, and showing the panel does not change the pin.
+   */
+  scrollOnHighlight?: boolean;
+  /** Right-click: node's CBOR position and this panel's menu actions. Host owns the menu when wired. */
+  onPinPosition?: (position: CborPosition | null, actions: PanelMenuAction[]) => void;
+  /** Diagnostics keyed by `spanAttr` of the named bytes. Matching header (or container extent) gets a badge. */
+  rowDiagnostics?: TreeDiagnosticRows;
+  /** Selected diagnostic index: open its row and show its caption. Host scrolls. */
+  selectedDiagnostic?: number | null;
+  /** Badge click: select that diagnostic, or `null` to clear. */
+  onSelectDiagnostic?: (index: number | null) => void;
 }
 
 interface ContextMenuState {
@@ -29,88 +66,110 @@ interface ContextMenuState {
 
 type AnyNode = CborValue | CborPartialValue;
 
-// Find path to a node by its position (returns array of path segments)
-function findPathToPosition(
-  node: AnyNode,
-  targetPosition: CborPosition,
-  currentPath: string[] = []
-): string[] | null {
-  if (!node || typeof node !== "object") return null;
+const EMPTY_POSITIONS: readonly CborPosition[] = [];
 
-  const posInfo = node.position_info;
-
-  // Check if this node matches the target position
-  if (posInfo &&
-      posInfo.offset === targetPosition.offset &&
-      posInfo.length === targetPosition.length) {
-    return currentPath;
+// A node matches on `position_info` (header) or `struct_position_info` (container extent). Callers use either.
+function nodeSpanMatches(node: AnyNode, position: CborPosition): boolean {
+  const structInfo = "struct_position_info" in node ? node.struct_position_info : undefined;
+  for (const span of [node.position_info, structInfo]) {
+    if (span && span.offset === position.offset && span.length === position.length) return true;
   }
-
-  // Search in children
-  if ("type" in node) {
-    if (node.type === "Array" && node.values) {
-      for (let i = 0; i < node.values.length; i++) {
-        const result = findPathToPosition(
-          node.values[i],
-          targetPosition,
-          [...currentPath, `array[${i}]`]
-        );
-        if (result) return result;
-      }
-    }
-
-    if (node.type === "Map" && node.values) {
-      for (let i = 0; i < node.values.length; i++) {
-        const entry = node.values[i] as { key?: AnyNode; value?: AnyNode };
-        if (entry.key) {
-          const keyResult = findPathToPosition(
-            entry.key,
-            targetPosition,
-            [...currentPath, `map[${i}].key`]
-          );
-          if (keyResult) return keyResult;
-        }
-        if (entry.value) {
-          const valueResult = findPathToPosition(
-            entry.value,
-            targetPosition,
-            [...currentPath, `map[${i}].value`]
-          );
-          if (valueResult) return valueResult;
-        }
-      }
-    }
-
-    if (node.type === "Tag" && "value" in node && node.value) {
-      const result = findPathToPosition(
-        node.value,
-        targetPosition,
-        [...currentPath, "tag.value"]
-      );
-      if (result) return result;
-    }
-
-    if ((node.type === "IndefiniteLengthString" || node.type === "IndefiniteLengthBytes") && node.chunks) {
-      for (let i = 0; i < node.chunks.length; i++) {
-        const result = findPathToPosition(
-          node.chunks[i],
-          targetPosition,
-          [...currentPath, `chunks[${i}]`]
-        );
-        if (result) return result;
-      }
-    }
-  }
-
-  return null;
+  return false;
 }
 
-// Check if a position matches a node
-function positionMatchesNode(node: AnyNode, position: CborPosition): boolean {
-  const posInfo = node.position_info;
-  return posInfo !== undefined && 
-         posInfo.offset === position.offset && 
-         posInfo.length === position.length;
+/** `offset:length` for `data-span`, so a host can find a row without a render. */
+export function spanAttr(position: CborPosition): string {
+  return `${position.offset}:${position.length}`;
+}
+
+/** Row `data-span`: header, plus container extent as a second word (`~=` matches either). */
+export function rowSpanAttr(node: RowNode): string | undefined {
+  if (isMissing(node)) return undefined;
+  const header = node.position_info;
+  if (!header) return undefined;
+  const extent = "struct_position_info" in node ? node.struct_position_info : undefined;
+  const words = spanAttr(header);
+  return extent && (extent.offset !== header.offset || extent.length !== header.length)
+    ? `${words} ${spanAttr(extent)}`
+    : words;
+}
+
+/** Position reported on hover: container extent, or a leaf's bytes. */
+export function hoverPositionOf(node: RowNode): CborPosition | null {
+  if (isMissing(node)) return null;
+  const structPosition = "struct_position_info" in node ? node.struct_position_info : undefined;
+  return structPosition ?? node.position_info ?? null;
+}
+
+/** Diagnostics on this row: keyed by header and, for a container, by extent. Returns the map's own list unless both spans have entries, which are joined. */
+export function ownDiagnosticsOf(node: RowNode, rows: TreeDiagnosticRows): readonly TreeDiagnostic[] | undefined {
+  if (isMissing(node)) return undefined;
+  const header = node.position_info;
+  if (!header) return undefined;
+  const own = rows.get(spanAttr(header));
+  const extent = "struct_position_info" in node ? node.struct_position_info : undefined;
+  const around = extent && (extent.offset !== header.offset || extent.length !== header.length)
+    ? rows.get(spanAttr(extent))
+    : undefined;
+  if (own && around) return [...own, ...around];
+  return own ?? around;
+}
+
+/** One step down from a node, as `findPathToPosition` names it. */
+type PathStep =
+  | { segment: string; node: AnyNode };
+
+function stepsBelow(node: AnyNode): PathStep[] {
+  if (!("type" in node)) return [];
+  const steps: PathStep[] = [];
+  if (node.type === "Array" && node.values) {
+    node.values.forEach((child, i) => steps.push({ segment: `array[${i}]`, node: child }));
+  } else if (node.type === "Map" && node.values) {
+    node.values.forEach((entry, i) => {
+      const e = entry as { key?: AnyNode; value?: AnyNode };
+      if (e.key) steps.push({ segment: `map[${i}].key`, node: e.key });
+      if (e.value) steps.push({ segment: `map[${i}].value`, node: e.value });
+    });
+  } else if (node.type === "Tag" && "value" in node && node.value) {
+    steps.push({ segment: "tag.value", node: node.value });
+  } else if ((node.type === "IndefiniteLengthString" || node.type === "IndefiniteLengthBytes") && node.chunks) {
+    node.chunks.forEach((chunk, i) => steps.push({ segment: `chunks[${i}]`, node: chunk }));
+  }
+  return steps;
+}
+
+/** Path segments from `node` to `targetPosition` (`[]` for `node`, `null` if none). Explicit stack: decoder depth would overflow the call stack. */
+export function findPathToPosition(
+  node: AnyNode,
+  targetPosition: CborPosition,
+): string[] | null {
+  if (!node || typeof node !== "object") return null;
+  if (nodeSpanMatches(node, targetPosition)) return [];
+
+  interface Frame {
+    steps: PathStep[];
+    next: number;
+    /** The segment that led here, for reading the path back up. */
+    segment: string;
+    parent: Frame | null;
+  }
+  const stack: Frame[] = [{ steps: stepsBelow(node), next: 0, segment: "", parent: null }];
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1];
+    if (frame.next >= frame.steps.length) {
+      stack.pop();
+      continue;
+    }
+    const step = frame.steps[frame.next++];
+    if (!step.node || typeof step.node !== "object") continue;
+    if (nodeSpanMatches(step.node, targetPosition)) {
+      const path = [step.segment];
+      for (let f: Frame | null = frame; f && f.parent; f = f.parent) path.push(f.segment);
+      return path.reverse();
+    }
+    stack.push({ steps: stepsBelow(step.node), next: 0, segment: step.segment, parent: frame });
+  }
+  return null;
 }
 
 function getCborHex(hexValue: string, position: CborPosition): string {
@@ -452,123 +511,235 @@ function ExpandableValue({ value }: { value: string }) {
   );
 }
 
-interface TreeNodeProps {
-  node: CborValue | CborPartialValue;
-  depth: number;
-  path: string;
-  hexValue: string;
-  defaultExpanded: boolean;
-  onContextMenu: (e: React.MouseEvent, node: CborValue | CborPartialValue, path: string) => void;
-  onHover: (position: CborPosition | null) => void;
+/** What a row is labelled with, beyond the node itself. */
+interface RowLabel {
   keyLabel?: string;
   keyType?: "map-key" | "map-value";
-  // Highlighted position from hex view
-  highlightedPosition?: CborPosition | null;
-  // Paths that should be expanded to show the highlighted node
-  expandedPaths?: Set<string>;
+  /** Path suffix from the parent, and the highlight-route step. */
+  pathSuffix: string;
 }
 
-function TreeNode({
-  node,
-  depth,
-  path,
-  hexValue,
-  defaultExpanded,
-  onContextMenu,
-  onHover,
-  keyLabel,
-  keyType,
-  highlightedPosition,
-  expandedPaths,
-}: TreeNodeProps) {
-  const nodeRef = useRef<HTMLDivElement>(null);
-  const position = node.position_info;
-  const structPosition = "struct_position_info" in node ? node.struct_position_info : undefined;
-  const label = getNodeLabel(node);
-  
-  // Check if this node should be highlighted
-  const isHighlighted = highlightedPosition && positionMatchesNode(node, highlightedPosition);
-  
-  // Check if this path should be force-expanded from parent
-  const shouldForceExpand = expandedPaths && expandedPaths.size > 0 && expandedPaths.has(path);
-  
-  // User-controlled expanded state - initialize as expanded if in force-expand path
-  const [userExpanded, setUserExpanded] = useState(() => {
-    if (shouldForceExpand) return true;
-    return depth < 2 ? defaultExpanded : false;
-  });
-  
-  // When force-expand is triggered, persist the expanded state
-  // Use setTimeout to avoid "setState in effect" lint warning
-  useEffect(() => {
-    if (shouldForceExpand && !userExpanded) {
-      const timer = setTimeout(() => setUserExpanded(true), 0);
-      return () => clearTimeout(timer);
-    }
-  }, [shouldForceExpand, userExpanded]);
-  
-  // Final expanded state
-  const expanded = userExpanded;
-  
-  // Scroll into view when highlighted
-  useEffect(() => {
-    if (isHighlighted && nodeRef.current) {
-      const element = nodeRef.current;
-      
-      // Find the scrollable container (.tree-view-container)
-      let scrollContainer = element.parentElement;
-      while (scrollContainer && !scrollContainer.classList.contains('tree-view-container')) {
-        scrollContainer = scrollContainer.parentElement;
-      }
-      
-      // Root node (depth === 0) - scroll to top
-      if (depth === 0) {
-        if (scrollContainer) {
-          scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
-        }
+/** A map entry's missing half: the decoder stopped before it. */
+interface MissingNode {
+  missing: "key" | "value";
+}
+
+type RowNode = AnyNode | MissingNode;
+
+function isMissing(node: RowNode): node is MissingNode {
+  return "missing" in node;
+}
+
+function hasChildren(node: RowNode): boolean {
+  if (isMissing(node) || !("type" in node)) return false;
+  return (
+    node.type === "Array" || node.type === "Map" || node.type === "Tag" ||
+    node.type === "IndefiniteLengthString" || node.type === "IndefiniteLengthBytes"
+  );
+}
+
+type Child = FlatChild<RowNode, RowLabel>;
+
+const child = (key: string | number, node: RowNode, label: RowLabel, isArrayItem = false): Child =>
+  ({ key, node, isArrayItem, label });
+
+/** Children in display order. Paths match `findPathToPosition` segments. */
+function childrenOf(node: RowNode): Child[] {
+  if (isMissing(node) || !("type" in node)) return [];
+  if (node.type === "Array") {
+    return node.values.map((item, index) => {
+      // Indefinite-length arrays surface the terminating Break as the last
+      // child; label it "end" for consistency with maps/strings/bytes.
+      const isBreak = "type" in item && item.type === "Break";
+      return child(index, item, { keyLabel: isBreak ? "end" : `[${index}]`, pathSuffix: `[${index}]` }, true);
+    });
+  }
+  if (node.type === "Map") {
+    const out: Child[] = [];
+    node.values.forEach((entry, index) => {
+      // Indefinite-length maps surface the terminating Break as a bare node
+      // (`{type: "Break"}`) — the last child — mirroring how indefinite
+      // arrays/strings show it. It is not a {key, value} pair, so it is a
+      // row of its own rather than a key/value pair.
+      if ("type" in entry) {
+        const bare = entry as unknown as CborValue;
+        const isBreak = (bare as { type?: string }).type === "Break";
+        out.push(child(index, bare, { keyLabel: isBreak ? "end" : `[${index}]`, pathSuffix: `[${index}]` }));
         return;
       }
-      
-      // For other nodes, use RAF to ensure DOM is ready after expansion
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const el = nodeRef.current;
-          if (!el || !scrollContainer) {
-            el?.scrollIntoView({ behavior: "smooth", block: "center" });
-            return;
-          }
-          
-          // Calculate position relative to scroll container
-          const containerRect = scrollContainer.getBoundingClientRect();
-          const elementRect = el.getBoundingClientRect();
-          const relativeTop = elementRect.top - containerRect.top + scrollContainer.scrollTop;
-          
-          // Scroll to center the element
-          const targetScroll = relativeTop - (containerRect.height / 2) + (elementRect.height / 2);
-          scrollContainer.scrollTo({
-            top: Math.max(0, targetScroll),
-            behavior: 'smooth'
-          });
-        });
-      });
+      // Partial map entries (from CborDecodeResult.partial) may have an
+      // undefined/null key or value on the entry where decoding stopped.
+      const partial = entry as { key?: CborValue; value?: CborValue };
+      out.push(child(
+        `keys[${index}]`,
+        partial.key ?? { missing: "key" },
+        { keyLabel: "key", keyType: "map-key", pathSuffix: `.keys[${index}]` },
+      ));
+      out.push(child(
+        `values[${index}]`,
+        partial.value ?? { missing: "value" },
+        { keyLabel: "val", keyType: "map-value", pathSuffix: `.values[${index}]` },
+      ));
+    });
+    return out;
+  }
+  if (node.type === "Tag") {
+    // Partial Tag may omit `value` when the inner item couldn't parse.
+    const value: RowNode = "value" in node && node.value !== undefined ? node.value : { missing: "value" };
+    return [child("value", value, { keyLabel: "value", pathSuffix: ".value" })];
+  }
+  if (node.type === "IndefiniteLengthString" || node.type === "IndefiniteLengthBytes") {
+    let chunkIdx = 0;
+    return node.chunks.map((chunk, index) => {
+      const isBreak = "type" in chunk && chunk.type === "Break";
+      const keyLabel = isBreak ? "end" : `chunk ${chunkIdx++}`;
+      return child(`chunks[${index}]`, chunk, { keyLabel, pathSuffix: `.chunks[${index}]` });
+    });
+  }
+  return [];
+}
+
+const treeAdapter: FlatTreeAdapter<RowNode, RowLabel> = {
+  childrenOf,
+  isContainer: hasChildren,
+  childPath: (parent, c) => `${parent}${c.label!.pathSuffix}`,
+  stepOf: (c) => c.label!.pathSuffix,
+};
+
+/** A `findPathToPosition` segment as the step the tree takes for it. */
+function routeStep(segment: string): string {
+  if (segment.startsWith("array[")) return segment.slice("array".length);
+  const map = segment.match(/^map\[(\d+)\]\.(key|value)$/);
+  if (map) return `.${map[2] === "key" ? "keys" : "values"}[${map[1]}]`;
+  if (segment === "tag.value") return ".value";
+  if (segment.startsWith("chunks[")) return `.${segment}`;
+  return segment;
+}
+
+/** A run of single-child levels this long is shown as one row. */
+const FOLD_CHAINS_FROM = 4;
+/** Past this many levels the indent stops growing; the depth is on the row. */
+const MAX_INDENT_LEVELS = 40;
+const INDENT_PX = 16;
+/** Rows rendered before the rest are held behind "show more". */
+const ROW_BUDGET = 2000;
+
+type Row = FlatRow<RowNode, RowLabel>;
+
+/** A user's toggle, and which highlight it was made after. */
+interface RowToggle {
+  open: boolean;
+  epoch: number;
+}
+
+interface TreeRowProps {
+  row: Row;
+  isHighlighted: boolean;
+  isPinned: boolean;
+  scrollOnPin: boolean;
+  /** Diagnostics on this row — the host's own list, stable until the run changes. */
+  diagnostics?: readonly TreeDiagnostic[];
+  /** Selected diagnostic on this row, or `null`. */
+  selectedOwn: number | null;
+  onToggle: (row: Row) => void;
+  onContextMenu: (e: React.MouseEvent, node: AnyNode, path: string) => void;
+  onHover: (position: CborPosition | null) => void;
+  onSelectDiagnostic: (index: number | null) => void;
+  onRevealBytes: (position: CborPosition) => void;
+}
+
+const TreeRow = memo(function TreeRow({
+  row,
+  isHighlighted,
+  isPinned,
+  scrollOnPin,
+  diagnostics,
+  selectedOwn,
+  onToggle,
+  onContextMenu,
+  onHover,
+  onSelectDiagnostic,
+  onRevealBytes,
+}: TreeRowProps) {
+  const nodeRef = useRef<HTMLDivElement>(null);
+  const { node, depth } = row;
+  const indent = Math.min(depth, MAX_INDENT_LEVELS) * INDENT_PX;
+
+  // Scroll into view when highlighted, or when pinned and asked to. Not animated: animated scrolls are dropped where the browser does not run them.
+  const shouldScroll = isHighlighted || (isPinned && scrollOnPin);
+  useEffect(() => {
+    if (!shouldScroll || !nodeRef.current) return;
+    const element = nodeRef.current;
+
+    // Find the scrollable container (.tree-view-container)
+    let scrollContainer = element.parentElement;
+    while (scrollContainer && !scrollContainer.classList.contains("tree-view-container")) {
+      scrollContainer = scrollContainer.parentElement;
     }
-  }, [isHighlighted, depth]);
-  
-  const hasChildren =
-    ("type" in node && (node.type === "Array" || node.type === "Map" || node.type === "Tag")) ||
-    ("type" in node && (node.type === "IndefiniteLengthString" || node.type === "IndefiniteLengthBytes"));
+
+    // Root node (depth === 0) - scroll to top
+    if (depth === 0) {
+      // Host pane may not use `.tree-view-container`; the root is still the first row.
+      if (scrollContainer) scrollContainer.scrollTo({ top: 0 });
+      else element.scrollIntoView({ block: "start" });
+      return;
+    }
+
+    // For other nodes, use RAF to ensure DOM is ready after expansion
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        const el = nodeRef.current;
+        if (!el || !scrollContainer) {
+          el?.scrollIntoView({ block: "center" });
+          return;
+        }
+
+        // Calculate position relative to scroll container
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const elementRect = el.getBoundingClientRect();
+        const relativeTop = elementRect.top - containerRect.top + scrollContainer.scrollTop;
+
+        // Scroll to center the element
+        const targetScroll = relativeTop - (containerRect.height / 2) + (elementRect.height / 2);
+        scrollContainer.scrollTo({ top: Math.max(0, targetScroll) });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [shouldScroll, depth]);
+
+  if (isMissing(node)) {
+    return (
+      <div className="cbor-tree-node" style={{ paddingLeft: indent }}>
+        <div className={`cbor-tree-row cbor-tree-row-${row.label?.keyType ?? "plain"}`}>
+          <span className="cbor-tree-missing">{node.missing}: missing</span>
+        </div>
+      </div>
+    );
+  }
+
+  const hoverPosition = hoverPositionOf(node);
+  const label = getNodeLabel(node);
+  const container = hasChildren(node);
+  const expanded = row.kind === "open";
+  const keyType = row.label?.keyType;
+  const keyLabel = row.fold
+    ? describeFold(row.fold, (k) => (typeof k === "number" ? `[${k}]` : String(k)))
+    : row.label?.keyLabel;
+  const levelsBelow = !expanded ? describeLevelsBelow(row.depthBelow) : "";
+  const selectedDiagnostic = diagnostics ? selectedIn(diagnostics, selectedOwn) : null;
 
   const handleToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (hasChildren) {
-      setUserExpanded(!expanded);
-    }
+    if (container) onToggle(row);
   };
 
+  // Fire on move as well as enter: the host clears hover when inputs change, and a still-over pointer would stay dark.
   const handleMouseEnter = () => {
-    if (structPosition || position) {
-      onHover(structPosition || position);
-    }
+    if (hoverPosition) onHover(hoverPosition);
   };
 
   const handleMouseLeave = () => {
@@ -578,172 +749,38 @@ function TreeNode({
   const handleContextMenuEvent = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    onContextMenu(e, node, path);
-  };
-
-  const renderChildren = () => {
-    if (!expanded) return null;
-
-    if ("type" in node) {
-      if (node.type === "Array") {
-        return node.values.map((child, index) => {
-          // Indefinite-length arrays surface the terminating Break as the last
-          // child; label it "end" for consistency with maps/strings/bytes.
-          const isBreak = "type" in child && child.type === "Break";
-          return (
-            <TreeNode
-              key={index}
-              node={child}
-              depth={depth + 1}
-              path={`${path}[${index}]`}
-              hexValue={hexValue}
-              defaultExpanded={defaultExpanded}
-              onContextMenu={onContextMenu}
-              onHover={onHover}
-              keyLabel={isBreak ? "end" : `[${index}]`}
-              highlightedPosition={highlightedPosition}
-              expandedPaths={expandedPaths}
-            />
-          );
-        });
-      }
-      if (node.type === "Map") {
-        return node.values.map((entry, index) => {
-          // Indefinite-length maps surface the terminating Break as a bare node
-          // (`{type: "Break"}`) — the last child — mirroring how indefinite
-          // arrays/strings show it. It is not a {key, value} pair, so render it
-          // as a standalone node instead of trying to split it into key/value.
-          if ("type" in entry) {
-            const bareNode = entry as unknown as CborValue;
-            const bareType = (bareNode as { type?: string }).type;
-            return (
-              <TreeNode
-                key={index}
-                node={bareNode}
-                depth={depth + 1}
-                path={`${path}[${index}]`}
-                hexValue={hexValue}
-                defaultExpanded={defaultExpanded}
-                onContextMenu={onContextMenu}
-                onHover={onHover}
-                keyLabel={bareType === "Break" ? "end" : `[${index}]`}
-                highlightedPosition={highlightedPosition}
-                expandedPaths={expandedPaths}
-              />
-            );
-          }
-          // Partial map entries (from CborDecodeResult.partial) may have an
-          // undefined/null key or value on the entry where decoding stopped.
-          const partialEntry = entry as { key?: CborValue; value?: CborValue; incomplete?: true; incomplete_at?: "key" | "value" };
-          const hasKey = partialEntry.key != null;
-          const hasValue = partialEntry.value != null;
-          return (
-            <div key={index} className="cbor-map-entry">
-              {hasKey ? (
-                <TreeNode
-                  node={partialEntry.key!}
-                  depth={depth + 1}
-                  path={`${path}.keys[${index}]`}
-                  hexValue={hexValue}
-                  defaultExpanded={defaultExpanded}
-                  onContextMenu={onContextMenu}
-                  onHover={onHover}
-                  keyLabel="key"
-                  keyType="map-key"
-                  highlightedPosition={highlightedPosition}
-                  expandedPaths={expandedPaths}
-                />
-              ) : (
-                <span className="cbor-tree-missing">key: missing</span>
-              )}
-              <span className="cbor-map-arrow">↓</span>
-              {hasValue ? (
-                <TreeNode
-                  node={partialEntry.value!}
-                  depth={depth + 1}
-                  path={`${path}.values[${index}]`}
-                  hexValue={hexValue}
-                  defaultExpanded={defaultExpanded}
-                  onContextMenu={onContextMenu}
-                  onHover={onHover}
-                  keyLabel="val"
-                  keyType="map-value"
-                  highlightedPosition={highlightedPosition}
-                  expandedPaths={expandedPaths}
-                />
-              ) : (
-                <span className="cbor-tree-missing">value: missing</span>
-              )}
-            </div>
-          );
-        });
-      }
-      if (node.type === "Tag") {
-        // Partial Tag may omit `value` when the inner item couldn't parse.
-        if (!("value" in node) || node.value === undefined) {
-          return <span className="cbor-tree-missing">value: missing</span>;
-        }
-        return (
-          <TreeNode
-            node={node.value}
-            depth={depth + 1}
-            path={`${path}.value`}
-            hexValue={hexValue}
-            defaultExpanded={defaultExpanded}
-            onContextMenu={onContextMenu}
-            onHover={onHover}
-            keyLabel="value"
-            highlightedPosition={highlightedPosition}
-            expandedPaths={expandedPaths}
-          />
-        );
-      }
-      if (node.type === "IndefiniteLengthString" || node.type === "IndefiniteLengthBytes") {
-        let chunkIdx = 0;
-        return node.chunks.map((chunk, index) => {
-          const isBreak = "type" in chunk && chunk.type === "Break";
-          const keyLabel = isBreak ? "end" : `chunk ${chunkIdx++}`;
-          return (
-            <TreeNode
-              key={index}
-              node={chunk}
-              depth={depth + 1}
-              path={`${path}.chunks[${index}]`}
-              hexValue={hexValue}
-              defaultExpanded={defaultExpanded}
-              onContextMenu={onContextMenu}
-              onHover={onHover}
-              keyLabel={keyLabel}
-              highlightedPosition={highlightedPosition}
-              expandedPaths={expandedPaths}
-            />
-          );
-        });
-      }
-    }
-    return null;
+    onContextMenu(e, node, row.path);
   };
 
   return (
-    <div className={`cbor-tree-node ${isHighlighted ? "cbor-tree-node-highlighted" : ""}`} ref={nodeRef}>
+    <div
+      className={`cbor-tree-node ${isHighlighted ? "cbor-tree-node-highlighted" : ""}`}
+      style={{ paddingLeft: indent }}
+      ref={nodeRef}
+    >
       <div
-        className={`cbor-tree-row ${isHighlighted ? "cbor-tree-row-highlighted" : ""}`}
+        className={`cbor-tree-row ${keyType ? `cbor-tree-row-${keyType}` : ""} ${isPinned ? "cbor-tree-row-pinned" : ""} ${isHighlighted ? "cbor-tree-row-highlighted" : ""}${diagnostics ? " cbor-tree-row-mismatch" : ""}${selectedDiagnostic ? " cbor-tree-row-mismatch-selected" : ""}`}
+        data-span={rowSpanAttr(node)}
         onMouseEnter={handleMouseEnter}
+        onMouseMove={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         onContextMenu={handleContextMenuEvent}
       >
         {/* Expand/Collapse toggle */}
         <button
-          className={`cbor-tree-toggle ${hasChildren ? "has-children" : ""} ${expanded ? "expanded" : ""}`}
+          className={`cbor-tree-toggle ${container ? "has-children" : ""} ${expanded ? "expanded" : ""}`}
           onClick={handleToggle}
           tabIndex={-1}
         >
-          {hasChildren ? (expanded ? "▼" : "▶") : "•"}
+          {container ? (expanded ? "▼" : "▶") : "•"}
         </button>
 
-        {/* Key label if present */}
+        {/* Key label if present; for a folded run, the run's keys */}
         {keyLabel && (
-          <span className={`cbor-tree-key ${keyType === "map-key" ? "is-map-key" : ""} ${keyType === "map-value" ? "is-map-value" : ""}`}>
+          <span
+            className={`cbor-tree-key ${keyType === "map-key" ? "is-map-key" : ""} ${keyType === "map-value" ? "is-map-value" : ""} ${row.fold ? "cbor-tree-fold" : ""}`}
+            title={row.fold ? `${row.fold.levels} nested levels, each holding one child, shown as one row` : undefined}
+          >
             {keyLabel}
           </span>
         )}
@@ -771,10 +808,23 @@ function TreeNode({
         {label.value && (
           <span className="cbor-tree-info">{label.value}</span>
         )}
+        {levelsBelow && (
+          <span className="cbor-tree-info cbor-tree-depth">{levelsBelow}</span>
+        )}
 
         {/* Detail (actual value) */}
         {label.detail && (
           <ExpandableValue value={label.detail} />
+        )}
+
+        {/* Badge last in markup; CSS order places it before the action button. */}
+        {diagnostics && (
+          <DiagnosticBadge
+            diagnostics={diagnostics}
+            selected={selectedOwn}
+            onSelect={onSelectDiagnostic}
+            className="cbor-tree-mismatch-badge"
+          />
         )}
 
         {/* Action button */}
@@ -786,14 +836,17 @@ function TreeNode({
           ⋮
         </button>
       </div>
-
-      {/* Children */}
-      {hasChildren && expanded && (
-        <div className="cbor-tree-children">{renderChildren()}</div>
+      {/* Caption after the row so `data-span` lookup and in-place marks never hit it. */}
+      {selectedDiagnostic && (
+        <DiagnosticCaption
+          diagnostic={selectedDiagnostic}
+          className="cbor-tree-row-caption"
+          onRevealBytes={onRevealBytes}
+        />
       )}
     </div>
   );
-}
+});
 
 // Context menu with smart positioning
 interface ContextMenuPortalProps {
@@ -878,49 +931,105 @@ export default function CborTreeView({
   onHighlightAndScroll,
   highlightedTreePosition,
   onClearHighlight,
+  pinnedPosition,
+  openPositions = EMPTY_POSITIONS,
+  scrollOnHighlight = true,
   onPinPosition,
+  rowDiagnostics,
+  selectedDiagnostic,
+  onSelectDiagnostic,
 }: CborTreeViewProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  
-  // Compute expanded paths when highlighted position changes
-  const expandedPaths = useMemo(() => {
-    if (!highlightedTreePosition || !data) {
-      return new Set<string>();
+
+  // Selected diagnostic's row, or none if the run placed it on no row.
+  const selectedPlacement = useMemo(
+    () => placementOf(rowDiagnostics, selectedDiagnostic),
+    [rowDiagnostics, selectedDiagnostic],
+  );
+  const selectedPosition = selectedPlacement?.diagnostic.position ?? null;
+
+  // Open the way to the highlight, pin, selected diagnostic, and kept-open rows. Other pin instances are marked in place, not opened.
+  const highlightRoutes = useMemo<string[][]>(() => {
+    if (!data) return [];
+    const routes: string[][] = [];
+    for (const target of [highlightedTreePosition, pinnedPosition, selectedPosition, ...openPositions]) {
+      if (!target) continue;
+      const segments = findPathToPosition(data, target);
+      if (segments) routes.push(segments.map(routeStep));
     }
-    
-    const pathSegments = findPathToPosition(data, highlightedTreePosition);
-    if (!pathSegments) {
-      return new Set<string>();
-    }
-    
-    // Build all parent paths
-    const paths = new Set<string>();
-    let currentPath = "root";
-    paths.add(currentPath);
-    
-    for (const segment of pathSegments) {
-      // Build the actual path based on segment type
-      if (segment.startsWith("array[")) {
-        const index = segment.match(/\[(\d+)\]/)?.[1];
-        currentPath = `${currentPath}[${index}]`;
-      } else if (segment.startsWith("map[")) {
-        const match = segment.match(/map\[(\d+)\]\.(key|value)/);
-        if (match) {
-          const [, index, type] = match;
-          currentPath = `${currentPath}.${type === "key" ? "keys" : "values"}[${index}]`;
-        }
-      } else if (segment === "tag.value") {
-        currentPath = `${currentPath}.value`;
-      } else if (segment.startsWith("chunks[")) {
-        const index = segment.match(/\[(\d+)\]/)?.[1];
-        currentPath = `${currentPath}.chunks[${index}]`;
-      }
-      paths.add(currentPath);
-    }
-    
-    return paths;
-  }, [highlightedTreePosition, data]);
-  
+    return routes;
+  }, [highlightedTreePosition, pinnedPosition, selectedPosition, openPositions, data]);
+
+  // Stable per-row callbacks via refs so a new host handler per render does not rebuild every row.
+  const selectRef = useRef(onSelectDiagnostic);
+  const revealRef = useRef(onHighlightAndScroll);
+  useEffect(() => {
+    selectRef.current = onSelectDiagnostic;
+    revealRef.current = onHighlightAndScroll;
+  }, [onSelectDiagnostic, onHighlightAndScroll]);
+  const selectDiagnostic = useCallback((index: number | null) => selectRef.current?.(index), []);
+  const revealBytes = useCallback((position: CborPosition) => revealRef.current(position), []);
+
+  // User toggles keyed on the node object so a folded run is not asked per level. Cleared when `data` changes.
+  const [toggled, setToggled] = useState<ReadonlyMap<object, RowToggle>>(() => new Map());
+  const [toggledFor, setToggledFor] = useState<AnyNode | null>(data);
+  if (toggledFor !== data) {
+    setToggledFor(data);
+    setToggled(new Map());
+  }
+  // A highlight reopens ancestors the user had closed. A close after this highlight stands (`epoch`).
+  const [highlightEpoch, setHighlightEpoch] = useState(0);
+  const [routesSeen, setRoutesSeen] = useState(highlightRoutes);
+  if (routesSeen !== highlightRoutes) {
+    setRoutesSeen(highlightRoutes);
+    setHighlightEpoch((n) => n + 1);
+  }
+  const [limit, setLimit] = useState(ROW_BUDGET);
+  const [limitFor, setLimitFor] = useState<AnyNode | null>(data);
+  if (limitFor !== data) {
+    setLimitFor(data);
+    setLimit(ROW_BUDGET);
+  }
+
+  const depthBelow = useMemo(() => depthBelowMap<RowNode, RowLabel>(data, treeAdapter), [data]);
+  const depthNote = useMemo(
+    () => describeDocumentDepth(depthBelow.get(data) ?? 0),
+    [depthBelow, data],
+  );
+
+  const flat = useMemo(
+    () =>
+      flattenTree<RowNode, RowLabel>(data, {
+        adapter: treeAdapter,
+        rootPath: "root",
+        isOpen: ({ node, depth, onHighlightRoute, chainOpen }) => {
+          const chosen = toggled.get(node as object);
+          if (chosen && !(onHighlightRoute && !chosen.open && chosen.epoch < highlightEpoch)) {
+            return chosen.open;
+          }
+          return chainOpen || onHighlightRoute || depth < 2;
+        },
+        opensChain: true,
+        highlightRoutes,
+        foldChainsFrom: FOLD_CHAINS_FROM,
+        limit,
+        depthBelow,
+      }),
+    [data, toggled, highlightEpoch, highlightRoutes, limit, depthBelow],
+  );
+  const keys = useMemo(() => rowKeys(flat.rows.map((row) => row.path)), [flat]);
+
+  const toggleRow = useCallback((row: Row) => {
+    setToggled((prev) => {
+      const next = new Map(prev);
+      // Collapse a folded run from its first node; opening a closed row opens that node (the run follows).
+      if (row.kind === "open") next.set(row.foldStartNode as object, { open: false, epoch: highlightEpoch });
+      else next.set(row.node as object, { open: true, epoch: highlightEpoch });
+      return next;
+    });
+  }, [highlightEpoch]);
+  const showMore = useCallback(() => setLimit((n) => n + ROW_BUDGET), []);
+
   // Clear highlight after animation (3 seconds)
   useEffect(() => {
     if (highlightedTreePosition) {
@@ -934,10 +1043,25 @@ export default function CborTreeView({
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, node: CborValue | CborPartialValue, path: string) => {
-      // Side-effect: pin this node into the cross-panel selection if a
-      // parent wired the handler.
       const pos = node.struct_position_info || node.position_info;
-      if (onPinPosition && pos) onPinPosition(pos);
+      // Host owns the pin menu: hand it this panel's actions instead of a second menu.
+      if (onPinPosition) {
+        const actions: PanelMenuAction[] = [];
+        if (pos) {
+          actions.push({
+            id: "copy-cbor-hex",
+            label: "Copy CBOR hex",
+            run: () => navigator.clipboard.writeText(getCborHex(hexValue, pos)),
+          });
+          actions.push({
+            id: "highlight-in-hex",
+            label: "Highlight in hex view",
+            run: () => onHighlightAndScroll(pos),
+          });
+        }
+        onPinPosition(pos ?? null, actions);
+        return;
+      }
       setContextMenu({
         x: e.clientX,
         y: e.clientY,
@@ -945,7 +1069,7 @@ export default function CborTreeView({
         path,
       });
     },
-    [onPinPosition]
+    [onPinPosition, hexValue, onHighlightAndScroll]
   );
 
   const closeContextMenu = useCallback(() => {
@@ -975,17 +1099,41 @@ export default function CborTreeView({
 
   return (
     <div className="cbor-tree-view">
-      <TreeNode
-        node={data}
-        depth={0}
-        path="root"
-        hexValue={hexValue}
-        defaultExpanded={true}
-        onContextMenu={handleContextMenu}
-        onHover={onHoverPosition}
-        highlightedPosition={highlightedTreePosition}
-        expandedPaths={expandedPaths}
-      />
+      {depthNote && <div className="cbor-tree-depth-note">{depthNote}</div>}
+      {flat.rows.map((row, i) => {
+        const diagnostics = rowDiagnostics ? ownDiagnosticsOf(row.node, rowDiagnostics) : undefined;
+        const selectedOwn =
+          diagnostics && selectedDiagnostic != null && diagnostics.some((d) => d.index === selectedDiagnostic)
+            ? selectedDiagnostic
+            : null;
+        return (
+          <TreeRow
+            key={keys[i]}
+            row={row}
+            isHighlighted={
+              !!highlightedTreePosition && !isMissing(row.node) &&
+              nodeSpanMatches(row.node, highlightedTreePosition)
+            }
+            isPinned={
+              !!pinnedPosition && !isMissing(row.node) &&
+              nodeSpanMatches(row.node, pinnedPosition)
+            }
+            scrollOnPin={scrollOnHighlight}
+            diagnostics={diagnostics}
+            selectedOwn={selectedOwn}
+            onToggle={toggleRow}
+            onContextMenu={handleContextMenu}
+            onHover={onHoverPosition}
+            onSelectDiagnostic={selectDiagnostic}
+            onRevealBytes={revealBytes}
+          />
+        );
+      })}
+      {flat.truncated && (
+        <button type="button" className="cbor-tree-more" onClick={showMore}>
+          Show more rows
+        </button>
+      )}
 
       {/* Context Menu */}
       {contextMenu && (

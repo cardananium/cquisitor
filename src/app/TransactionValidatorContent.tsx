@@ -41,12 +41,13 @@ import {
   type DataProvider,
   type NetworkType,
 } from "@/utils/transactionValidation";
-import { decode_specific_type, extract_hashes_from_transaction_js } from "@cardananium/cquisitor-lib";
-import type { ExtractedHashes } from "@cardananium/cquisitor-lib";
-import { convertSerdeNumbers } from "@/utils/serdeNumbers";
+import type { AddWitnessesReport, ExtractedHashes } from "@cardananium/cquisitor-lib";
+import { callLib, libErrorMessage } from "@/lib/cquisitorWorker";
+import { collectAddressStrings, primeAddresses } from "@/lib/decodedAddresses";
 import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
 import { normalizeHexOrBase64 } from "@/utils/inputNormalization";
-import { add_witnesses_to_tx_with_report } from "@cardananium/cquisitor-lib";
+import { createRunGate } from "@/utils/latestRun";
+import { indentJsonText } from "@/utils/indentJson";
 import {
   useTransactionValidator,
   type DecodedTransaction,
@@ -258,7 +259,7 @@ function AddWitnessPanel({ txHex, missingKeyHash, onWitnessAdded }: AddWitnessPa
     { kind: "success" | "error" | "warning"; text: string } | null
   >(null);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     setFeedback(null);
 
     const trimmed = value.trim();
@@ -270,13 +271,16 @@ function AddWitnessPanel({ txHex, missingKeyHash, onWitnessAdded }: AddWitnessPa
     // The lib parses every supported format, verifies each signature against
     // this transaction's body, inserts the valid non-duplicate ones (preserving
     // the body bytes), and reports what happened.
-    let report;
+    let report: AddWitnessesReport;
     try {
-      report = add_witnesses_to_tx_with_report(txHex, [trimmed]);
+      report = await callLib<AddWitnessesReport>("add_witnesses_to_tx_with_report", [
+        txHex,
+        [trimmed],
+      ]);
     } catch (e) {
       setFeedback({
         kind: "error",
-        text: e instanceof Error ? e.message : "Could not parse the pasted witness.",
+        text: libErrorMessage(e),
       });
       return;
     }
@@ -579,9 +583,8 @@ function ScriptContextSection({
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    const text = view === "json" && hasJson
-      ? JSON.stringify(parsedJson, null, 2)
-      : (bytes ?? "");
+    // Re-space the library text; JSON.stringify would lose wide integers and deep nesting.
+    const text = view === "json" && hasJson ? indentJsonText(json ?? "") : (bytes ?? "");
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -1068,6 +1071,10 @@ export default function TransactionValidatorContent() {
   const previousTxHashRef = useRef<string | null>(null);
   const autoValidatedKeyRef = useRef<string | null>(null);
 
+  // Latest-run wins: Validate, share-link auto-run, witness re-run, and tx change can overlap.
+  // onBegin clears the spinner so a superseded run cannot leave "Validating…" stuck.
+  const beginValidationRun = useRef(createRunGate(() => setIsLoading(false))).current;
+
   // Share-link context: validate locally without a provider API key.
   const hasUsableUrlContext =
     contextSource === "url" && !!fetchedContext && useUrlContext && !ctxIncompatibleWarning;
@@ -1132,62 +1139,87 @@ export default function TransactionValidatorContent() {
     }
 
     const { hex } = processTransactionInput(txInput);
-    
-    try {
-      const decoded = decode_specific_type(hex, "Transaction", {});
-      let convertedResult = convertSerdeNumbers(decoded);
-      convertedResult = reorderTransactionFields(convertedResult);
-      const newDecodedTx = convertedResult as DecodedTransaction;
-      
-      // Check if the transaction hash has changed
-      const newTxHash = newDecodedTx.transaction_hash;
-      const isNewTransaction = previousTxHashRef.current === null || previousTxHashRef.current !== newTxHash;
-      
-      if (previousTxHashRef.current !== null && previousTxHashRef.current !== newTxHash) {
-        // Transaction hash changed - reset validation results and any URL-provided context
-        setResult(null);
-        setError(null);
-        setInputUtxoInfoMap(null);
-        setFocusedPath(null);
-        setFetchedContext(null);
-        setContextSource(null);
-        setContextCapturedAt(null);
-        setCtxIncompatibleWarning(false);
-      }
-      
-      // Show view mode modal on first successful decode if user hasn't selected before
-      if (isNewTransaction && previousTxHashRef.current === null && !hasSelectedViewMode) {
-        shouldShowModalRef.current = true;
-      }
-      
-      previousTxHashRef.current = newTxHash ?? null;
-      
-      setDecodedTx(newDecodedTx);
-      setDecodeError(null);
-      
-      // Extract hashes for datums and scripts
+    // Decoder is async; ignore the result if this input has been replaced.
+    let cancelled = false;
+    const controller = new AbortController();
+
+    void (async () => {
       try {
-        const hashesJson = extract_hashes_from_transaction_js(hex);
-        const hashes: ExtractedHashes = JSON.parse(hashesJson);
-        setExtractedHashes(hashes);
-      } catch {
-        // Ignore hash extraction errors - not critical
-        setExtractedHashes(null);
-      }
+        const decoded = await callLib<unknown>(
+          "decode_specific_type",
+          [hex, "Transaction", {}],
+          { signal: controller.signal },
+        );
+        if (cancelled) return;
+        const convertedResult = reorderTransactionFields(decoded);
+        const newDecodedTx = convertedResult as DecodedTransaction;
+
+        // Prime addresses here (already awaiting) so the card view can read them synchronously.
+        await primeAddresses(collectAddressStrings(newDecodedTx));
+        if (cancelled) return;
       
-      // Show modal after state updates
-      if (shouldShowModalRef.current) {
+        // Check if the transaction hash has changed
+        const newTxHash = newDecodedTx.transaction_hash;
+        const isNewTransaction = previousTxHashRef.current === null || previousTxHashRef.current !== newTxHash;
+      
+        if (previousTxHashRef.current !== null && previousTxHashRef.current !== newTxHash) {
+          // Transaction hash changed - reset validation results and any URL-provided context.
+          // Retire in-flight validation so it cannot refill this state.
+          beginValidationRun();
+          setResult(null);
+          setError(null);
+          setInputUtxoInfoMap(null);
+          setFocusedPath(null);
+          setFetchedContext(null);
+          setContextSource(null);
+          setContextCapturedAt(null);
+          setCtxIncompatibleWarning(false);
+        }
+      
+        // Show view mode modal on first successful decode if user hasn't selected before
+        if (isNewTransaction && previousTxHashRef.current === null && !hasSelectedViewMode) {
+          shouldShowModalRef.current = true;
+        }
+      
+        previousTxHashRef.current = newTxHash ?? null;
+      
+        setDecodedTx(newDecodedTx);
+        setDecodeError(null);
+      
+        // Extract hashes for datums and scripts
+        try {
+          const hashesJson = await callLib<string>("extract_hashes_from_transaction_js", [hex], {
+            signal: controller.signal,
+          });
+          if (cancelled) return;
+          const hashes: ExtractedHashes = JSON.parse(hashesJson);
+          setExtractedHashes(hashes);
+        } catch {
+          // Ignore hash extraction errors - not critical
+          if (cancelled) return;
+          setExtractedHashes(null);
+        }
+      
+        // Show modal after state updates
+        if (shouldShowModalRef.current) {
+          shouldShowModalRef.current = false;
+          setShowViewModeModal(true);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setDecodeError(libErrorMessage(e));
+        setDecodedTx(null);
+        setExtractedHashes(null);
+        previousTxHashRef.current = null;
         shouldShowModalRef.current = false;
-        setShowViewModeModal(true);
       }
-    } catch (e) {
-      setDecodeError(e instanceof Error ? e.message : "Failed to decode transaction");
-      setDecodedTx(null);
-      setExtractedHashes(null);
-      previousTxHashRef.current = null;
-      shouldShowModalRef.current = false;
-    }
-  }, [txInput, setDecodedTx, setDecodeError, setExtractedHashes, setResult, setError, setInputUtxoInfoMap, setFocusedPath, setFetchedContext, setContextSource, setContextCapturedAt, setCtxIncompatibleWarning, hasSelectedViewMode]);
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [txInput, setDecodedTx, setDecodeError, setExtractedHashes, setResult, setError, setInputUtxoInfoMap, setFocusedPath, setFetchedContext, setContextSource, setContextCapturedAt, setCtxIncompatibleWarning, hasSelectedViewMode, beginValidationRun]);
 
   const runValidation = useCallback(
     async (forceRefetch: boolean) => {
@@ -1208,6 +1240,7 @@ export default function TransactionValidatorContent() {
         return;
       }
 
+      const isCurrent = beginValidationRun();
       setIsLoading(true);
       setError(null);
       setResult(null);
@@ -1215,7 +1248,8 @@ export default function TransactionValidatorContent() {
       try {
         if (canUseUrlContext) {
           const ctx = buildValidationContext(fetchedContext!, network);
-          const validationResult = validateTransactionWithContext(hex, ctx);
+          const validationResult = await validateTransactionWithContext(hex, ctx);
+          if (!isCurrent()) return;
           setResult(validationResult);
           const map: InputUtxoInfoMap = new Map();
           for (const utxo of fetchedContext!.utxoInfos ?? []) {
@@ -1231,6 +1265,7 @@ export default function TransactionValidatorContent() {
               provider,
               apiKey: apiKey.trim(),
             });
+          if (!isCurrent()) return;
           setResult(validationResult);
           setInputUtxoInfoMap(utxoInfoMap);
           setFetchedContext(fresh);
@@ -1239,12 +1274,15 @@ export default function TransactionValidatorContent() {
           setCtxIncompatibleWarning(false);
         }
       } catch (e) {
+        if (!isCurrent()) return;
         setError(e instanceof Error ? e.message : "Validation failed");
       } finally {
-        setIsLoading(false);
+        // A superseded run must not clear a spinner that now belongs to the newer run.
+        if (isCurrent()) setIsLoading(false);
       }
     },
     [
+      beginValidationRun,
       txInput,
       network,
       provider,
@@ -1290,16 +1328,22 @@ export default function TransactionValidatorContent() {
     (newHex: string) => {
       setTxInput(newHex);
       if (fetchedContext) {
-        try {
-          const ctx = buildValidationContext(fetchedContext, network);
-          setResult(validateTransactionWithContext(newHex, ctx));
-        } catch {
-          // If local re-validation fails for any reason, the input is still
-          // updated — the user can click Validate to re-run normally.
-        }
+        // Latest-run wins if this overlaps Validate or another witness add.
+        const isCurrent = beginValidationRun();
+        void (async () => {
+          try {
+            const ctx = buildValidationContext(fetchedContext, network);
+            const validationResult = await validateTransactionWithContext(newHex, ctx);
+            if (!isCurrent()) return;
+            setResult(validationResult);
+          } catch {
+            // If local re-validation fails for any reason, the input is still
+            // updated — the user can click Validate to re-run normally.
+          }
+        })();
       }
     },
-    [setTxInput, setResult, fetchedContext, network]
+    [setTxInput, setResult, fetchedContext, network, beginValidationRun]
   );
 
   // Build diagnostics list from validation result (excluding redeemer results)

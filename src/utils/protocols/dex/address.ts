@@ -5,11 +5,27 @@
 // the same order contract appears under many different bech32 strings that all
 // share one payment credential.
 
-import { decode_specific_type } from "@cardananium/cquisitor-lib";
+import { readDecodedAddress, requestAddress } from "@/lib/decodedAddresses";
+import type { Credential } from "@/utils/addressTypes";
 
-interface DecodedAddress {
-  address_type?: string;
-  details?: { payment_cred?: { type: string; credential: string } };
+/**
+ * The payment credential of an already-decoded address, or null when the
+ * address has no decode yet.
+ *
+ * Detection runs inside a render, so it cannot wait for one. The passes that
+ * produce the addresses — the transaction decode, the UTxO resolver — prime
+ * them first, so the answer is normally here already. Asking for a miss is
+ * what makes a detector that ran too early correct rather than merely quiet:
+ * the decode lands, the store's version changes, and the memo that produced
+ * this null runs again.
+ */
+function paymentCredOf(addressBech32: string): Credential | null {
+  const decoded = readDecodedAddress(addressBech32);
+  if (decoded === undefined) {
+    requestAddress(addressBech32);
+    return null;
+  }
+  return decoded?.details.payment_cred ?? null;
 }
 
 /**
@@ -17,15 +33,11 @@ interface DecodedAddress {
  * the payment credential is a key hash (or the address can't be decoded).
  */
 export function getPaymentScriptHash(addressBech32: string): string | null {
-  try {
-    const decoded = decode_specific_type(addressBech32, "Address", {}) as DecodedAddress;
-    if (decoded?.details?.payment_cred?.type === "ScriptHash") {
-      return decoded.details.payment_cred.credential.toLowerCase();
-    }
-    return null;
-  } catch {
-    return null;
+  const cred = paymentCredOf(addressBech32);
+  if (cred?.type === "ScriptHash") {
+    return cred.credential.toLowerCase();
   }
+  return null;
 }
 
 /**
@@ -36,14 +48,9 @@ export function getPaymentScriptHash(addressBech32: string): string | null {
  * fall back to the input string itself.
  */
 export function rewardAccountSortKey(addressBech32: string): string {
-  try {
-    const decoded = decode_specific_type(addressBech32, "Address", {}) as DecodedAddress;
-    const cred = decoded?.details?.payment_cred;
-    if (cred?.credential) {
-      return (cred.type === "ScriptHash" ? "1" : "0") + cred.credential.toLowerCase();
-    }
-  } catch {
-    // fall through
+  const cred = paymentCredOf(addressBech32);
+  if (cred?.credential) {
+    return (cred.type === "ScriptHash" ? "1" : "0") + cred.credential.toLowerCase();
   }
   return addressBech32;
 }

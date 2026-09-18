@@ -31,3 +31,16 @@ export interface DecodedAddress {
   details: AddressDetails;
 }
 
+/**
+ * The credential that governs staking for a decoded address.
+ *
+ * A reward address holds one credential, and the decoder reports it as
+ * `payment_cred`; only an address carrying both parts fills `staking_cred`.
+ * Reading `staking_cred` alone therefore misses the whole reward-address case.
+ */
+export function stakeCredentialOf(decoded: DecodedAddress | null | undefined): Credential | null {
+  if (!decoded) return null;
+  if (decoded.address_type === "Reward") return decoded.details.payment_cred ?? null;
+  return decoded.details.staking_cred ?? null;
+}
+

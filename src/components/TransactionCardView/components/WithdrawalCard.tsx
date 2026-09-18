@@ -4,10 +4,9 @@ import React, { useMemo, useRef, useEffect } from "react";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { AddressWithTooltip } from "../../AddressWithTooltip";
 import { getPathDiagnostics, formatAda, getStakeKeyLink } from "../utils";
-import { decode_specific_type } from "@cardananium/cquisitor-lib";
-import { convertSerdeNumbers } from "@/utils/serdeNumbers";
+import { useDecodedAddress, useDecodedAddressVersion } from "@/lib/useDecodedAddress";
+import { stakeCredentialOf } from "@/utils/addressTypes";
 import { detectDexWithdrawal, dexThemeKey } from "@/utils/protocols/dex";
-import type { DecodedAddress } from "@/utils/addressTypes";
 import type { ValidationDiagnostic, CardanoNetwork } from "../types";
 
 interface WithdrawalCardProps {
@@ -42,25 +41,19 @@ export function WithdrawalCard({
     }
   }, [isFocused]);
   
-  // Decode address using cquisitor-lib for accurate credential info
-  const decoded = useMemo((): DecodedAddress | null => {
-    if (!address) return null;
-    try {
-      const result = decode_specific_type(address, "Address", {});
-      return convertSerdeNumbers(result) as DecodedAddress;
-    } catch {
-      return null;
-    }
-  }, [address]);
-  
-  const isScript = decoded?.details?.staking_cred?.type === "ScriptHash";
+  // Decoded off the render path — see `@/lib/decodedAddresses`.
+  const decoded = useDecodedAddress(address);
+  const addressVersion = useDecodedAddressVersion();
+
+  const isScript = stakeCredentialOf(decoded)?.type === "ScriptHash";
 
   // A 0-amount withdrawal to a DEX's staking validator is its batcher: the
   // order/pool spends defer the swap/batch validation to this withdraw-zero.
-  const dexBatcher = useMemo(
-    () => detectDexWithdrawal(address, network),
-    [address, network],
-  );
+  // Detection reads the decode, so a decode that lands later has to re-run it.
+  const dexBatcher = useMemo(() => {
+    void addressVersion;
+    return detectDexWithdrawal(address, network);
+  }, [address, network, addressVersion]);
 
   return (
     <div ref={cardRef} className={`tcv-item-card tcv-withdrawal ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>

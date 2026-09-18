@@ -183,26 +183,14 @@ input, textarea, select, button {
   min-height: 0;
 }
 
-/* ===== CDDL Validator Layout (top: inputs, bottom: output) ===== */
+/* ===== CDDL Validator workspace: a grid of panel groups ===== */
 .cddl-validator-layout {
+  position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
   min-height: 0;
-}
-
-.cddl-validator-top {
-  flex: 6 1 0;
-  min-height: 0;
-  display: flex;
-  border-bottom: 2px solid #cbd5e1;
-}
-
-.cddl-validator-bottom {
-  flex: 4 1 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  overflow: hidden;
 }
 
 /* ===== Resizable Panels ===== */
@@ -265,6 +253,7 @@ input, textarea, select, button {
   height: 64px;
 }
 
+
 /* ===== Panel Content ===== */
 .panel-content {
   display: flex;
@@ -312,12 +301,21 @@ input, textarea, select, button {
   }
 }
 
+/* The header is a single line of fixed height that clips what does not fit,
+   so the title and the controls keep their size and the badge is what gives
+   way. Without this a badge holding a whole sentence squeezes the title onto
+   a second line, where the header's own height cuts it in half. */
+.panel-header-compact > :not(.panel-badge):not(.panel-path) {
+  flex-shrink: 0;
+}
+
 .panel-title {
   font-size: 11px;
   font-weight: 600;
   color: #718096;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
 .panel-path {
@@ -341,6 +339,16 @@ input, textarea, select, button {
   padding: 2px 6px;
   border-radius: 3px;
   font-weight: 500;
+  /* A badge can carry a whole sentence: a refused input names the size it
+     was given and the ceiling it passed. It is trimmed to one line here and
+     capped at half the header, so it can neither wrap nor push the buttons
+     off the end. The whole sentence stays available on hover, and in the
+     panel body. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 50%;
 }
 
 .panel-badge.info {
@@ -426,6 +434,12 @@ input, textarea, select, button {
   overflow: auto;
   z-index: 0;
   scrollbar-width: none;
+  /* The textarea on top is the element that scrolls, and where the platform
+     draws a space-taking scrollbar it loses that width from its content box.
+     The overlay has to lose the same width or the two wrap at different
+     columns and the painted text drifts away from the caret. The editor
+     measures the scrollbar and adds it to this padding at runtime; the
+     addition is 0 wherever scrollbars are drawn as overlays. */
 }
 
 .cddl-editor-overlay::-webkit-scrollbar { display: none; }
@@ -440,7 +454,6 @@ input, textarea, select, button {
   color: inherit;
   border-radius: 0;
   box-shadow: inset 0 -2px 0 rgba(220, 38, 38, 0.85);
-  pointer-events: auto;
 }
 
 .cddl-editor-mismatch-mark {
@@ -448,14 +461,12 @@ input, textarea, select, button {
   color: inherit;
   border-radius: 0;
   box-shadow: inset 0 -2px 0 rgba(217, 119, 6, 0.75);
-  pointer-events: auto;
 }
 
 .cddl-editor-reference-mark {
   background: rgba(99, 102, 241, 0.16);
   color: inherit;
   border-radius: 0;
-  pointer-events: none;
 }
 
 .cddl-editor-linked-mark {
@@ -463,7 +474,6 @@ input, textarea, select, button {
   color: inherit;
   border-radius: 0;
   box-shadow: inset 0 -2px 0 rgba(37, 99, 235, 0.65);
-  pointer-events: auto;
 }
 
 /* Cross-panel pinned selection — distinct from passive bridge highlight. */
@@ -472,7 +482,25 @@ input, textarea, select, button {
   color: inherit;
   border-radius: 0;
   box-shadow: inset 0 -2px 0 rgba(126, 34, 206, 0.85);
-  pointer-events: auto;
+}
+
+/* What a mark says, shown next to the pointer. The textarea is on top of the
+   overlay, so the mark itself can never be hovered. */
+.cddl-mark-tip {
+  position: fixed;
+  z-index: 1200;
+  max-width: 320px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: #1f2937;
+  color: #f8fafc;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
 }
 
 /* DecodedJsonTree — schema-mapped JSON viewer for the CDDL validator. */
@@ -501,13 +529,204 @@ input, textarea, select, button {
   background: #f1f5f9;
 }
 
-.cq-json-pinned {
-  background: rgba(168, 85, 247, 0.18);
+/* A row a validation run blamed, and the one whose diagnostic is selected —
+   the same two looks the structural tree gives them. Written before the
+   pin's and the hover's rules, which are of the same specificity and so
+   win on the background: a flagged row that is pinned or hovered reads as
+   pinned or hovered, and keeps the bar on its left through the rules
+   below that carry it on. */
+.cq-json-row.cq-json-mismatch {
+  background: rgba(239, 68, 68, 0.1);
+  box-shadow: inset 2px 0 0 rgba(220, 38, 38, 0.7);
+}
+
+.cq-json-row.cq-json-mismatch:hover {
+  background: rgba(239, 68, 68, 0.16);
+}
+
+.cq-json-row.cq-json-mismatch-selected,
+.cq-json-row.cq-json-mismatch-selected:hover {
+  background: rgba(239, 68, 68, 0.2);
+  box-shadow: inset 2px 0 0 rgba(220, 38, 38, 0.9), inset 0 -2px 0 rgba(220, 38, 38, 0.85);
+}
+
+/* The pin's current instance, and its other instances: the current keeps
+   the line under it, the others are a dimmer fill with no line. */
+.cq-json-row.cq-json-pinned {
+  background: rgba(168, 85, 247, 0.25);
   box-shadow: inset 0 -2px 0 rgba(126, 34, 206, 0.65);
 }
 
-.cq-json-pinned:hover {
-  background: rgba(168, 85, 247, 0.28);
+.cq-json-row.cq-json-pinned:hover {
+  background: rgba(168, 85, 247, 0.32);
+}
+
+.cq-json-row.cq-json-pinned-other {
+  background: rgba(168, 85, 247, 0.12);
+}
+
+/* A pinned row the run blamed: the pin's line under it, the mismatch's
+   bar beside it. */
+.cq-json-row.cq-json-pinned.cq-json-mismatch {
+  box-shadow: inset 2px 0 0 rgba(220, 38, 38, 0.7), inset 0 -2px 0 rgba(126, 34, 206, 0.65);
+}
+
+/* The mark on the half of the row the construct is, not the whole row: a
+   key on its key, a leaf's value on its value. A container's row is its
+   opening bracket, and stays marked whole. The wrap says which half the
+   pin and the hover are on; both halves' rules are here, so the pinned
+   row, its other instances and the hovered rows all read the same way. */
+.cq-json-tree-wrap[data-pin-role="key"] .cq-json-row.cq-json-pinned,
+.cq-json-tree-wrap[data-pin-role="key"] .cq-json-row.cq-json-pinned-other,
+.cq-json-tree-wrap[data-pin-role="value"] .cq-json-row.cq-json-leaf.cq-json-pinned,
+.cq-json-tree-wrap[data-pin-role="value"] .cq-json-row.cq-json-leaf.cq-json-pinned-other {
+  background: transparent;
+  box-shadow: none;
+}
+.cq-json-tree-wrap[data-pin-role="key"] .cq-json-row.cq-json-pinned.cq-json-mismatch,
+.cq-json-tree-wrap[data-pin-role="value"] .cq-json-row.cq-json-leaf.cq-json-pinned.cq-json-mismatch {
+  box-shadow: inset 2px 0 0 rgba(220, 38, 38, 0.7);
+}
+.cq-json-tree-wrap[data-pin-role="key"] .cq-json-row.cq-json-pinned > .cq-json-key,
+.cq-json-tree-wrap[data-pin-role="value"] .cq-json-row.cq-json-leaf.cq-json-pinned > .cq-json-value {
+  background: rgba(168, 85, 247, 0.25);
+  box-shadow: inset 0 -2px 0 rgba(126, 34, 206, 0.65);
+  border-radius: 3px;
+}
+.cq-json-tree-wrap[data-pin-role="key"] .cq-json-row.cq-json-pinned-other > .cq-json-key,
+.cq-json-tree-wrap[data-pin-role="value"] .cq-json-row.cq-json-leaf.cq-json-pinned-other > .cq-json-value {
+  background: rgba(168, 85, 247, 0.12);
+  border-radius: 3px;
+}
+
+/* The rows the hover link resolves to. Carries the row class so it shows
+   through the pointer's own :hover on the row the pointer is in, and is
+   written after the pin's rules so a hovered instance reads as hovered —
+   the current one keeps its line, since this rule sets none. */
+.cq-json-row.cq-json-hover {
+  background: rgba(250, 204, 21, 0.25);
+}
+.cq-json-tree-wrap[data-hover-role="key"] .cq-json-row.cq-json-hover,
+.cq-json-tree-wrap[data-hover-role="value"] .cq-json-row.cq-json-leaf.cq-json-hover {
+  background: transparent;
+}
+.cq-json-tree-wrap[data-hover-role="key"] .cq-json-row.cq-json-hover > .cq-json-key,
+.cq-json-tree-wrap[data-hover-role="value"] .cq-json-row.cq-json-leaf.cq-json-hover > .cq-json-value {
+  background: rgba(250, 204, 21, 0.45);
+  border-radius: 3px;
+}
+
+/* A row with linked instances under it that have no row on screen — under
+   a closed row, or past the row budget — says how many, in the link's
+   colour: the pin's purple, and the hover's yellow over it. The count is
+   written on the row as an attribute, so the cue costs no element. */
+.cq-json-row.cq-json-holds-pinned::after,
+.cq-json-row.cq-json-holds-hover::after {
+  content: attr(data-holds-pinned) " inside";
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 1.3;
+  background: rgba(168, 85, 247, 0.16);
+  color: #6b21a8;
+}
+
+.cq-json-row.cq-json-holds-hover::after {
+  content: attr(data-holds-hover) " inside";
+  background: rgba(250, 204, 21, 0.4);
+  color: #713f12;
+}
+
+/* A row with diagnostics under it that have no row on screen. Last of the
+   holder cues, so a row holding a pin's instance as well says this. */
+.cq-json-row.cq-json-holds-mismatch::after {
+  content: "⚠ " attr(data-holds-mismatch);
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 1.3;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+/* The badge at the end of a flagged row: the kind, or a count when several
+   diagnostics sit on one row; pressed while its diagnostic is selected. */
+.cq-json-mismatch-badge {
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  cursor: pointer;
+}
+
+.cq-json-mismatch-badge:hover {
+  background: #fecaca;
+}
+
+.cq-json-mismatch-badge[aria-pressed="true"] {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+
+/* A row standing in for rows the tree does not have. */
+.cq-json-mismatch-badge-holds {
+  border-style: dashed;
+  background: #fef2f2;
+}
+
+/* The selected diagnostic, under its row: what was expected, what the
+   validator said, and a way to its bytes. On its own line below the row,
+   indented past the toggle, and selectable where the rows are not. */
+.cq-json-caption {
+  display: block;
+  margin: 2px 0 4px 18px;
+  padding: 4px 8px;
+  border-left: 2px solid rgba(220, 38, 38, 0.6);
+  border-radius: 0 4px 4px 0;
+  background: rgba(239, 68, 68, 0.06);
+  font-size: 11px;
+  line-height: 1.4;
+  color: #7f1d1d;
+  white-space: normal;
+  user-select: text;
+  cursor: default;
+}
+
+.cq-json-caption-head {
+  font-weight: 600;
+}
+
+.cq-json-caption-kind {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cq-json-caption-message {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.cq-json-caption-link {
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: #b91c1c;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .cq-json-toggle {
@@ -554,10 +773,41 @@ input, textarea, select, button {
 .cq-json-bool    { color: #2563eb; font-weight: 500; }
 .cq-json-null    { color: #94a3b8; font-style: italic; }
 
-.cq-json-children {
-  margin-left: 16px;
-  border-left: 1px dashed #e2e8f0;
-  padding-left: 6px;
+/* Rows are flat siblings indented by depth (see flatTree/flatten). A run
+   of single-child levels shown as one row: */
+.cq-json-fold {
+  color: #0f766e;
+  font-weight: 500;
+}
+
+.cq-json-depth-note,
+.cbor-tree-depth-note {
+  font-size: 11.5px;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin: 2px 0 6px;
+}
+
+.cq-json-more,
+.cbor-tree-more {
+  display: block;
+  margin: 6px 0 2px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11.5px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cq-json-more:hover,
+.cbor-tree-more:hover {
+  background: #dbeafe;
 }
 
 /* @entries — wire-order map shape from `decode_cbor_against_cddl`. */
@@ -680,6 +930,27 @@ input, textarea, select, button {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/* Shown while the debounced inputs are still catching up with the editors,
+   so the results on screen are known to be for older text. */
+.cddl-pending-spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid #cbd5e1;
+  border-top-color: #3182ce;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.cddl-pending-tab-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #64748b;
+}
+
 .cddl-rule-picker,
 .cddl-preset-picker {
   display: inline-flex;
@@ -704,6 +975,14 @@ input, textarea, select, button {
   min-width: 4px;
 }
 
+/* A line of the toolbar's own — why the picker has nothing to offer — on
+   a row of its own under the controls. */
+.cddl-toolbar-note {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: #9f1239;
+}
+
 .cq-err-nav {
   display: inline-flex;
   align-items: center;
@@ -718,24 +997,161 @@ input, textarea, select, button {
   cursor: help;
 }
 
-.cq-err-nav-parse {
+/* The arrows through the mismatches, in the verdict chip's red: the two
+   sit together in the output strip and count the same list. */
+.cq-err-nav-mismatch {
   color: #991b1b;
-  background: #fee2e2;
+  background: #fef2f2;
   border: 1px solid #fecaca;
 }
 
-.cq-err-nav-mismatch {
-  color: #92400e;
-  background: #fef3c7;
-  border: 1px solid #fde68a;
+/* The pinned-instance chip: the error nav's metrics in the pin's purple. */
+.cq-inst-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+  color: #6b21a8;
+  background: #f3e8ff;
+  border: 1px solid #e9d5ff;
 }
 
-.cq-err-nav-count {
+/* The verdict and the arrows through it, in the CBOR hex strip. */
+.cq-strip-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cq-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.cq-verdict code {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: inherit;
+}
+
+.cq-verdict-valid {
+  color: #166534;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+}
+
+.cq-verdict-invalid {
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  cursor: pointer;
+}
+
+.cq-verdict-invalid:hover {
+  background: #fecaca;
+}
+
+.cq-verdict-invalid[aria-expanded="true"] {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+
+/* The mismatch list, as a sheet along the bottom of the workspace, over
+   whichever groups are there. Out of flow, so the groups keep their place;
+   the workspace's own overflow clips it. */
+.cq-mismatch-drawer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 45%;
+  /* Above the workspace's own layers — its dividers sit at 99 — and below
+     every menu. */
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #fecaca;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  box-shadow: 0 -12px 32px rgba(15, 23, 42, 0.18);
+}
+
+.cq-mismatch-drawer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #fee2e2;
+  font-size: 12px;
+  font-weight: 600;
+  color: #991b1b;
+  flex-shrink: 0;
+}
+
+.cq-mismatch-drawer-close {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #991b1b;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.cq-mismatch-drawer-close:hover {
+  background: #fee2e2;
+}
+
+.cq-mismatch-drawer-body {
+  padding: 8px 10px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.cq-err-nav-count,
+.cq-inst-nav-count {
   padding: 0 4px;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
 }
 
-.cq-err-nav-btn {
+.cq-err-nav-count:hover,
+.cq-inst-nav-count:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.cq-err-nav-btn,
+.cq-inst-nav-btn {
   width: 18px;
   height: 18px;
   display: inline-flex;
@@ -752,20 +1168,126 @@ input, textarea, select, button {
   line-height: 1;
 }
 
-.cq-err-nav-btn:hover:not(:disabled) {
+.cq-err-nav-btn:hover:not(:disabled),
+.cq-inst-nav-btn:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.08);
 }
 
-.cq-err-nav-btn:disabled {
+.cq-err-nav-btn:disabled,
+.cq-inst-nav-btn:disabled {
   opacity: 0.35;
   cursor: default;
 }
 
-/* Rule names in real CDDL schemas can be long (e.g. `transaction_witness_set`).
-   Cap the visible width of the picker — the dropdown itself shows the full name. */
-.cddl-rule-name-select {
+/* Root-rule combobox. A ledger schema declares 80-160 rules, so the list is
+   filterable and scrolls; the trigger caps its width because rule names run
+   long (`transaction_witness_set`). */
+.cddl-rule-combo {
+  position: relative;
+  display: inline-flex;
+}
+
+.cddl-rule-combo-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   max-width: 220px;
+  padding: 2px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: #1f2937;
+  cursor: pointer;
+}
+
+.cddl-rule-combo-trigger:hover {
+  border-color: #94a3b8;
+}
+
+.cddl-rule-combo-trigger:focus-visible {
+  outline: none;
+  border-color: #3182ce;
+}
+
+.cddl-rule-combo-stale {
+  border-style: dashed;
+}
+
+.cddl-rule-combo-value {
+  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cddl-rule-combo-caret {
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 9px;
+}
+
+.cddl-rule-combo-panel {
+  position: absolute;
+  z-index: 900;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 260px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+.cddl-rule-combo-search {
+  width: 100%;
+  padding: 3px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: #1f2937;
+}
+
+.cddl-rule-combo-search:focus {
+  outline: none;
+  border-color: #3182ce;
+}
+
+.cddl-rule-combo-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.cddl-rule-combo-option {
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: #1f2937;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cddl-rule-combo-option-active {
+  background: #e0e7ff;
+}
+
+.cddl-rule-combo-option-current {
+  font-weight: 600;
+  color: #1e40af;
+}
+
+.cddl-rule-combo-empty {
+  padding: 4px 6px;
+  font-size: 11px;
+  color: #64748b;
 }
 
 .cddl-rule-picker-label {
@@ -791,13 +1313,6 @@ input, textarea, select, button {
 .cddl-rule-picker-input:focus {
   outline: none;
   border-color: #3182ce;
-}
-
-.cddl-result-panel {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 /* ===== Pin context menu (CDDL Validator RMB) ===== */
@@ -853,6 +1368,16 @@ input, textarea, select, button {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   background: transparent;
 }
+.cq-pin-menu-notice {
+  font-size: 11px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 4px;
+  padding: 4px 6px;
+  margin-top: 4px;
+  white-space: normal;
+}
 .cq-pin-menu-source {
   font-size: 10px;
   color: #9ca3af;
@@ -886,6 +1411,24 @@ input, textarea, select, button {
   margin: 0;
   cursor: pointer;
 }
+/* A panel this row cannot reach: still listed, so the menu keeps the same
+   four entries, but greyed and with the reason under it. */
+.cq-pin-menu-target-blocked .cq-pin-menu-target {
+  cursor: default;
+  opacity: 0.55;
+}
+.cq-pin-menu-target-blocked .cq-pin-menu-target:hover {
+  background: transparent;
+}
+.cq-pin-menu-target-blocked .cq-pin-menu-target input[type="checkbox"] {
+  cursor: default;
+}
+.cq-pin-menu-target-reason {
+  padding: 0 8px 4px 30px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: #6b7280;
+}
 .cq-pin-menu-actions {
   display: flex;
   flex-direction: column;
@@ -917,93 +1460,271 @@ input, textarea, select, button {
   border-color: #2563eb;
 }
 
-.cq-tabs-root {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
+/* ===== The docking workspace ===== */
+/* The workspace fills the tab; the drawer is positioned against it. */
+.cq-dock {
+  flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
 }
 
-.cq-tabs-list {
-  display: flex;
-  gap: 2px;
+/* The library's light theme, in this app's clothes: white groups with the
+   card's rounding and shadow on the page's ground, a slim strip, tabs
+   underlined in the app's blue. Doubled up with the theme's own class so
+   these win over the theme's declarations whichever sheet comes last. */
+.dockview-theme-light-spaced.cq-dock-theme {
+  --dv-group-view-background-color: #fff;
+  --dv-tabs-and-actions-container-background-color: #fff;
+  --dv-tabs-and-actions-container-height: 30px;
+  --dv-tabs-and-actions-container-font-size: 12px;
+  --dv-tab-font-size: 12px;
+  --dv-tab-margin-block: 0;
+  --dv-tab-margin-inline: 0;
+  --dv-tab-margin: 0;
+  --dv-tab-border-radius: 0;
+  --dv-activegroup-visiblepanel-tab-background-color: #fff;
+  --dv-activegroup-hiddenpanel-tab-background-color: #fff;
+  --dv-inactivegroup-visiblepanel-tab-background-color: #fff;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: #fff;
+  --dv-activegroup-visiblepanel-tab-color: #3182ce;
+  --dv-activegroup-hiddenpanel-tab-color: #64748b;
+  --dv-inactivegroup-visiblepanel-tab-color: #3182ce;
+  --dv-inactivegroup-hiddenpanel-tab-color: #64748b;
+  --dv-tab-divider-color: transparent;
+  --dv-separator-border: transparent;
+  --dv-sash-color: #d5dde8;
+  --dv-active-sash-color: #3182ce;
+  --dv-active-sash-transition-delay: 0s;
+  --dv-sash-border-radius: 2px;
+  --dv-border-radius: 12px;
+  --dv-drag-over-background-color: rgba(49, 130, 206, 0.12);
+  --dv-drag-over-border-color: #3182ce;
+  --dv-edge-dock-indicator-color: rgba(49, 130, 206, 0.9);
+  --dv-icon-hover-background-color: #f1f5f9;
+  --dv-overlay-z-index: 30;
+  --dv-spacing-padding: 0;
+  background-color: transparent;
+}
+
+.dockview-theme-light-spaced.cq-dock-theme .dv-resize-container:has(> .dv-groupview) {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* The dividers are drawn: a bar a reader can see is a bar a reader
+   knows to drag. */
+.dockview-theme-light-spaced.cq-dock-theme .dv-sash-container .dv-sash {
+  border-radius: var(--dv-sash-border-radius);
+}
+
+/* The strip's and the tab's heights are written out in pixels rather than
+   taken from the theme's variable or as a share of a container: a share of
+   a share resolves differently from one browser to the next, leaving the
+   underline afloat above the strip's border, and a variable can be
+   overridden by a later sheet. The tab is the strip less its border. */
+.dockview-theme-light-spaced.cq-dock-theme .dv-tabs-and-actions-container {
+  height: 30px;
   border-bottom: 1px solid #e2e8f0;
-  margin-bottom: 8px;
-  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
-.cq-tabs-trigger {
-  padding: 6px 12px;
-  font-size: 12px;
+.dockview-theme-light-spaced.cq-dock-theme .dv-scrollable,
+.dockview-theme-light-spaced.cq-dock-theme .dv-tabs-container,
+.dockview-theme-light-spaced.cq-dock-theme .dv-tab {
+  height: 29px;
+}
+
+.dockview-theme-light-spaced.cq-dock-theme .dv-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  margin: 0;
+  border-radius: 0;
   font-weight: 500;
-  color: #64748b;
-  background: transparent;
-  border: 0;
   border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  cursor: pointer;
-  outline: none;
-  transition: color 0.12s, border-color 0.12s;
+  box-sizing: border-box;
 }
 
-.cq-tabs-trigger:hover {
+.dockview-theme-light-spaced.cq-dock-theme .dv-tab:hover {
   color: #1f2937;
 }
 
-.cq-tabs-trigger[data-state="active"] {
-  color: #3182ce;
+.dockview-theme-light-spaced.cq-dock-theme .dv-tab.dv-active-tab {
   border-bottom-color: #3182ce;
 }
 
-.cq-tabs-content {
-  flex: 1;
-  min-height: 0;
-  display: none;
-  flex-direction: column;
-  gap: 8px;
+.dockview-theme-light-spaced.cq-dock-theme .dv-tab:focus-visible::after,
+.dockview-theme-light-spaced.cq-dock-theme .dv-tab:has(:focus-visible)::after {
+  outline: 2px solid rgba(49, 130, 206, 0.4) !important;
+  outline-offset: -2px;
 }
 
-.cq-tabs-content[data-state="active"] {
-  display: flex;
+/* The active panel's own controls and the menu take the strip right of
+   the tabs; the library's empty stretch between them, by which a whole
+   group is dragged, is kept to a grip's width. */
+.dockview-theme-light-spaced.cq-dock-theme .dv-tabs-and-actions-container .dv-void-container {
+  flex: 0 0 16px;
 }
 
-/* Vertical 70/30 split for the CBOR + Validation tab. */
-.cq-vsplit {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.dockview-theme-light-spaced.cq-dock-theme .dv-tabs-and-actions-container .dv-right-actions-container {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
-.cq-vsplit-top {
-  flex: 7 1 0;
-  min-height: 0;
+/* The library wraps the tab's content in a block the tab's full height;
+   the name is centred in that block, not left at its top. */
+.dockview-theme-light-spaced.cq-dock-theme .dv-tab > .dv-react-part {
+  display: flex;
+  align-items: center;
+}
+
+.cq-dock-tab {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.cq-strip-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 29px;
+  min-width: 0;
+  padding: 0 6px 0 4px;
+  overflow: hidden;
+}
+
+/* Badges are what gives way when the strip is short of room. */
+.cq-strip-actions > :not(.panel-badge) {
+  flex-shrink: 0;
+}
+
+.cq-strip-trailing {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.cq-group-menu-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: #64748b;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* The reload and clear glyphs in a strip, at the menu button's size. */
+.cq-strip-actions .btn-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  color: #64748b;
+  font-size: 16px;
+}
+
+.cq-strip-actions .btn-icon:hover {
+  background: #f1f5f9;
+  color: #1f2937;
+}
+
+.cq-group-menu-btn:hover,
+.cq-group-menu-btn[aria-expanded="true"] {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+/* A panel's body fills the library's content box and scrolls itself; a
+   pane inside it that scrolls on its own (the trees, the hex) fills it,
+   and content of a fixed height overflows it downward. */
+.cq-panel-body {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  border: 1px solid #e2e8f0;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.cq-panel-body-decoded,
+.cq-panel-body-tree {
+  padding: 6px;
+}
+
+.cq-group-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 210px;
+  max-width: 320px;
+  padding: 6px 0;
+  background: #fff;
+  border: 1px solid #d1d5db;
   border-radius: 6px;
-  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  color: #1f2937;
+  user-select: none;
 }
 
-.cq-vsplit-bottom {
-  flex: 3 1 0;
-  min-height: 0;
-  overflow: hidden;
-  padding: 4px 2px;
+.cq-group-menu-section {
+  padding: 4px 12px 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.cq-group-menu-item {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 12px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  color: #1f2937;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.cq-subtabs-root {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
+.cq-group-menu-item:hover:not(:disabled),
+.cq-group-menu-item:focus-visible {
+  background: #f1f5f9;
+  outline: none;
 }
 
-.cq-subtabs-list {
-  margin-bottom: 4px;
+.cq-group-menu-item:disabled {
+  color: #9ca3af;
+  cursor: default;
+}
+
+.cq-group-menu-check {
+  width: 12px;
+  display: inline-block;
+  text-align: center;
+}
+
+.cq-group-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: #e5e7eb;
 }
 
 .cq-tree-pane {
@@ -1112,6 +1833,191 @@ input, textarea, select, button {
   padding: 0 4px;
   border-radius: 3px;
   color: #991b1b;
+}
+
+.cddl-error-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cddl-error-card-close {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #991b1b;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cddl-error-card-close:hover {
+  background: #fee2e2;
+}
+
+.cddl-error-card-path {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: #991b1b;
+  background: #fff;
+  border: 1px solid #fecaca;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.cddl-error-card-note {
+  font-size: 11px;
+  color: #9f1239;
+}
+
+/* The rules an unresolved-reference schema still needs — one row per name,
+   with every place it is used as a line number to jump to. */
+.cddl-error-todo {
+  margin: 4px 0 4px 2px;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: #9f1239;
+}
+
+.cddl-error-todo li {
+  padding: 1px 0;
+}
+
+.cddl-error-todo code {
+  font-size: 11px;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.cddl-error-todo-lines {
+  opacity: 0.85;
+}
+
+.cddl-error-card-current {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.25);
+}
+
+.cddl-error-card-clickable {
+  cursor: pointer;
+}
+
+.cddl-error-card-clickable:hover {
+  border-color: #f87171;
+  background: #fee2e2;
+}
+
+.cddl-error-more-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: #b91c1c;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The note under a mismatch at the root, offering the roots that do accept
+   the document. Blue rather than red: it is a way forward, not a fault. */
+.cddl-root-suggestion {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cddl-root-suggestion code {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  background: #dbeafe;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.cddl-root-suggestion-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.cddl-root-suggestion-btn code {
+  text-decoration: underline;
+}
+
+.cddl-root-suggestion-btn:hover code {
+  background: #bfdbfe;
+}
+
+.cddl-root-suggestion-switch {
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  border: 1px solid #93c5fd;
+  background: #fff;
+  color: #1d4ed8;
+  cursor: pointer;
+}
+
+.cddl-root-suggestion-switch:hover {
+  background: #dbeafe;
+}
+
+/* The same note as one line in the schema toolbar, beside the rule it
+   offers to replace; the toolbar wraps, so a long line takes its own row. */
+.cddl-root-suggestion.cddl-root-suggestion-compact {
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  margin: 0;
+  font-size: 11px;
+}
+
+.cddl-root-suggestion-compact .cddl-root-suggestion-switch {
+  font-size: 11px;
+  padding: 0 6px;
+}
+
+.cddl-error-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cddl-error-more {
+  font-size: 12px;
+  color: #7f1d1d;
+}
+
+.cddl-error-more-summary {
+  cursor: pointer;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.cddl-error-more > .cddl-error-list {
+  margin-top: 8px;
 }
 
 .cddl-span-chip {
@@ -1265,10 +2171,18 @@ input, textarea, select, button {
   padding: 1px 0;
 }
 
-/* Hover highlight */
+/* Hover highlight. The editable hex view paints its hover through the CSS
+   Custom Highlight API where the browser has it, and installs that rule
+   itself — see `EditableHexView`; elsewhere the runs under the hover carry
+   this class, and the pinned construct's other instances the one below. */
+/* A run's own tint is an inline style, so the paint goes over it as an
+   inset shadow rather than under it as a background. */
 .hex-hover-highlight {
-  outline: 2px solid rgba(250, 204, 21, 0.9);
-  outline-offset: 0px;
+  color: #111827;
+  box-shadow: inset 0 0 0 1em rgba(253, 224, 71, 0.9), inset 0 -2px 0 #b45309;
+}
+.hex-pin-other-highlight {
+  box-shadow: inset 0 0 0 1em rgba(168, 85, 247, 0.14);
 }
 
 /* Focus highlight animation */
@@ -1298,6 +2212,13 @@ input, textarea, select, button {
 /* Byte(s) "linked" from the CDDL panel — bridge highlight, not an error. */
 .hex-linked-highlight {
   outline: 1px solid rgba(37, 99, 235, 0.6);
+  outline-offset: 0px;
+  border-radius: 2px;
+}
+
+/* Byte(s) of the pinned selection — same purple the CDDL editor pins with. */
+.hex-pinned-highlight {
+  outline: 1px solid rgba(126, 34, 206, 0.7);
   outline-offset: 0px;
   border-radius: 2px;
 }
@@ -1338,6 +2259,137 @@ input, textarea, select, button {
 
 .cq-link-banner-close:hover {
   background: rgba(59, 130, 246, 0.2);
+}
+
+/* What is wrong with the schema, on the link banner's metrics in red,
+   between the toolbar and the editor. */
+.cq-schema-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(239, 68, 68, 0.08);
+  border-bottom: 1px solid rgba(220, 38, 38, 0.35);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.cq-schema-error-kind,
+.cq-refusal-banner-kind {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #fee2e2;
+  color: #991b1b;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cq-schema-error-reason {
+  color: #7f1d1d;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cq-schema-error-line,
+.cq-schema-error-chip-line {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: #b91c1c;
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cq-schema-error-line:disabled,
+.cq-schema-error-chip-line:disabled {
+  opacity: 0.5;
+  text-decoration: none;
+  cursor: default;
+}
+
+/* What the error means and what to do about it, on a row of its own under
+   the reason; muted, since the reason is the headline. */
+.cq-schema-error-advice {
+  flex-basis: 100%;
+  color: #9f1239;
+  opacity: 0.85;
+  line-height: 1.4;
+}
+
+/* The rules still to define, one chip per name with every line it is
+   used on, on a row of their own under the advice. */
+.cq-schema-error-todo {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: #9f1239;
+}
+
+.cq-schema-error-chip {
+  background: #fee2e2;
+  border-radius: 9px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.cq-schema-error-chip code {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+}
+
+.cq-schema-error-chip-more {
+  opacity: 0.85;
+}
+
+/* What stopped the run short of a verdict, above the hex it stopped on. */
+.cq-refusal-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 8px;
+  background: rgba(239, 68, 68, 0.1);
+  border-bottom: 1px solid rgba(220, 38, 38, 0.35);
+  font-size: 11px;
+  color: #7f1d1d;
+  flex-shrink: 0;
+}
+
+.cq-refusal-banner-path {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: #991b1b;
+  background: #fff;
+  border: 1px solid #fecaca;
+  padding: 0 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cq-refusal-banner-text {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-height: 4.5em;
+  overflow-y: auto;
+  min-width: 0;
+}
+.cq-refusal-banner-note {
+  display: block;
+  opacity: 0.85;
 }
 
 /* React-managed hover tooltip over the hex editor (for error / oddity spans). */
@@ -1470,6 +2522,157 @@ input, textarea, select, button {
 
 .cbor-tree-row:hover {
   background: #f7fafc;
+}
+
+/* A row a validation run blamed, and the one whose diagnostic is selected.
+   Written before the pin's and the hover's rules, which are of the same
+   specificity and so win on the background: a flagged row that is pinned
+   or hovered reads as pinned or hovered, and keeps the bar on its left
+   through the rules below that carry it on. */
+.cbor-tree-row.cbor-tree-row-mismatch {
+  background: rgba(239, 68, 68, 0.1);
+  box-shadow: inset 2px 0 0 rgba(220, 38, 38, 0.7);
+}
+
+.cbor-tree-row.cbor-tree-row-mismatch-selected {
+  background: rgba(239, 68, 68, 0.2);
+  box-shadow: inset 2px 0 0 rgba(220, 38, 38, 0.9), inset 0 -2px 0 rgba(220, 38, 38, 0.85);
+}
+
+/* The pin's current instance, and its other instances — the same two looks
+   the decoded tree gives them, so the two trees agree. */
+.cbor-tree-row.cbor-tree-row-pinned {
+  background: rgba(168, 85, 247, 0.25);
+  box-shadow: inset 0 -2px 0 rgba(126, 34, 206, 0.85);
+}
+
+.cbor-tree-row.cbor-tree-row-pinned-other {
+  background: rgba(168, 85, 247, 0.12);
+}
+
+/* A pinned row the run blamed: the pin's line under it, the mismatch's
+   bar beside it. */
+.cbor-tree-row.cbor-tree-row-pinned.cbor-tree-row-mismatch {
+  box-shadow: inset 2px 0 0 rgba(220, 38, 38, 0.7), inset 0 -2px 0 rgba(126, 34, 206, 0.85);
+}
+
+/* The badge at the end of a flagged row: the kind, or a count when several
+   diagnostics sit on one row; pressed while its diagnostic is selected. */
+.cbor-tree-mismatch-badge {
+  padding: 1px 6px;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  cursor: pointer;
+}
+
+.cbor-tree-mismatch-badge:hover {
+  background: #fecaca;
+}
+
+.cbor-tree-mismatch-badge[aria-pressed="true"] {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+
+/* A row standing in for rows the tree does not have. */
+.cbor-tree-mismatch-badge-holds {
+  border-style: dashed;
+  background: #fef2f2;
+}
+
+/* The rows the hover link resolves to. Carries the row class so it shows
+   through the pointer's own :hover on the row the pointer is in, and is
+   written after the pin's rules so a hovered instance reads as hovered; a
+   revealed row keeps `.cbor-tree-row-highlighted`, which is !important. */
+.cbor-tree-row.cbor-tree-row-hover {
+  background: rgba(250, 204, 21, 0.25);
+}
+
+/* The same cue the decoded tree gives a row holding instances that have no
+   row on screen. Sits after the row's content and before the action button,
+   which is ordered last. */
+.cbor-tree-row.cbor-tree-row-holds-pinned::after,
+.cbor-tree-row.cbor-tree-row-holds-hover::after {
+  content: attr(data-holds-pinned) " inside";
+  padding: 1px 6px;
+  border-radius: 9px;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+  background: rgba(168, 85, 247, 0.16);
+  color: #6b21a8;
+}
+
+.cbor-tree-row.cbor-tree-row-holds-hover::after {
+  content: attr(data-holds-hover) " inside";
+  background: rgba(250, 204, 21, 0.4);
+  color: #713f12;
+}
+
+/* A row with diagnostics under it that have no row on screen. Last of the
+   holder cues, so a row holding a pin's instance as well says this. */
+.cbor-tree-row.cbor-tree-row-holds-mismatch::after {
+  content: "⚠ " attr(data-holds-mismatch);
+  padding: 1px 6px;
+  border-radius: 9px;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+/* The selected diagnostic, under its row: what was expected, what the
+   validator said, and a way to its bytes. Indented past the row's toggle,
+   and selectable where the rows around it are not. */
+.cbor-tree-row-caption {
+  margin: 0 8px 4px 30px;
+  padding: 4px 8px;
+  border-left: 2px solid rgba(220, 38, 38, 0.6);
+  border-radius: 0 4px 4px 0;
+  background: rgba(239, 68, 68, 0.06);
+  font-size: 11px;
+  line-height: 1.4;
+  color: #7f1d1d;
+  white-space: normal;
+  user-select: text;
+  cursor: default;
+}
+
+.cbor-tree-row-caption-head {
+  font-weight: 600;
+}
+
+.cbor-tree-row-caption-kind {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cbor-tree-row-caption-message {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.cbor-tree-row-caption-link {
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: #b91c1c;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .cbor-tree-toggle {
@@ -1754,6 +2957,7 @@ input, textarea, select, button {
 
 .cbor-tree-action {
   margin-left: auto;
+  order: 1;
   padding: 4px 8px;
   font-size: 16px;
   font-weight: bold;
@@ -1779,19 +2983,29 @@ input, textarea, select, button {
   border-color: #cbd5e1;
 }
 
-.cbor-tree-children {
-  border-left: 1px solid #e2e8f0;
-  margin-left: 16px;
-  /* padding-left: 7px; */
+/* Rows are flat siblings indented by depth (see flatTree/flatten). A map
+   entry's key and value rows are marked as the pair they are. */
+.cbor-tree-row-map-key,
+.cbor-tree-row-map-value {
+  border-right: 3px solid #e2e8f0;
+  margin-right: 8px;
 }
 
-.cbor-map-entry {
-  position: relative;
-  margin: 2px 0;
-  border-right: 3px solid #e2e8f0;
-  border-radius: 0 6px 6px 0;
-  margin-right: 8px;
-  background: linear-gradient(to right, transparent 0%, transparent 95%, #f8fafc 100%);
+.cbor-tree-row-map-key {
+  border-radius: 4px 6px 0 4px;
+}
+
+.cbor-tree-row-map-value {
+  border-radius: 4px 0 6px 4px;
+}
+
+/* A run of single-child levels shown as one row. */
+.cbor-tree-fold {
+  color: #0f766e;
+}
+
+.cbor-tree-depth {
+  color: #94a3b8;
 }
 
 .cbor-map-entry:hover {
@@ -3094,6 +4308,26 @@ input, textarea, select, button {
   align-items: center;
   gap: 4px;
   color: #a16207;
+}
+
+/* State the link cannot carry. Sits above the encoding choices because no
+   choice among them changes it. */
+.share-dialog-drop {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.share-dialog-drop svg {
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .share-dialog-url {
@@ -5110,18 +6344,6 @@ input, textarea, select, button {
   }
 }
 
-.vjv-node.vjv-error-node > .vjv-children {
-  border-left: 2px solid rgba(239, 68, 68, 0.3);
-  margin-left: 8px;
-  padding-left: 12px;
-}
-
-.vjv-node.vjv-warning-node > .vjv-children {
-  border-left: 2px solid rgba(245, 158, 11, 0.3);
-  margin-left: 8px;
-  padding-left: 12px;
-}
-
 .vjv-toggle {
   color: #94a3b8;
   font-size: 10px;
@@ -5173,12 +6395,6 @@ input, textarea, select, button {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-}
-
-.vjv-children {
-  margin-left: 12px;
-  border-left: 1px solid #e2e8f0;
-  padding-left: 6px;
 }
 
 .vjv-string {
@@ -13300,5 +14516,6 @@ a.tcv-hash-truncate:hover {
 :root.dark .decomposition-hint-text::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
+
 
 

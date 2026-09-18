@@ -9,22 +9,63 @@ export type TabId =
   | "cddl-validator"
   | "json-viewer";
 
-// CDDL Validator and JSON viewer are intentionally omitted from the visible
-// nav — they are reached only via their direct `#cddl-validator` /
-// `#json-viewer` hashes.
-const tabs: { name: string; id: TabId }[] = [
-  { name: "General CBOR", id: "general-cbor" },
-  { name: "Cardano CBOR", id: "cardano-cbor" },
-  { name: "Transaction Validator", id: "transaction-validator" },
+/** A tab of the main shell. `json-viewer` is not one — see STANDALONE_HASHES. */
+export type ShellTabId = Exclude<TabId, "json-viewer">;
+
+export interface TabDefinition {
+  id: ShellTabId;
+  /** Nav label, and the name the tab is called by everywhere else. */
+  name: string;
+  /** One line about the tab, for the welcome modal card. */
+  description: string;
+  /** Accent colour of that card. */
+  accent: string;
+  /** When false, hidden from nav/welcome/invalid-hash fallback but still reachable by hash. */
+  visible: boolean;
+}
+
+/** Canonical tab list; nav, invalid-hash fallback, and welcome modal all render this order. */
+export const TABS: readonly TabDefinition[] = [
+  {
+    id: "general-cbor",
+    name: "General CBOR",
+    description:
+      "Parse and visualize any CBOR data with an interactive hex view. Click on tree nodes to highlight corresponding bytes.",
+    accent: "#8b5cf6",
+    visible: true,
+  },
+  {
+    id: "cardano-cbor",
+    name: "Cardano CBOR",
+    description:
+      "Decode Cardano-specific CBOR structures like transactions, blocks, witnesses, and protocol params with full type awareness.",
+    accent: "#3b82f6",
+    visible: true,
+  },
+  {
+    id: "cddl-validator",
+    name: "CDDL Tool",
+    description:
+      "Check CBOR against a CDDL schema — your own, or any Cardano ledger era. Pin a node to highlight it across schema, hex, decoded JSON and tree at once.",
+    accent: "#f59e0b",
+    visible: true,
+  },
+  {
+    id: "transaction-validator",
+    name: "Transaction Validator",
+    description:
+      "Validate Cardano transactions with Phase 1 & 2 checks. See execution units and detect errors in real-time.",
+    accent: "#22c55e",
+    visible: true,
+  },
 ];
 
-const VALID_TABS: TabId[] = [
-  "general-cbor",
-  "cardano-cbor",
-  "cddl-validator",
-  "transaction-validator",
-  "json-viewer",
-];
+export const VISIBLE_TABS: readonly TabDefinition[] = TABS.filter((t) => t.visible);
+
+/** Hash routes that are full-page views rather than tabs of the shell. */
+const STANDALONE_HASHES = ["json-viewer"] as const;
+
+const VALID_TABS: readonly TabId[] = [...TABS.map((t) => t.id), ...STANDALONE_HASHES];
 
 function stripQuery(hashPart: string): string {
   const qIdx = hashPart.indexOf("?");
@@ -67,7 +108,7 @@ export default function TabNavigation({ activeTab, onTabChange }: TabNavigationP
   return (
     <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
       <Tabs.List className="flex gap-0.5 p-0.5 bg-white/50 backdrop-blur-sm rounded-lg border border-[#d1dbe6]">
-        {tabs.map((tab) => (
+        {VISIBLE_TABS.map((tab) => (
           <Tabs.Trigger
             key={tab.id}
             value={tab.id}

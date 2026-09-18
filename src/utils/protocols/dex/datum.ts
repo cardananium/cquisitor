@@ -1,36 +1,33 @@
 // Unified datum resolution for DEX decoders.
 //
-// cquisitor-lib's decoded Transaction pre-decodes inline datums into a JSON
-// string of the plutus tree (DetailedSchema-shaped). But some call paths still
-// hand us raw CBOR hex (e.g. Koios inline datums, or a redeemer's `data`). And
-// an output can reference its datum by hash, which we resolve against the tx's
-// witness-set datums. This module is the one place that handles all three.
+// Every datum that reaches a decoder is already a DetailedSchema JSON string,
+// whichever way it arrived: cquisitor-lib's decoded Transaction serialises
+// both an output's `plutus_data` and a redeemer's `data` that way; Koios hands
+// back `inline_datum.value` as the same tree, which the card layer stringifies;
+// and the Blockfrost client decodes the CBOR it gets into that tree through the
+// worker before building a UTxO from it. So the raw bytes are decoded exactly
+// once, in the pass that fetched or decoded the document they came in — never
+// here, where there is nothing to await into. A string that is not that JSON
+// is not a datum this layer can read, and says so by returning null.
+//
+// An output can also reference its datum by hash, which is resolved against
+// the tx's witness-set datums. This module is the one place that handles both.
 
-import { decode_specific_type } from "@cardananium/cquisitor-lib";
 import { convertSerdeNumbers } from "@/utils/serdeNumbers";
 import type { DataOption } from "@/components/TransactionCardView/types";
 import type { PD } from "./plutusData";
 
-/** Decode a DetailedSchema JSON string, or a raw PlutusData CBOR hex string, to `PD`. */
-export function decodePlutusJsonOrHex(raw: string): PD | null {
-  // 1) Try JSON parse — the common case from a decoded Transaction.
+/** Decode a DetailedSchema JSON string to `PD`. */
+export function decodePlutusJson(raw: string): PD | null {
   try {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object") {
       return convertSerdeNumbers(parsed) as PD;
     }
   } catch {
-    // not JSON; fall through to CBOR-hex path
+    // not the JSON tree — nothing to decode here
   }
-  // 2) Fall back to treating it as a CBOR hex string.
-  try {
-    const decoded = decode_specific_type(raw, "PlutusData", {
-      plutus_data_schema: "DetailedSchema",
-    }) as { plutus_data: PD };
-    return convertSerdeNumbers(decoded.plutus_data) as PD;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 /**
@@ -43,7 +40,7 @@ export function resolveOutputDatum(
   witnessDatums?: Map<string, PD> | null,
 ): PD | null {
   if (!data) return null;
-  if ("Data" in data) return decodePlutusJsonOrHex(data.Data);
+  if ("Data" in data) return decodePlutusJson(data.Data);
   if ("DataHash" in data && witnessDatums) {
     return witnessDatums.get(data.DataHash.toLowerCase()) ?? null;
   }

@@ -20,7 +20,7 @@ import type {
 } from "@/components/TransactionCardView/types";
 import type { KoiosUtxoInfo } from "@/utils/koiosTypes";
 import { getPaymentScriptHash, rewardAccountSortKey } from "./address";
-import { decodePlutusJsonOrHex } from "./datum";
+import { decodePlutusJson } from "./datum";
 import { detectDexWithdrawal } from "./detect";
 import { getDexAdapter, listDexAdapters } from "./registry";
 import type { DexAdapter, DexRole } from "./registry";
@@ -136,7 +136,7 @@ export function buildDexTxContext(
         const sortedIdx = ctx.bodyToSorted.get(i);
         const r = sortedIdx !== undefined ? ctx.spendRedeemers.get(sortedIdx) : undefined;
         if (r) {
-          const pd = decodePlutusJsonOrHex(r.data);
+          const pd = decodePlutusJson(r.data);
           if (pd) {
             const classified = matched.adapter.classifyRedeemer(pd, matched.role);
             if (classified) detection.redeemer = classified;
@@ -202,7 +202,7 @@ function annotateRedeemers(
         // Protocols with dummy spend redeemers carry the REAL action here.
         const classify = getDexAdapter(batcher.adapterId)?.classifyWithdrawRedeemer;
         if (classify) {
-          const pd = decodePlutusJsonOrHex(r.data);
+          const pd = decodePlutusJson(r.data);
           if (pd) {
             try {
               const action = classify(pd, batcher.purpose);

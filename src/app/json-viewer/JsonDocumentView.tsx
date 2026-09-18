@@ -247,7 +247,6 @@ export default function JsonDocumentView({ data }: { data: unknown }) {
         wrapperClassName="cq-json-tree json-viewer-tree"
         rowClassName="cq-json-row json-viewer-row"
         highlightedRowClassName="json-viewer-match-row"
-        childrenClassName="cq-json-children"
         nodeBlockClassName="cq-json-block"
       />
     ),

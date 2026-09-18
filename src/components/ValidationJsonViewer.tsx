@@ -15,13 +15,7 @@ import { bech32 } from "bech32";
 import { blake2b } from "@noble/hashes/blake2.js";
 import { ErrorFormatter } from "./ErrorDataFormatters";
 import { getTransactionLink, getAddressLink, type CardanoNetwork } from "@/utils/cardanoscanLinks";
-import {
-  JsonTreeView,
-  dotIsPathAncestor,
-  dotJoinKey,
-  dotPathsEqual,
-  type RenderRowArgs,
-} from "@/components/jsonTree";
+import { JsonTreeView, dotPathScheme, type RenderRowArgs } from "@/components/jsonTree";
 
 // Diagnostic item structure (same as in TransactionValidatorContent)
 export interface ValidationDiagnostic {
@@ -415,10 +409,7 @@ export default function ValidationJsonViewer({
       <JsonTreeView
         data={preparedData}
         expanded={expanded}
-        rootPath=""
-        joinKey={dotJoinKey}
-        pathsEqual={dotPathsEqual}
-        isPathAncestor={dotIsPathAncestor}
+        pathScheme={dotPathScheme}
         highlightedPaths={highlightedPaths}
         renderRow={renderRow}
         shouldDefaultExpand={shouldDefaultExpand}
@@ -428,8 +419,8 @@ export default function ValidationJsonViewer({
         wrapperClassName="vjv-root"
         rowClassName="vjv-row"
         highlightedRowClassName="vjv-focused"
-        childrenClassName="vjv-children"
         nodeBlockClassName="vjv-node"
+        indentPx={18}
         getRowClassName={getRowClassName}
         getNodeBlockClassName={getNodeBlockClassName}
         renderClosingRow={({ kind }) => (

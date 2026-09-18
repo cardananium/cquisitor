@@ -10,8 +10,7 @@
  * issue N concurrent requests where Koios would issue one. For validator
  * use (≈5-30 items per call site) the latency is fine.
  */
-import { decode_specific_type } from "@cardananium/cquisitor-lib";
-import { convertSerdeNumbers } from "./serdeNumbers";
+import { callLib } from "@/lib/cquisitorWorker";
 import type { GovActionRef, BlockchainDataClient, AssetMetadata } from "./koiosClient";
 import {
   PLUTUS_V1_ORDER,
@@ -340,12 +339,14 @@ function bfAmountsToKoiosAssets(amount: BfAmount[]): {
   return { lovelace, assets };
 }
 
-function decodeInlineDatumValue(hex: string): unknown {
+async function decodeInlineDatumValue(hex: string): Promise<unknown> {
   try {
-    const decoded = decode_specific_type(hex, "PlutusData", {
-      plutus_data_schema: "DetailedSchema",
-    }) as { plutus_data: unknown };
-    return convertSerdeNumbers(decoded.plutus_data);
+    const decoded = await callLib<{ plutus_data: unknown }>("decode_specific_type", [
+      hex,
+      "PlutusData",
+      { plutus_data_schema: "DetailedSchema" },
+    ]);
+    return decoded.plutus_data;
   } catch {
     return null;
   }
@@ -503,7 +504,7 @@ export class BlockfrostClient implements BlockchainDataClient {
         bytes: o.inline_datum,
         // The lib decoder returns the same DetailedSchema shape Koios already
         // gives us, so downstream code doesn't see a difference.
-        value: decodeInlineDatumValue(o.inline_datum),
+        value: await decodeInlineDatumValue(o.inline_datum),
       };
     }
 
@@ -908,7 +909,7 @@ export class BlockfrostClient implements BlockchainDataClient {
       if (withDatum.length === 0) continue;
       // Prefer the UTxO holding the most assets (the pool with its reserves).
       withDatum.sort((a, b) => (b.amount?.length ?? 0) - (a.amount?.length ?? 0));
-      return decodeInlineDatumValue(withDatum[0].inline_datum!);
+      return await decodeInlineDatumValue(withDatum[0].inline_datum!);
     }
     return null;
   }

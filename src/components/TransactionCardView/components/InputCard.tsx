@@ -10,6 +10,7 @@ import type { TransactionInput, TransactionOutput, ValidationDiagnostic, Cardano
 import { detectSundaeOutput, type SundaeInputDetection } from "@/utils/protocols/sundae";
 import { detectDexOutput, formatDexRole, dexThemeKey, type DexInputDetection } from "@/utils/protocols/dex";
 import { useUtxoInfo } from "../UtxoInfoContext";
+import { useDecodedAddressVersion } from "@/lib/useDecodedAddress";
 import "@/utils/protocols/dex/adapters";
 
 interface InputCardProps {
@@ -170,6 +171,10 @@ export function InputCard({
   const lazyUtxo = useUtxoInfo(utxoInfo ? null : ref);
   const resolvedUtxo = utxoInfo ?? lazyUtxo;
 
+  // Subscribed above the early return so the hook order does not depend on
+  // whether the UTxO has resolved yet.
+  useDecodedAddressVersion();
+
   // If we still don't have UTxO info (loading / not found), show the compact view
   if (!resolvedUtxo) {
     return (
@@ -198,7 +203,10 @@ export function InputCard({
   // Spending inputs get a precomputed detection (with redeemer) from the tx
   // context. Collateral and reference inputs do NOT, so self-detect from the
   // resolved UTxO to still surface a protocol badge for them. The wrapped
-  // OutputCard renders the full decoded panel either way.
+  // OutputCard renders the full decoded panel either way. Both detectors read
+  // the resolved UTxO's address out of the decoded-address store, so a decode
+  // that lands after this render has to bring the card back — these are
+  // computed on every render, so subscribing is all that takes.
   const selfDex = !dexDetection ? detectDexOutput(output, network, witnessDatums) : null;
   const selfSundae = !sundaeDetection ? detectSundaeOutput(output, network, witnessDatums) : null;
   const badgeDex: DexInputDetection | undefined =

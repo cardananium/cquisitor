@@ -28,12 +28,6 @@ interface JsonViewerProps {
   data: unknown;
   expanded?: number | boolean;
   network?: CardanoNetwork;
-  /**
-   * Right-click on a JSON node → fired with the JSONPath-style decoded
-   * path (e.g. `$.transaction_body[0]`). Walks up from the click target,
-   * collects keys from textea's `data-key-pair`/`data-key-key` attributes.
-   */
-  onPinPath?: (decodedPath: string) => void;
 }
 
 // `decode_cbor_against_cddl` switches map output to this shape when JSON
@@ -140,36 +134,10 @@ function prepareData(data: unknown, parentKey?: string): unknown {
   return data;
 }
 
-/**
- * Walks up the DOM from `target` through textea's `[data-testid^=data-key-pair]`
- * ancestors and assembles the JSONPath of the clicked node. Returns null
- * when the click landed outside any key-value pair (e.g. on the root
- * brace, on whitespace).
- */
-function pathFromTarget(target: EventTarget | null): string | null {
-  if (!(target instanceof Element)) return null;
-  const keys: string[] = [];
-  let el: Element | null = target.closest('[data-testid^="data-key-pair"]');
-  while (el) {
-    const keyEl = el.querySelector(":scope > .data-key > .data-key-key");
-    const key = keyEl?.textContent ?? "";
-    // Empty `.data-key-key` belongs to the root pair — skip it.
-    if (key) keys.unshift(key);
-    el = el.parentElement?.closest('[data-testid^="data-key-pair"]') ?? null;
-  }
-  if (keys.length === 0) return null;
-  return "$" + keys.map(k => {
-    if (/^[a-zA-Z_][\w-]*$/.test(k)) return "." + k;
-    if (/^\d+$/.test(k)) return `["${k}"]`;
-    return `["${k.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
-  }).join("");
-}
-
 export default function JsonViewer({
   data,
   expanded = 3,
   network,
-  onPinPath,
 }: JsonViewerProps) {
   const preparedData = prepareData(data);
   
@@ -240,16 +208,8 @@ export default function JsonViewer({
     return types;
   }, [network]);
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    if (!onPinPath) return;
-    const path = pathFromTarget(e.target);
-    if (!path) return;
-    e.preventDefault();
-    onPinPath(path);
-  };
-
   return (
-    <div className="json-viewer-wrapper" onContextMenu={handleContextMenu}>
+    <div className="json-viewer-wrapper">
       <TexteaJsonViewer
         value={preparedData}
         defaultInspectDepth={expanded === true ? Infinity : (expanded as number)}

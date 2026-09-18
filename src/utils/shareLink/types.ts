@@ -27,6 +27,16 @@ export interface GeneralCborShareInput {
   cbor: string;
 }
 
+export interface CddlShareInput {
+  /** The schema text. Ignored when `preset` names one. */
+  cddl: string;
+  /** Whole-byte hex — the container stores CBOR as bytes. */
+  cbor: string;
+  rule: string;
+  /** Era id when the editor holds that preset verbatim; names the era instead of ~25 KB of text. */
+  preset?: string | null;
+}
+
 export interface ValidatorRichPayloadV1 {
   ctx_v: number;
   cbor: string;
@@ -57,6 +67,16 @@ export interface ParsedCardanoCborShare {
 
 export interface ParsedGeneralCborShare {
   cbor?: string;
+  futureVersion?: boolean;
+  parseError?: string;
+}
+
+export interface ParsedCddlShare {
+  cddl?: string;
+  cbor?: string;
+  rule?: string;
+  /** Era id; still needs resolving to schema text. */
+  preset?: string;
   futureVersion?: boolean;
   parseError?: string;
 }

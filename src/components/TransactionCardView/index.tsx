@@ -33,6 +33,7 @@ import {
 } from "./utils";
 import { buildSundaeTxContext } from "@/utils/protocols/sundae";
 import { buildDexTxContext, type DexRedeemerNote } from "@/utils/protocols/dex";
+import { useDecodedAddressVersion } from "@/lib/useDecodedAddress";
 import "@/utils/protocols/dex/adapters";
 import type { 
   TransactionCardViewProps, 
@@ -301,7 +302,15 @@ export default function TransactionCardView({
   apiKey,
 }: TransactionCardViewProps): React.ReactElement {
   const diagnosticsMap = useMemo(() => buildDiagnosticsMap(diagnostics), [diagnostics]);
+
+  // Both per-tx contexts match resolved input addresses against a protocol
+  // registry, reading the decode out of the store rather than making one here.
+  // The addresses are primed by the passes that produce them, but a decode
+  // that lands afterwards still has to re-run the detection it belongs to.
+  const addressVersion = useDecodedAddressVersion();
+
   const sundaeCtx = useMemo(() => {
+    void addressVersion;
     if (!data.transaction || !isTransactionData(data.transaction)) return null;
     return buildSundaeTxContext(
       data.transaction.body,
@@ -309,10 +318,11 @@ export default function TransactionCardView({
       network,
       inputUtxoInfoMap ?? null
     );
-  }, [data.transaction, network, inputUtxoInfoMap]);
+  }, [data.transaction, network, inputUtxoInfoMap, addressVersion]);
 
   // Generic DEX per-tx context (Minswap, WingRiders, Splash, …) for input badges.
   const dexCtx = useMemo(() => {
+    void addressVersion;
     if (!data.transaction || !isTransactionData(data.transaction)) return null;
     return buildDexTxContext(
       data.transaction.body,
@@ -320,7 +330,7 @@ export default function TransactionCardView({
       network,
       inputUtxoInfoMap ?? null
     );
-  }, [data.transaction, network, inputUtxoInfoMap]);
+  }, [data.transaction, network, inputUtxoInfoMap, addressVersion]);
 
   // Per-redeemer protocol annotations for the Redeemers section ("Minswap V2
   // Order · Cancel"). DEX-registry notes first; Sundae orders (own context,

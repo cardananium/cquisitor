@@ -18,6 +18,19 @@ export type JoinKey = (
 export type PathsEqual = (a: string, b: string) => boolean;
 export type IsAncestor = (ancestor: string, descendant: string) => boolean;
 
+/**
+ * How a child's path is written and split. `splitPath`/`segmentOf` let a tree follow a highlight one segment per level instead of comparing whole path strings (O(depth²) on deep docs).
+ */
+export interface PathScheme {
+  /** The path of the synthetic root. */
+  rootPath: string;
+  joinKey: JoinKey;
+  /** The segments of a path, root excluded. */
+  splitPath(path: string): string[];
+  /** The segment `splitPath` yields for `joinKey(parent, key)`. */
+  segmentOf(key: string | number): string;
+}
+
 const IDENT_RE = /^[a-zA-Z_][\w-]*$/;
 
 function isIdent(s: string): boolean {
@@ -66,6 +79,19 @@ export const libIsPathAncestor: IsAncestor = (ancestor, descendant) => {
   return true;
 };
 
+/** Key as `libSplitPath` would yield it; quoted-form escapes are kept, never unescaped. */
+export const libSegmentOf = (key: string | number): string => {
+  if (typeof key === "number") return String(key);
+  return isIdent(key) ? key : escString(key);
+};
+
+export const libPathScheme: PathScheme = {
+  rootPath: "$",
+  joinKey: libJoinKey,
+  splitPath: libSplitPath,
+  segmentOf: libSegmentOf,
+};
+
 // ---------- Dot-joined scheme ----------
 
 export const dotJoinKey: JoinKey = (parentPath, key) => {
@@ -77,4 +103,15 @@ export const dotPathsEqual: PathsEqual = (a, b) => a === b;
 
 export const dotIsPathAncestor: IsAncestor = (ancestor, descendant) => {
   return descendant.startsWith(ancestor + ".");
+};
+
+export function dotSplitPath(path: string): string[] {
+  return path === "" ? [] : path.split(".");
+}
+
+export const dotPathScheme: PathScheme = {
+  rootPath: "",
+  joinKey: dotJoinKey,
+  splitPath: dotSplitPath,
+  segmentOf: (key) => String(key),
 };

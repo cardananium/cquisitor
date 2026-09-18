@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   dotIsPathAncestor,
   dotJoinKey,
+  dotPathScheme,
   dotPathsEqual,
   libIsPathAncestor,
   libJoinKey,
+  libPathScheme,
   libPathsEqual,
   libSplitPath,
 } from "./paths";
@@ -147,5 +149,24 @@ describe("dotPathsEqual / dotIsPathAncestor", () => {
     expect(dotIsPathAncestor("transaction", "transaction")).toBe(false);
     // Avoids the substring trap: "tx" is not an ancestor of "txt".
     expect(dotIsPathAncestor("tx", "txt")).toBe(false);
+  });
+});
+
+describe("path schemes read back what they write", () => {
+  test("a key's segment is the segment splitting its joined path yields", () => {
+    const keys: (string | number)[] = [0, 12, "body", "with-dash", "with space", "0", "@entries", 'q"uote', "back\\slash", "a.b"];
+    for (const key of keys) {
+      const joined = libPathScheme.joinKey("$.x", key, { isArrayItem: typeof key === "number" });
+      expect(libPathScheme.splitPath(joined)).toEqual(["x", libPathScheme.segmentOf(key)]);
+    }
+    for (const key of ["transaction", "body", 0, 7]) {
+      const joined = dotPathScheme.joinKey(dotPathScheme.joinKey("", "a", { isArrayItem: false }), key, { isArrayItem: false });
+      expect(dotPathScheme.splitPath(joined)).toEqual(["a", dotPathScheme.segmentOf(key)]);
+    }
+  });
+
+  test("the root has no segments in either scheme", () => {
+    expect(libPathScheme.splitPath("$")).toEqual([]);
+    expect(dotPathScheme.splitPath("")).toEqual([]);
   });
 });

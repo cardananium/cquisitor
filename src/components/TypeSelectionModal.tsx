@@ -7,6 +7,9 @@ interface TypeSelectionModalProps {
   types: string[];
   onSelect: (type: string) => void;
   onClose: () => void;
+  /** What the choice is of; the defaults are the Cardano decoder's. */
+  title?: string;
+  description?: string;
 }
 
 export default function TypeSelectionModal({
@@ -14,6 +17,8 @@ export default function TypeSelectionModal({
   types,
   onSelect,
   onClose,
+  title = "Select Structure Type",
+  description = "Multiple types detected. Please select the structure you want to decode:",
 }: TypeSelectionModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -51,14 +56,12 @@ export default function TypeSelectionModal({
     <div className="modal-overlay">
       <div className="modal-content" ref={modalRef}>
         <div className="modal-header">
-          <h3>Select Structure Type</h3>
+          <h3>{title}</h3>
           <button onClick={onClose} className="modal-close" aria-label="Close">
             ✕
           </button>
         </div>
-        <p className="modal-description">
-          Multiple types detected. Please select the structure you want to decode:
-        </p>
+        <p className="modal-description">{description}</p>
         <div className="modal-types-list">
           {types.map((type) => (
             <button

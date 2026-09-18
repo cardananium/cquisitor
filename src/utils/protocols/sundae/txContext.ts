@@ -8,8 +8,8 @@
 // This module precomputes that mapping for a decoded transaction once, so the
 // per-input cards can do an O(1) lookup.
 
-import { decode_specific_type } from "@cardananium/cquisitor-lib";
-import { convertSerdeNumbers } from "@/utils/serdeNumbers";
+import { getPaymentScriptHash } from "@/utils/protocols/dex/address";
+import { decodePlutusJson } from "@/utils/protocols/dex/datum";
 import type {
   TransactionBody,
   TransactionInput,
@@ -84,25 +84,6 @@ function compareInputs(a: TransactionInput, b: TransactionInput): number {
   return a.index - b.index;
 }
 
-function decodePlutusJsonOrHex(raw: string): PD | null {
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      return convertSerdeNumbers(parsed) as PD;
-    }
-  } catch {
-    // not JSON
-  }
-  try {
-    const decoded = decode_specific_type(raw, "PlutusData", {
-      plutus_data_schema: "DetailedSchema",
-    }) as { plutus_data: PD };
-    return convertSerdeNumbers(decoded.plutus_data) as PD;
-  } catch {
-    return null;
-  }
-}
-
 function classifyV3OrderRedeemer(data: PD): V3OrderRedeemer | null {
   if (!isConstr(data)) return null;
   if (data.constructor === 0 && data.fields.length === 0) return { kind: "Scoop" };
@@ -172,22 +153,6 @@ function parseV3PoolScoop(data: PD): ParsedPoolScoop | null {
   }
 }
 
-// Decode the address's payment script hash via cquisitor-lib's Address decoder.
-interface DecodedAddress {
-  details?: { payment_cred?: { type: string; credential: string } };
-}
-function paymentScriptHash(addressBech32: string): string | null {
-  try {
-    const decoded = decode_specific_type(addressBech32, "Address", {}) as DecodedAddress;
-    if (decoded?.details?.payment_cred?.type === "ScriptHash") {
-      return decoded.details.payment_cred.credential.toLowerCase();
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 // Some on-chain inline datums round-trip as plain output objects already; the
 // Koios path stores `inline_datum.value` which is the same DetailedSchema shape
 // we need.
@@ -220,7 +185,7 @@ export function buildSundaeTxContext(
   const bodyToSorted = new Map<number, number>();
   ctx.sortedToBody.forEach((bodyIdx, sortedIdx) => bodyToSorted.set(bodyIdx, sortedIdx));
 
-  // Build redeemer lookup: sorted index → redeemer.data (plutus json/hex).
+  // Build redeemer lookup: sorted index → redeemer.data (DetailedSchema JSON).
   const spendRedeemers = new Map<number, Redeemer>();
   for (const r of redeemers ?? []) {
     if (String(r.tag).toLowerCase() === "spend") {
@@ -235,7 +200,7 @@ export function buildSundaeTxContext(
     const utxoInfo = inputUtxoInfoMap?.get(utxoKey);
     let scriptHash: string | null = null;
     if (utxoInfo) {
-      scriptHash = paymentScriptHash(utxoInfo.address);
+      scriptHash = getPaymentScriptHash(utxoInfo.address);
     }
     if (!scriptHash) continue;
     const match = lookupSundaeScript(scriptHash, network);
@@ -251,7 +216,7 @@ export function buildSundaeTxContext(
     ) {
       const out = utxoInfoToOutput(utxoInfo);
       if (out.plutus_data && "Data" in out.plutus_data) {
-        const pd = decodePlutusJsonOrHex(out.plutus_data.Data);
+        const pd = decodePlutusJson(out.plutus_data.Data);
         if (pd) {
           try {
             detection.v3Order =
@@ -271,7 +236,7 @@ export function buildSundaeTxContext(
       if (sortedIdx !== undefined) {
         const r = spendRedeemers.get(sortedIdx);
         if (r) {
-          const pd = decodePlutusJsonOrHex(r.data);
+          const pd = decodePlutusJson(r.data);
           if (pd) {
             const classified = classifyV3OrderRedeemer(pd);
             if (classified) detection.redeemer = classified;
@@ -288,7 +253,7 @@ export function buildSundaeTxContext(
   // Pick the first redeemer that parses as a wrapped PoolScoop; in practice
   // there's exactly one pool input per V3 scoop tx.
   for (const [sortedIdx, r] of spendRedeemers) {
-    const pd = decodePlutusJsonOrHex(r.data);
+    const pd = decodePlutusJson(r.data);
     if (!pd) continue;
     const parsed = parseV3PoolScoop(pd);
     if (!parsed) continue;

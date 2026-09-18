@@ -1,144 +1,340 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import * as Tabs from "@radix-ui/react-tabs";
-import ResizablePanels from "@/components/ResizablePanels";
-import EditableHexView, { type ExtraErrorSpan } from "@/components/EditableHexView";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import ShareButton from "@/components/ShareButton";
+import type { ExtraErrorSpan } from "@/components/EditableHexView";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
-import CborTreeView from "@/components/CborTreeView";
-import DecodedJsonTree from "./DecodedJsonTree";
-import type { CborPosition, CborCddlMapEntry } from "@cardananium/cquisitor-lib";
-import CddlSchemaToolbar from "./CddlSchemaToolbar";
-import CddlEditor, { type CddlEditorHandle, type OverlayMark } from "./CddlEditor";
+import type { CborPosition } from "@cardananium/cquisitor-lib";
+import type { PanelMenuAction } from "@/components/panelMenuActions";
+import CddlSchemaToolbar, { type ActivePreset } from "./CddlSchemaToolbar";
+import { type CddlEditorHandle } from "./CddlEditor";
+import { DecodedPane, EditorPane, HexPane, TreePane } from "./linkedPanes";
+import { createHoverLinkStore } from "./hoverLink";
 import CddlErrorNav, { type CddlErrorEntry } from "./CddlErrorNav";
-import PinContextMenu, { ALL_PIN_TARGETS, type PinTarget } from "./PinContextMenu";
-import { loadCardanoPreset } from "./presets";
-import { utf16ToByte } from "./cddlError";
-import { safeFormat, safeSymbolAt } from "./cddlValidatorLib";
+import { RootSuggestionNote, WalkRefusalCard } from "./CddlValidationPanel";
+import InstanceNav from "./InstanceNav";
+import MismatchDrawer from "./MismatchDrawer";
+import DockWorkspace, { type DockWorkspaceHandle, type PanelRegistry } from "./DockWorkspace";
+import PinContextMenu from "./PinContextMenu";
+import RefusalBanner from "./RefusalBanner";
+import TypeSelectionModal from "@/components/TypeSelectionModal";
+import SchemaErrorLine from "./SchemaErrorLine";
+import VerdictChip from "./VerdictChip";
+import { useCddlValidator } from "@/context/CddlValidatorContext";
 import {
+  CARDANO_PRESETS,
+  confirmReplaceMessage,
+  describePresetLoad,
+  loadCardanoPreset,
+  type PresetLoad,
+} from "./presets";
+import {
+  abbreviatePath,
+  cddlErrorReason,
+  describeDiagnostic,
+  isRootMismatch,
+  utf16ToByte,
+} from "./cddlError";
+import { formatCddlChecked, safeSymbolAt } from "./cddlValidatorLib";
+import type { CborCddlNode } from "./cborCddlBridge";
+import { diagnosticDecodedRows, diagnosticTreeRows } from "./diagnosticRows";
+import {
+  currentIndex,
+  makePin,
+  nextReveal,
+  pinStepKey,
+  pinnedOtherDecodedPaths,
+  pinnedOtherTreeKeys,
+  scrollFlagFor,
+  stepPin as stepPinState,
+  visitedDecodedPaths,
+  visitedTreePositions,
+  type PinState,
+  type Reveal,
+} from "./instances";
+import {
+  buildEditorMarks,
+  buildExtraErrorSpans,
+  linkedHexSpansForCddlOffset,
+  pinMenuNotice,
+  pinTargetBlockers,
+  pinnedHexSpans,
+  pinnedOtherHexSpans,
+  projectNode,
+  resolveProbe,
+  ALL_PIN_TARGETS,
+  type PinTarget,
+} from "./pinResolvers";
+import { candidateRootRules, resolveRootRule } from "./ruleSelection";
+import { cborRootKind } from "./rootKinds";
+import { hexRefusalFor, isListable, verdictFor } from "./verdict";
+import { type PanelId } from "./workspaceLayout";
+import {
+  caretForReferences,
+  settleDelayFor,
   useCborCddlMap,
   useCborDecoded,
   useCborValidation,
   useCddlSchema,
   useDebouncedString,
+  useDebouncedValue,
   useDecodeAgainstSchema,
-  useLinkedCddlRange,
   useReferenceRanges,
+  useRootSuggestions,
+  shareCborState,
+  type CaretProbe,
 } from "./hooks";
 
-const DEFAULT_CDDL = `; CDDL schema — edit me.
-Person = {
-  name: tstr,
-  age: uint,
-  ? nickname: tstr,
+const NO_ROOT_CANDIDATES: string[] = [];
+
+/** Spinner in a panel header while that panel's inputs are still settling. */
+function PendingSpinner({ label }: { label: string }) {
+  return (
+    <span
+      className="cddl-pending-spinner animate-spin"
+      role="status"
+      aria-label={label}
+      title={label}
+    />
+  );
 }
-`;
-
-const DEFAULT_CBOR_HEX = "a3646e616d6565416c69636563616765181e686e69636b6e616d656441416c69";
-
-/** Split a JSONPath like `$.foo["bar"][0]` into a flat list of segment
- *  names. Used to compare paths from the JSON viewer with `decoded_path`
- *  values from `map_cbor_to_cddl`, treating `[N]` and `["N"]` as equal. */
-function splitJsonPath(path: string): string[] {
-  const out: string[] = [];
-  const re = /\.([^.\[\]]+)|\["((?:[^"\\]|\\.)*)"\]|\[(\d+)\]/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(path)) !== null) {
-    out.push(m[1] ?? m[2] ?? m[3]);
-  }
-  return out;
-}
-
-function sameJsonPath(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
-}
-
-// Mark priorities — higher wins on overlap. The pinned cross-panel
-// selection beats everything else so the user can always see where the
-// last RMB went; errors and mismatches still beat passive bridge hover.
-const PRIORITY_PINNED = 120;
-const PRIORITY_ERROR = 100;
-const PRIORITY_MISMATCH = 80;
-const PRIORITY_LINKED = 60;
-const PRIORITY_REFERENCE = 40;
 
 export default function CddlValidatorContent() {
   // ---------- input state ----------
-  const [cddl, setCddl] = useState(DEFAULT_CDDL);
-  const [cborInput, setCborInput] = useState(DEFAULT_CBOR_HEX);
-  const [selectedRule, setSelectedRule] = useState("Person");
-  const [autoPickedRule, setAutoPickedRule] = useState(true);
-  const [presetLoading, setPresetLoading] = useState<string | null>(null);
+  // Document state lives above the router so a hash change or share-link
+  // hydration cannot unmount a schema being edited.
+  const {
+    cddl,
+    cborInput,
+    selectedRule,
+    presetSource,
+    appAuthoredCddl,
+    hydrating,
+    hydratingPreset,
+    hydrationError,
+    ruleGiven,
+    setCddl,
+    setCborInput,
+    setSelectedRule,
+    setPresetSource,
+    setAppAuthoredCddl,
+    dismissHydrationError,
+  } = useCddlValidator();
+  const [localPresetLoading, setPresetLoading] = useState<string | null>(null);
   const [presetError, setPresetError] = useState<string | null>(null);
+  const presetLoading = localPresetLoading ?? hydratingPreset;
+  /** Last preset load's effect on the rule, until dismissed. */
+  const [presetNotice, setPresetNotice] = useState<PresetLoad | null>(null);
+  // Format refusal + one-step undo for React schema replacements (textarea
+  // undo does not cover those). Undo also restores rule, authorship, and
+  // preset so the tab does not validate a different document.
+  const [formatError, setFormatError] = useState<string | null>(null);
+  const [replaced, setReplaced] = useState<
+    {
+      text: string;
+      rule: string;
+      label: string;
+      /** Authorship flag to restore with the text. */
+      appAuthored: string | null;
+      /** Preset provenance to restore with the text. */
+      preset: { id: string; label: string } | null;
+    } | null
+  >(null);
+  // Visible tabs, plus every panel shown at least once. Bodies stay mounted
+  // so expanded rows and decode stay; an unshown panel costs nothing.
+  const workspaceRef = useRef<DockWorkspaceHandle>(null);
+  const [visible, setVisible] = useState<ReadonlySet<PanelId>>(() => new Set());
+  const [shownPanels, setShownPanels] = useState<ReadonlySet<PanelId>>(() => new Set());
+  const handleVisibleChange = useCallback((next: ReadonlySet<PanelId>) => {
+    setVisible(next);
+    setShownPanels(prev => ([...next].every(p => prev.has(p)) ? prev : new Set([...prev, ...next])));
+  }, []);
+  const activatePanel = useCallback((panel: PanelId) => workspaceRef.current?.activate(panel), []);
+  const [selectedError, setSelectedError] = useState<number | null>(null);
+  // Mismatch sheet; opened only by the user, never by a run.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const toggleDrawer = useCallback(() => setDrawerOpen(open => !open), []);
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
-  const cddlDebounced = useDebouncedString(cddl, 200);
+  const settleDelay = settleDelayFor(cddl);
+  const cddlDebounced = useDebouncedString(cddl, settleDelay);
   const hexDebounced = useDebouncedString(cborInput, 200);
-  const ruleDebounced = useDebouncedString(selectedRule, 200);
+  // Debounce typed rule names; picker selections are already complete.
+  const ruleTyped = useDebouncedString(selectedRule, 200);
 
   // ---------- derived: schema, CBOR, validation, decoded JSON, bridge map ----------
-  const schema = useCddlSchema(cddlDebounced);
+  // Passes read debounced text; schema offsets are into live `cddl`.
+  const schema = useCddlSchema(cddlDebounced, cddl);
   const ruleNames = schema.ruleNames;
   const schemaIsValid = !!schema.result && schema.result.valid;
 
-  const { cleanHex, decoded } = useCborDecoded(hexDebounced);
+  // Resolve the root in render, not via an effect that would validate the
+  // previous (now-invalid) rule for one pass.
+  const effectiveRule = useMemo(
+    () => resolveRootRule(ruleNames, selectedRule, ruleTyped),
+    [ruleNames, selectedRule, ruleTyped],
+  );
 
-  const validation = useCborValidation(cleanHex, cddlDebounced, ruleDebounced, schemaIsValid);
-  const cborResult = validation.result;
-  const cborIsValid = !!cborResult && cborResult.valid;
-  const cborErrorOnCddl = validation.errorsOnCddl[0] ?? null;
+  const {
+    cleanHex, decoded, decodeError, errorLocation, decoderFailure, notification,
+    pending: cborDecodePending, slow: cborDecodeSlow,
+  } = useCborDecoded(hexDebounced);
 
-  const schemaJson = useDecodeAgainstSchema(cleanHex, cddlDebounced, ruleDebounced, schemaIsValid);
+  const validation = useCborValidation(cleanHex, cddlDebounced, effectiveRule, schemaIsValid, cddl);
+  const cborOutcome = validation.outcome;
+  const diagnostics = validation.diagnostics;
+  // Badge counts everything the run found; the panel shows the capped subset.
+  const reportedDiagnostics = validation.totalDiagnostics;
+  const unlistedErrors = validation.hiddenDiagnostics + validation.undescribedDiagnostics;
 
-  const cborCddlMap = useCborCddlMap(cleanHex, cddlDebounced, ruleDebounced, schemaIsValid, cborIsValid);
+  // Root-refusal sweep: only after a settled, non-slow pass, against the
+  // outline of the text that pass validated.
+  const head = diagnostics[0];
+  const refusedAtRoot =
+    schemaIsValid &&
+    schema.outlineSource === cddlDebounced &&
+    !validation.pending &&
+    !validation.wasSlow &&
+    !decodeError &&
+    !decoderFailure &&
+    decoded !== null &&
+    cborOutcome?.ok === true &&
+    !cborOutcome.result.valid &&
+    head !== undefined &&
+    isRootMismatch(head);
+  const rootKind = useMemo(() => cborRootKind(decoded), [decoded]);
+  const rootCandidates = useMemo(
+    () =>
+      refusedAtRoot
+        ? candidateRootRules(schema.outline, schema.outlineSource, effectiveRule, rootKind)
+        : NO_ROOT_CANDIDATES,
+    [refusedAtRoot, schema.outline, schema.outlineSource, effectiveRule, rootKind],
+  );
+  const rootSuggestions = useRootSuggestions(cleanHex, cddlDebounced, rootCandidates, refusedAtRoot);
 
-  // Auto-pick first rule from the outline when none of the typed names match
-  // and the user hasn't manually overridden the picker.
+  // ---------- picking the root rule ----------
+  // Keep a chosen rule (picker, chooser, link, preset) for that document.
+  // Otherwise take the unique matching root, or ask if several match.
+  const ruleChosenFor = useRef<{ cddl: string; cbor: string } | null>(null);
+  const markRuleChosen = useCallback((forCddl?: string, forCbor?: string) => {
+    ruleChosenFor.current = { cddl: forCddl ?? cddl, cbor: forCbor ?? cborInput };
+  }, [cddl, cborInput]);
+  const ruleSettled =
+    ruleChosenFor.current !== null &&
+    ruleChosenFor.current.cddl === cddl &&
+    ruleChosenFor.current.cbor === cborInput;
+  // A share-link / boot rule is settled from the first render.
+  const linkRuleMarked = useRef(false);
   useEffect(() => {
-    if (!autoPickedRule) return;
-    if (ruleNames.length === 0) return;
-    if (!ruleNames.includes(selectedRule)) setSelectedRule(ruleNames[0]);
-  }, [ruleNames, selectedRule, autoPickedRule]);
+    if (hydrating || linkRuleMarked.current) return;
+    linkRuleMarked.current = true;
+    if (ruleGiven) markRuleChosen();
+  }, [hydrating, ruleGiven, markRuleChosen]);
+  const [ruleChoice, setRuleChoice] = useState<string[] | null>(null);
+  const [detectNotice, setDetectNotice] = useState<string | null>(null);
+  const detecting = !hydrating && refusedAtRoot && !rootSuggestions.pending && !ruleSettled;
+  const detectedMatches = rootSuggestions.matches;
+  useEffect(() => {
+    if (!detecting || detectedMatches.length === 0) return;
+    // Defer setState so the chooser does not open during the sweep's render.
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (detectedMatches.length === 1) {
+        markRuleChosen();
+        setSelectedRule(detectedMatches[0]);
+        setDetectNotice(`Root rule set to ${detectedMatches[0]} — the one rule this CBOR matches.`);
+      } else {
+        setRuleChoice(detectedMatches);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [detecting, detectedMatches, markRuleChosen, setSelectedRule]);
+  const chooseDetectedRule = useCallback((rule: string) => {
+    markRuleChosen();
+    setSelectedRule(rule);
+    setRuleChoice(null);
+  }, [markRuleChosen, setSelectedRule]);
+  const dismissRuleChoice = useCallback(() => {
+    // Dismissing still settles the document; the toolbar offer remains.
+    markRuleChosen();
+    setRuleChoice(null);
+  }, [markRuleChosen]);
+
+  // Decode-against-schema is as expensive as validate; skip until the panel
+  // has been shown (it then stays mounted).
+  const schemaJson = useDecodeAgainstSchema(
+    cleanHex, cddlDebounced, effectiveRule, schemaIsValid, shownPanels.has("decoded"),
+  );
+
+  // Map offsets are into live `cddl`; entries from a previous document must
+  // not be used while a pass is still catching up.
+  const { bridge: cborCddlMap, pending: mapPending, refusal: mapRefusal } = useCborCddlMap(
+    cleanHex, cddlDebounced, effectiveRule, schemaIsValid, cddl,
+  );
+
+  // "checking…" while inputs are settling or a worker pass is in flight.
+  const schemaSettling = cddl !== cddlDebounced || schema.pending;
+  const resultsPending =
+    schemaSettling ||
+    cborInput !== hexDebounced ||
+    cborDecodePending ||
+    validation.pending ||
+    // Debounce the typed rule only when the schema has no picker roots.
+    (ruleNames.length === 0 && selectedRule.trim() !== ruleTyped.trim());
+  const passIsSlow = schema.slow || cborDecodeSlow || validation.slow;
+
+  // ---------- hover link ----------
+  // Not React state: the panel under the pointer writes, others subscribe
+  // to their projection. See hoverLink.ts.
+  const [hoverStore] = useState(createHoverLinkStore);
 
   // ---------- hex panel ⇄ tree bridge state ----------
-  const [hoverPosition, setHoverPosition] = useState<CborPosition | null>(null);
   const [focusPosition, setFocusPosition] = useState<CborPosition | null>(null);
   const [highlightedTreePosition, setHighlightedTreePosition] = useState<CborPosition | null>(null);
-  const noopHoverPath = useCallback(() => {}, []);
-  const hexEditorRef = useRef<HTMLDivElement | null>(null);
 
-  const handleTreeHover = useCallback((p: CborPosition | null) => setHoverPosition(p), []);
-  const handleTreeHighlightAndScroll = useCallback((p: CborPosition) => {
+  // Transient hex flash; persistent highlights go through `linkedSpans`.
+  const revealInHex = useCallback((p: CborPosition) => {
     setFocusPosition(p);
     setTimeout(() => setFocusPosition(null), 1500);
   }, []);
-  const handleShowInTree = useCallback((p: CborPosition) => setHighlightedTreePosition(p), []);
+  // Hex "show in tree" must bring the tree tab forward (its strip is elsewhere).
+  const handleShowInTree = useCallback((p: CborPosition) => {
+    setHighlightedTreePosition(p);
+    activatePanel("tree");
+  }, [activatePanel]);
   const handleClearTreeHighlight = useCallback(() => setHighlightedTreePosition(null), []);
 
   // ---------- editor: caret, references, CDDL→CBOR bridge ----------
   const editorRef = useRef<CddlEditorHandle>(null);
   const [caretOffset, setCaretOffset] = useState<number | null>(null);
-  const referenceRanges = useReferenceRanges(cddlDebounced, caretOffset);
-  const linkedCddlRange = useLinkedCddlRange(cborCddlMap, hoverPosition);
+  // Debounce caret with the schema text; `caretForReferences` drops a probe
+  // whose text no longer matches the editor.
+  const caretProbe = useMemo<CaretProbe>(() => ({ text: cddl, caret: caretOffset }), [cddl, caretOffset]);
+  const settledCaret = useDebouncedValue(caretProbe, settleDelay);
+  const referenceRanges = useReferenceRanges(cddl, caretForReferences(settledCaret, cddl));
 
-  // Alt-click in CDDL → narrowest matching CBOR spans, pinned until cleared
-  // (or until the schema/CBOR/rule change underneath them — see the
-  // consolidated input-change cleanup below).
+  // Alt-click CDDL → matching CBOR spans, until inputs change.
   const [linkedHexSpans, setLinkedHexSpans] = useState<ExtraErrorSpan[]>([]);
   const clearLinkedHexSpans = useCallback(() => setLinkedHexSpans([]), []);
 
-  // Cross-panel selection. Right-click in any of the 4 panels resolves a
-  // candidate map entry, opens a context menu, and the user picks where
-  // to mirror the highlight. The pinned entry + chosen targets together
-  // drive what each panel projects. Reset when any input changes — see
-  // the consolidated cleanup below.
-  const [pinnedEntry, setPinnedEntry] = useState<CborCddlMapEntry | null>(null);
-  const clearPinnedEntry = useCallback(() => setPinnedEntry(null), []);
+  // Right-click pin: current instance + dim others; cleared when inputs change.
+  const [pinned, setPinned] = useState<PinState | null>(null);
+  // Schema text the pin's char offsets address; dropped on a keystroke, while
+  // byte/path/rule pins on other panels stay.
+  const [pinnedSource, setPinnedSource] = useState<string | null>(null);
+  // Last "scroll this instance into view" request, and which panels it is for.
+  const [reveal, setReveal] = useState<Reveal | null>(null);
+  const clearPinnedNode = useCallback(() => {
+    setPinned(null);
+    setPinnedSource(null);
+    setReveal(null);
+  }, []);
 
-  // Per-panel highlight targets — persisted across pins so the user only
-  // configures their preference once. Defaults to all four panels.
+  // Per-panel pin targets persist across pins (user preference).
   const [pinTargets, setPinTargets] = useState<Set<PinTarget>>(
     () => new Set<PinTarget>(ALL_PIN_TARGETS),
   );
@@ -151,17 +347,17 @@ export default function CddlValidatorContent() {
     });
   }, []);
 
-  // Active context menu state — what to show + where on screen.
+  // One context menu for pin + any panel-owned actions.
   interface PinMenuState {
     x: number;
     y: number;
-    candidate: CborCddlMapEntry;
+    candidate: CborCddlNode | null;
     source: PinTarget;
+    actions: PanelMenuAction[];
   }
   const [pinMenu, setPinMenu] = useState<PinMenuState | null>(null);
   const closePinMenu = useCallback(() => setPinMenu(null), []);
-  // Captured on every contextmenu event so panel callbacks (which only
-  // forward an offset / path) can position the menu at the click point.
+  // Last right-click position for menus opened from offset/path callbacks.
   const lastRmbPos = useRef({ x: 0, y: 0 });
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -171,349 +367,632 @@ export default function CddlValidatorContent() {
     return () => window.removeEventListener("contextmenu", handler, true);
   }, []);
 
-  // Consolidated cleanup: when CBOR / schema / rule change, every piece
-  // of derived selection state references stale offsets or paths and must
-  // be cleared. `pinTargets` is a user preference and is intentionally
-  // preserved across input changes.
+  // Drop derived selection when CBOR/schema/rule change. Keep `pinTargets`.
+  // Hover is cleared in the bridge swap below, same commit.
   useEffect(() => {
-    setPinnedEntry(null);
+    setPinned(null);
+    setPinnedSource(null);
+    setReveal(null);
     setLinkedHexSpans([]);
     setHighlightedTreePosition(null);
-    setHoverPosition(null);
     setFocusPosition(null);
     setPinMenu(null);
-  }, [cleanHex, cddlDebounced, ruleDebounced]);
+    setSelectedError(null);
+  }, [cleanHex, cddlDebounced, effectiveRule]);
 
-  // Bridge resolvers — given an offset/path, find the best candidate map
-  // entry. These are now exposed as `requestPin*` which open the menu
-  // instead of pinning directly. They silently no-op when nothing matches.
-  const findFromCborOffset = useCallback((byteOffset: number) => {
-    if (cborCddlMap.length === 0) return null;
-    const matches = cborCddlMap.filter(e => {
-      const a = e.cbor_anchor_span;
-      return a && byteOffset >= a.offset && byteOffset < a.offset + a.length;
-    });
-    if (matches.length === 0) return null;
-    matches.sort((a, b) => a.cbor_anchor_span.length - b.cbor_anchor_span.length);
-    return matches[0];
-  }, [cborCddlMap]);
+  // Bind hover to the on-screen bridge (and document) so a previous
+  // document's probe is never resolved against this one.
+  useLayoutEffect(() => {
+    hoverStore.setContext(cborCddlMap, cddl, cleanHex);
+  }, [hoverStore, cborCddlMap, cddl, cleanHex]);
 
-  const findFromCddlOffset = useCallback((charOffset: number) => {
-    if (cborCddlMap.length === 0) return null;
-    const matches = cborCddlMap.filter(e => {
-      const s = e.cddl_byte_span;
-      return s && charOffset >= s.char_offset && charOffset < s.char_offset + s.char_length;
-    });
-    if (matches.length === 0) return null;
-    // `cddl_byte_span` presence is guaranteed by the `.filter` above.
-    matches.sort((a, b) => a.cddl_byte_span!.char_length - b.cddl_byte_span!.char_length);
-    return matches[0];
-  }, [cborCddlMap]);
-
-  const findFromDecodedPath = useCallback((decodedPath: string, preferredRole: "key" | "value" = "value") => {
-    if (cborCddlMap.length === 0) return null;
-    // The lib emits `["0"]` for numeric map keys and `[0]` for array
-    // indices; the JSON viewer can't tell those apart from the DOM
-    // (both render as a number key under the same `.data-key-key`).
-    // Compare paths segment-wise to ignore that difference.
-    const wanted = splitJsonPath(decodedPath);
-    const exact = cborCddlMap.filter(e => sameJsonPath(splitJsonPath(e.decoded_path), wanted));
-    if (exact.length > 0) {
-      // Prefer the role the user clicked on; fall back to the other when
-      // the lib only emitted one (e.g. array slots are always "value").
-      return exact.find(e => e.entry_role === preferredRole) ?? exact[0];
-    }
-    // Fallback for synthetic decoder keys (`@tag`, `@positional`,
-    // `@extra`, `@entries[N].{key,value,match}`) that don't appear in
-    // the bridge map: walk up to the deepest ancestor that does so the
-    // user can still pin the surrounding wrapper.
-    let bestDepth = -1;
-    let best: typeof cborCddlMap[number] | null = null;
-    for (const entry of cborCddlMap) {
-      const segs = splitJsonPath(entry.decoded_path);
-      if (segs.length >= wanted.length) continue;
-      let isPrefix = true;
-      for (let i = 0; i < segs.length; i++) {
-        if (segs[i] !== wanted[i]) { isPrefix = false; break; }
-      }
-      if (!isPrefix) continue;
-      if (segs.length > bestDepth) {
-        bestDepth = segs.length;
-        best = entry;
-      }
-    }
-    if (!best) return null;
-    // Prefer the value-role entry at that depth when the ancestor is a
-    // map key with both key/value rows.
-    const ancestorSegs = splitJsonPath(best.decoded_path);
-    const sameDepth = cborCddlMap.filter(e => {
-      const s = splitJsonPath(e.decoded_path);
-      return s.length === ancestorSegs.length && sameJsonPath(s, ancestorSegs);
-    });
-    return sameDepth.find(e => e.entry_role === "value") ?? best;
-  }, [cborCddlMap]);
-
+  // Same `resolveProbe` as hover; open the menu instead of pinning immediately.
   const openPinMenu = useCallback(
-    (source: PinTarget, candidate: CborCddlMapEntry | null) => {
-      if (!candidate) return;
-      setPinMenu({ x: lastRmbPos.current.x, y: lastRmbPos.current.y, candidate, source });
+    (source: PinTarget, candidate: CborCddlNode | null, actions: PanelMenuAction[] = []) => {
+      setPinMenu({ x: lastRmbPos.current.x, y: lastRmbPos.current.y, candidate, source, actions });
     },
     [],
   );
-  const requestPinFromCborOffset = useCallback((byteOffset: number) => {
-    openPinMenu("hex", findFromCborOffset(byteOffset));
-  }, [openPinMenu, findFromCborOffset]);
+  const requestPinFromCborOffset = useCallback((byteOffset: number, actions: PanelMenuAction[]) => {
+    openPinMenu("hex", resolveProbe(cborCddlMap, { source: "hex", byteOffset }), actions);
+  }, [openPinMenu, cborCddlMap]);
   const requestPinFromCddlOffset = useCallback((charOffset: number) => {
-    openPinMenu("cddl", findFromCddlOffset(charOffset));
-  }, [openPinMenu, findFromCddlOffset]);
-  const requestPinFromDecodedPath = useCallback((decodedPath: string, role: "key" | "value") => {
-    openPinMenu("decoded", findFromDecodedPath(decodedPath, role));
-  }, [openPinMenu, findFromDecodedPath]);
-  const requestPinFromTreePosition = useCallback((position: CborPosition) => {
-    openPinMenu("tree", findFromCborOffset(position.offset));
-  }, [openPinMenu, findFromCborOffset]);
+    openPinMenu("cddl", resolveProbe(cborCddlMap, { source: "cddl", charOffset }));
+  }, [openPinMenu, cborCddlMap]);
+  const canPinAtCddlOffset = useCallback(
+    (charOffset: number) => resolveProbe(cborCddlMap, { source: "cddl", charOffset }) !== null,
+    [cborCddlMap],
+  );
+  const requestPinFromDecodedPath = useCallback((path: string, role: "key" | "value") => {
+    openPinMenu("decoded", resolveProbe(cborCddlMap, { source: "decoded", path, role }));
+  }, [openPinMenu, cborCddlMap]);
+  const requestPinFromTreePosition = useCallback((position: CborPosition | null, actions: PanelMenuAction[]) => {
+    openPinMenu("tree", position ? resolveProbe(cborCddlMap, { source: "tree", position }) : null, actions);
+  }, [openPinMenu, cborCddlMap]);
+
+  const pinMenuEmptyNotice = useMemo(
+    () => pinMenuNotice({
+      schemaIsValid,
+      hasCbor: cleanHex !== "",
+      mapPending,
+      mapRefusal,
+      mapIsEmpty: cborCddlMap.entries.length === 0,
+      rule: effectiveRule,
+    }),
+    [schemaIsValid, cleanHex, mapPending, mapRefusal, cborCddlMap.entries.length, effectiveRule],
+  );
 
   const handleLinkClick = useCallback((jsOffset: number) => {
-    if (cborCddlMap.length === 0) return;
-    const matching = cborCddlMap.filter(e => {
-      const s = e.cddl_byte_span;
-      return s && jsOffset >= s.char_offset && jsOffset < s.char_offset + s.char_length;
-    });
-    if (matching.length === 0) { setLinkedHexSpans([]); return; }
-    // `cddl_byte_span` presence is guaranteed by the `.filter` above.
-    const minLen = Math.min(...matching.map(e => e.cddl_byte_span!.char_length));
-    const deepest = matching.filter(e => e.cddl_byte_span!.char_length === minLen);
-    const out: ExtraErrorSpan[] = [];
-    const seen = new Set<string>();
-    for (const e of deepest) {
-      const a = e.cbor_anchor_span;
-      const key = `${a.offset}:${a.length}:${e.entry_role}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const role = e.entry_role === "key" ? "key" : "value";
-      out.push({ offset: a.offset, length: a.length, message: `${e.cbor_type ?? "node"} ${role} at ${e.cbor_path}` });
-    }
-    setLinkedHexSpans(out);
+    if (cborCddlMap.entries.length === 0) return;
+    setLinkedHexSpans(linkedHexSpansForCddlOffset(cborCddlMap, jsOffset));
   }, [cborCddlMap]);
+
+  // Live schema text, for the one async callback that can outlive a keystroke.
+  const liveCddlRef = useRef(cddl);
+  useEffect(() => { liveCddlRef.current = cddl; }, [cddl]);
 
   const handleSymbolClick = useCallback((jsOffset: number) => {
     if (!cddl) return;
-    const sym = safeSymbolAt(cddl, utf16ToByte(cddl, jsOffset));
-    if (!sym?.definition_span) return;
-    const d = sym.definition_span;
-    editorRef.current?.reveal([d.char_offset, d.char_offset + d.char_length]);
+    void (async () => {
+      const sym = await safeSymbolAt(cddl, utf16ToByte(cddl, jsOffset));
+      if (!sym?.definition_span) return;
+      // Drop the jump if the schema changed while the worker round-trip ran.
+      if (liveCddlRef.current !== cddl) return;
+      const d = sym.definition_span;
+      editorRef.current?.reveal([d.char_offset, d.char_offset + d.char_length]);
+    })();
   }, [cddl]);
 
-  // ---------- error nav (CDDL parse error + every mismatch) ----------
-  const cddlErrors = useMemo<CddlErrorEntry[]>(() => {
-    const list: CddlErrorEntry[] = [];
-    if (schema.errorRange && schema.result && !schema.result.valid) {
-      const line = schema.errorLine ? ` (line ${schema.errorLine})` : "";
-      list.push({
-        range: schema.errorRange,
-        kind: "parse",
-        message: `parse_error: ${schema.result.error.message}${line}`,
-      });
+  // ---------- error nav (every mismatch of the run) ----------
+  // Schema parse errors have their own toolbar line.
+  const cddlErrors = useMemo<CddlErrorEntry[]>(
+    () => diagnostics.map((d, i) => ({ range: d.cddlRange, message: describeDiagnostic(d), errorIndex: i })),
+    [diagnostics],
+  );
+
+  // Selecting a mismatch lights editor/hex/list/trees. `source` decides
+  // whether the editor takes focus (list/nav) or only scrolls (tree badge).
+  type DiagnosticSource = "list" | "tree" | "decoded";
+  const selectDiagnostic = useCallback((index: number, source: DiagnosticSource = "list") => {
+    setSelectedError(index);
+    const d = diagnostics[index];
+    if (!d) return;
+    if (d.cddlRange) {
+      if (source === "list") editorRef.current?.reveal(d.cddlRange);
+      else editorRef.current?.scrollTo(d.cddlRange);
     }
-    for (const e of validation.errorsOnCddl) {
-      list.push({ range: e.range, kind: "mismatch", message: e.message });
-    }
-    return list;
-  }, [schema, validation]);
+    const span = d.byteSpans[0] ?? d.anchorSpans[0];
+    if (span) revealInHex(span);
+    const target = source === "tree" ? "decoded" : source === "decoded" ? "tree" : "all";
+    setReveal(prev => nextReveal(prev, target, "diagnostic"));
+  }, [diagnostics, revealInHex]);
+  // Tree badge on the selected row toggles it off.
+  const selectFromTree = useCallback(
+    (index: number | null) => (index === null ? setSelectedError(null) : selectDiagnostic(index, "tree")),
+    [selectDiagnostic],
+  );
+  const selectFromDecoded = useCallback(
+    (index: number | null) => (index === null ? setSelectedError(null) : selectDiagnostic(index, "decoded")),
+    [selectDiagnostic],
+  );
+  const selectFromList = useCallback((index: number) => selectDiagnostic(index, "list"), [selectDiagnostic]);
 
   const handleJump = useCallback((entry: CddlErrorEntry) => {
-    editorRef.current?.reveal(entry.range);
+    selectDiagnostic(entry.errorIndex, "list");
+  }, [selectDiagnostic]);
+
+  const revealSchemaError = useCallback(() => {
+    if (schema.errorRange) editorRef.current?.reveal(schema.errorRange);
+  }, [schema.errorRange]);
+
+  const revealSchemaRange = useCallback((range: [number, number]) => {
+    editorRef.current?.reveal(range);
   }, []);
 
+  // Clamp a stale index for one render after the list shrinks.
+  const selectedErrorIndex =
+    selectedError !== null && selectedError < diagnostics.length ? selectedError : null;
+
+  // ---------- the verdict, and what the trees and the hex say of it ----------
+  // From the settled pass; chip hides while checking, sheet stays on the
+  // previous run until the new verdict has nothing to list.
+  const verdict = useMemo(
+    () => verdictFor({
+      outcome: cborOutcome,
+      diagnostics,
+      reportedDiagnostics,
+      rule: effectiveRule,
+      decodeError,
+      decoderFailure,
+    }),
+    [cborOutcome, diagnostics, reportedDiagnostics, effectiveRule, decodeError, decoderFailure],
+  );
+  const listable = isListable(verdict);
+  // Close during render to avoid one frame of an empty sheet.
+  if (drawerOpen && !listable) setDrawerOpen(false);
+  const drawerShown = drawerOpen && listable;
+  const hexRefusal = useMemo(
+    () => hexRefusalFor({ decodeError, decoderFailure, outcome: cborOutcome, diagnostics }),
+    [decodeError, decoderFailure, cborOutcome, diagnostics],
+  );
+  // Diagnostic row keys for both trees; computed once per run (identity compare).
+  const rootHeader = decoded?.position_info ?? null;
+  const treeDiagnosticRows = useMemo(
+    () => diagnosticTreeRows(diagnostics, rootHeader),
+    [diagnostics, rootHeader],
+  );
+  const decodedDiagnosticRows = useMemo(
+    () => diagnosticDecodedRows(diagnostics, cborCddlMap, rootHeader),
+    [diagnostics, cborCddlMap, rootHeader],
+  );
+
   // ---------- editor marks (priority-ranked) ----------
-  const editorMarks = useMemo<OverlayMark[]>(() => {
-    const out: OverlayMark[] = [];
-    if (schema.errorRange && schema.result && !schema.result.valid) {
-      out.push({
-        range: schema.errorRange,
-        className: "cddl-editor-error-mark",
-        message: schema.result.error.message,
-        priority: PRIORITY_ERROR,
-      });
-    }
-    if (cborErrorOnCddl) {
-      out.push({
-        range: cborErrorOnCddl.range,
-        className: "cddl-editor-mismatch-mark",
-        message: cborErrorOnCddl.message,
-        priority: PRIORITY_MISMATCH,
-      });
-    }
-    if (linkedCddlRange) {
-      out.push({
-        range: linkedCddlRange.range,
-        className: "cddl-editor-linked-mark",
-        message: linkedCddlRange.message,
-        priority: PRIORITY_LINKED,
-      });
-    }
-    for (const r of referenceRanges) {
-      out.push({
-        range: r,
-        className: "cddl-editor-reference-mark",
-        priority: PRIORITY_REFERENCE,
-      });
-    }
-    if (pinnedEntry && pinTargets.has("cddl")) {
-      // Synthetic wrapper rows (`@positional`, `@extra`, `@entries`)
-      // have no CDDL counterpart — skip the editor highlight for those.
-      const s = pinnedEntry.cddl_byte_span;
-      if (s) {
-        out.push({
-          range: [s.char_offset, s.char_offset + s.char_length],
-          className: "cddl-editor-pinned-mark",
-          message: `Pinned: ${pinnedEntry.cbor_type ?? "node"} ${pinnedEntry.entry_role} at ${pinnedEntry.cbor_path}`,
-          priority: PRIORITY_PINNED,
-        });
-      }
-    }
-    return out;
-  }, [schema, cborErrorOnCddl, linkedCddlRange, referenceRanges, pinnedEntry, pinTargets]);
-
-  // Pinned selection projected onto the hex view — extra blue span on top
-  // of any other Alt-click linked spans.
-  const pinnedHexSpans = useMemo<ExtraErrorSpan[]>(() => {
-    if (!pinnedEntry || !pinTargets.has("hex")) return [];
-    const a = pinnedEntry.cbor_anchor_span;
-    return [{
-      offset: a.offset,
-      length: a.length,
-      message: `Pinned: ${pinnedEntry.cbor_type ?? "node"} at ${pinnedEntry.cbor_path}`,
-    }];
-  }, [pinnedEntry, pinTargets]);
-
-  const combinedHexLinkedSpans = useMemo<ExtraErrorSpan[]>(
-    () => [...linkedHexSpans, ...pinnedHexSpans],
-    [linkedHexSpans, pinnedHexSpans],
+  const pinnedNode = pinned?.node ?? null;
+  const editorMarks = useMemo(
+    () => buildEditorMarks({
+      schemaError: schema.errorRanges.length > 0 && schema.result && !schema.result.valid
+        ? { ranges: schema.errorRanges, message: cddlErrorReason(schema.result.error.message) }
+        : null,
+      diagnostics,
+      selectedDiagnostic: selectedErrorIndex,
+      referenceRanges,
+      pinnedNode,
+      pinnedInstance: pinned,
+      pinInCddl: pinTargets.has("cddl") && pinnedSource === cddl,
+    }),
+    [schema, diagnostics, selectedErrorIndex, referenceRanges,
+     pinned, pinnedNode, pinnedSource, cddl, pinTargets],
   );
 
-  // Pinned selection projected onto the structural tree — feed its
-  // CBOR position to the existing "highlightedTreePosition" plumbing.
-  const treeHighlight = useMemo<CborPosition | null>(() => {
-    if (highlightedTreePosition) return highlightedTreePosition;
-    if (pinnedEntry && pinTargets.has("tree")) {
-      const a = pinnedEntry.cbor_anchor_span;
-      return { offset: a.offset, length: a.length };
-    }
-    return null;
-  }, [highlightedTreePosition, pinnedEntry, pinTargets]);
+  // Pin projection matches hover of the same row.
+  const pinnedProjection = useMemo(
+    () => (pinnedNode ? projectNode(pinnedNode) : null),
+    [pinnedNode],
+  );
+  const pinnedBlockers = useMemo(() => pinTargetBlockers(pinnedNode), [pinnedNode]);
+  const pinIndex = pinned ? currentIndex(pinned) : -1;
+  const pinTotal = pinned ? pinned.instances.length : 0;
 
-  // Pinned path projected onto the decoded JSON tree.
+  // Separate hex prop so the pin paints purple, not Alt-click blue.
+  const hexPinnedSpans = useMemo<ExtraErrorSpan[]>(
+    () => pinnedHexSpans(pinned, pinTargets.has("hex")),
+    [pinned, pinTargets],
+  );
+  const hexPinnedOtherSpans = useMemo<ExtraErrorSpan[]>(
+    () => pinnedOtherHexSpans(pinned, pinTargets.has("hex")),
+    [pinned, pinTargets],
+  );
+
+  // Structural tree keys by header bytes; schema-only rows have none.
+  const treePinned = useMemo<CborPosition | null>(
+    () => (pinnedProjection && pinTargets.has("tree") ? pinnedProjection.tree : null),
+    [pinnedProjection, pinTargets],
+  );
+  const treePinnedOthers = useMemo(
+    () => pinnedOtherTreeKeys(pinned, pinTargets.has("tree")),
+    [pinned, pinTargets],
+  );
+  // Keep visited instance rows expanded so stepping does not collapse them.
+  const treeVisited = useMemo(
+    () => visitedTreePositions(pinned, pinTargets.has("tree")),
+    [pinned, pinTargets],
+  );
+
   const decodedPinnedPath = useMemo(
-    () => (pinnedEntry && pinTargets.has("decoded") ? pinnedEntry.decoded_path : null),
-    [pinnedEntry, pinTargets],
+    () => (pinnedProjection && pinTargets.has("decoded") ? pinnedProjection.decoded : null),
+    [pinnedProjection, pinTargets],
+  );
+  const decodedPinnedOthers = useMemo(
+    () => pinnedOtherDecodedPaths(pinned, pinned?.bridge ?? null, pinTargets.has("decoded")),
+    [pinned, pinTargets],
+  );
+  const decodedVisited = useMemo(
+    () => visitedDecodedPaths(pinned, pinTargets.has("decoded")),
+    [pinned, pinTargets],
   );
 
-  // ---------- hex extra-error spans (from CDDL mismatch byte_spans / anchors) ----------
-  const extraErrorSpans = useMemo<ExtraErrorSpan[]>(() => {
-    if (!cborResult || cborResult.valid) return [];
-    const err = cborResult.error;
-    const spans: ExtraErrorSpan[] = [];
-    const msg = err.message;
-    if (err.byte_spans) for (const s of err.byte_spans) spans.push({ offset: s.offset, length: s.length, message: msg });
-    if (err.anchor_spans) for (const s of err.anchor_spans) spans.push({ offset: s.offset, length: s.length, message: msg });
-    return spans;
-  }, [cborResult]);
+  // Reveal the current instance in the named panels. Skip a panel the row
+  // cannot reach. Trees scroll when visible; editor scroll does not steal
+  // focus unless asked (chip steps must keep the chip focused).
+  const revealCurrent = useCallback((
+    pin: PinState,
+    target: PinTarget | "all",
+    editor: "select" | "scroll",
+  ) => {
+    const blocked = pinTargetBlockers(pin.node);
+    const wants = (t: PinTarget) =>
+      (target === "all" || target === t) && pinTargets.has(t) && !blocked[t];
+    const projection = projectNode(pin.node);
+    if (wants("cddl") && projection.cddl) {
+      if (editor === "select") editorRef.current?.reveal(projection.cddl);
+      else editorRef.current?.scrollTo(projection.cddl);
+    }
+    if (wants("hex") && projection.hex) revealInHex(projection.hex);
+    setReveal(prev => nextReveal(prev, target));
+  }, [pinTargets, revealInHex]);
+
+  // Pin and reveal. If both trees are hidden, bring forward one that can show it.
+  const handlePin = useCallback((node: CborCddlNode, source: PinTarget) => {
+    const pin = makePin(cborCddlMap, node, source);
+    setPinned(pin);
+    setPinnedSource(cddl);
+    if (!visible.has("decoded") && !visible.has("tree")) {
+      const blocked = pinTargetBlockers(node);
+      const target = (["decoded", "tree"] as const).find(p => pinTargets.has(p) && !blocked[p]);
+      if (target) activatePanel(target);
+    }
+    revealCurrent(pin, "all", "select");
+  }, [cborCddlMap, cddl, revealCurrent, visible, pinTargets, activatePanel]);
+
+  // Step and reveal in the same tick (compute next pin here, not in a setter).
+  const stepPin = useCallback((delta: number) => {
+    if (!pinned) return;
+    const next = stepPinState(pinned, delta);
+    setPinned(next);
+    revealCurrent(next, "all", "scroll");
+  }, [pinned, revealCurrent]);
+  // Chip count reveals in that chip's panel only.
+  const revealPin = useCallback((target: PinTarget | "all") => {
+    if (pinned) revealCurrent(pinned, target, "scroll");
+  }, [pinned, revealCurrent]);
+  // Trees scroll on pin XOR diagnostic reveal — never both (would steal the row).
+  const pinRevealSeq = reveal?.subject === "pin" ? reveal.seq : undefined;
+  const diagnosticRevealSeq = reveal?.subject === "diagnostic" ? reveal.seq : undefined;
+  const scrollTreeToPin = scrollFlagFor("tree", reveal, visible.has("tree"), "pin");
+  const scrollTreeToDiagnostic = scrollFlagFor("tree", reveal, visible.has("tree"), "diagnostic");
+  const scrollDecodedToPin = scrollFlagFor("decoded", reveal, visible.has("decoded"), "pin");
+  const scrollDecodedToDiagnostic = scrollFlagFor("decoded", reveal, visible.has("decoded"), "diagnostic");
+
+  // ---------- the mismatch sheet's focus ----------
+  const verdictChipRef = useRef<HTMLButtonElement>(null);
+  // Return focus to the chip when the sheet's own close unmounts the focused node.
+  const drawerWasOpen = useRef(false);
+  useEffect(() => {
+    if (drawerWasOpen.current && !drawerShown && document.activeElement === document.body) {
+      verdictChipRef.current?.focus();
+    }
+    drawerWasOpen.current = drawerShown;
+  }, [drawerShown]);
+
+  // Alt+, / Alt+. step the pin; preventDefault so the chord does not type a glyph.
+  const hasPin = pinned !== null;
+  useEffect(() => {
+    if (!hasPin) return;
+    const onKey = (e: KeyboardEvent) => {
+      const delta = pinStepKey(e);
+      if (delta === null) return;
+      e.preventDefault();
+      stepPin(delta);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hasPin, stepPin]);
+
+  // ---------- hex extra-error spans (from every mismatch's byte_spans / anchors) ----------
+  const extraErrorSpans = useMemo(
+    () => buildExtraErrorSpans(diagnostics, selectedErrorIndex),
+    [diagnostics, selectedErrorIndex],
+  );
 
   // ---------- toolbar handlers ----------
   const handleRulePick = useCallback((value: string) => {
-    setAutoPickedRule(false);
+    markRuleChosen();
     setSelectedRule(value);
-  }, []);
-  const handleClearSchema = useCallback(() => setCddl(""), []);
-  const handleFormatCddl = useCallback(() => {
-    const formatted = safeFormat(cddl);
-    if (formatted && formatted !== cddl) setCddl(formatted);
-  }, [cddl]);
-  const handleLoadExample = useCallback(() => {
-    setCddl(DEFAULT_CDDL);
-    setCborInput(DEFAULT_CBOR_HEX);
-    setSelectedRule("Person");
-    setAutoPickedRule(true);
-  }, []);
+  }, [markRuleChosen, setSelectedRule]);
+  const handleCborChange = useCallback((next: string) => {
+    setCborInput(next);
+    setPresetNotice(null);
+  }, [setCborInput]);
+  // Typing retires the whole-schema undo buffer.
+  const handleCddlChange = useCallback((next: string) => {
+    setCddl(next);
+    setReplaced(null);
+    setFormatError(null);
+    setPresetNotice(null);
+    dismissHydrationError();
+  }, [setCddl, dismissHydrationError]);
+  // Whole-schema swap with undo. Reset viewport unless formatting in place.
+  const replaceCddl = useCallback((
+    next: string,
+    label: string,
+    opts: {
+      keepViewport?: boolean;
+      authored?: boolean;
+      /** Era the text came from, or `null`. Omit to leave provenance unchanged. */
+      preset?: { id: string; label: string } | null;
+    } = {},
+  ) => {
+    setReplaced(
+      cddl.trim() === "" || cddl === next
+        ? null
+        : {
+            text: cddl,
+            rule: selectedRule,
+            label,
+            appAuthored: appAuthoredCddl,
+            preset: presetSource,
+          },
+    );
+    setCddl(next);
+    // Format rewrites the user's schema; do not mark it as app-authored.
+    setAppAuthoredCddl(opts.authored ? next : null);
+    if (opts.preset !== undefined) setPresetSource(opts.preset);
+    setFormatError(null);
+    setPresetNotice(null);
+    dismissHydrationError();
+    if (!opts.keepViewport) editorRef.current?.scrollToTop();
+  }, [
+    cddl, selectedRule, appAuthoredCddl, presetSource,
+    setCddl, setAppAuthoredCddl, setPresetSource, dismissHydrationError,
+  ]);
+  const handleUndoReplace = useCallback(() => {
+    if (!replaced) return;
+    setCddl(replaced.text);
+    setSelectedRule(replaced.rule);
+    markRuleChosen(replaced.text, cborInput);
+    setAppAuthoredCddl(replaced.appAuthored);
+    setPresetSource(replaced.preset);
+    setReplaced(null);
+    setFormatError(null);
+    setPresetNotice(null);
+  }, [replaced, cborInput, markRuleChosen, setCddl, setSelectedRule, setAppAuthoredCddl, setPresetSource]);
+  /** Confirm before discarding a schema the user wrote. */
+  const confirmReplace = useCallback((replacement: string) => {
+    const question = confirmReplaceMessage(cddl, appAuthoredCddl, replacement);
+    if (question === null) return true;
+    return typeof window === "undefined" || window.confirm(question);
+  }, [cddl, appAuthoredCddl]);
+  const handleClearSchema = useCallback(() => {
+    if (!confirmReplace("an empty editor")) return;
+    replaceCddl("", "clear", { authored: true, preset: null });
+  }, [confirmReplace, replaceCddl]);
+  const handleFormatCddl = useCallback(async () => {
+    const outcome = await formatCddlChecked(cddl);
+    if (!outcome.ok) {
+      setFormatError(outcome.reason);
+      return;
+    }
+    if (outcome.text === cddl) {
+      setFormatError(null);
+      return;
+    }
+    replaceCddl(outcome.text, "format", { keepViewport: true });
+  }, [cddl, replaceCddl]);
   const handleLoadPreset = useCallback(async (id: string) => {
     if (!id) return;
+    const preset = CARDANO_PRESETS.find(p => p.id === id);
+    if (!confirmReplace(`the ${preset?.label ?? id} schema`)) return;
     setPresetError(null);
+    dismissHydrationError();
     setPresetLoading(id);
     try {
       const text = await loadCardanoPreset(id);
-      setCddl(text);
-      setAutoPickedRule(true);
+      replaceCddl(text, "preset", {
+        authored: true,
+        preset: preset ? { id: preset.id, label: preset.label } : null,
+      });
+      if (preset) setSelectedRule(preset.rootRule);
+      setPresetNotice({
+        label: preset?.label ?? id,
+        requestedRule: preset?.rootRule ?? null,
+      });
     } catch (e) {
       setPresetError(e instanceof Error ? e.message : String(e));
     } finally {
       setPresetLoading(null);
     }
-  }, []);
+  }, [confirmReplace, replaceCddl, dismissHydrationError, setSelectedRule]);
+  // An edit does not drop the preset; it marks it edited.
+  const activePreset = useMemo<ActivePreset | null>(
+    () => presetSource && { ...presetSource, edited: cddl !== appAuthoredCddl },
+    [presetSource, cddl, appAuthoredCddl],
+  );
 
-  const leftPanel = (
-    <div className="panel-content">
-      <div className="panel-header-compact">
-        <span className="panel-title">CDDL Schema</span>
-        <HelpTooltip>
-          <strong>How to use:</strong> Write (or paste) a CDDL schema. Pick the root rule to validate against. The CBOR hex on the right is checked automatically.
-        </HelpTooltip>
-        {schema.result && schema.result.valid && (
-          <span className="panel-badge success">valid</span>
-        )}
-        {schema.result && !schema.result.valid && (
-          <span className="panel-badge error" title={schema.result.error.message}>
-            {schema.result.error.kind}
-          </span>
-        )}
-        <div className="cq-flex-grow" />
-        <button onClick={handleLoadExample} className="btn-icon" title="Load example">⟳</button>
-        <button onClick={handleClearSchema} className="btn-icon" title="Clear">✕</button>
-      </div>
+  // ---------- share link ----------
+  // Share uses live (not debounced) hex; non-hex cannot go in the link.
+  const share = useMemo(() => shareCborState(cborInput), [cborInput]);
+  const shareCbor = share.hex;
+  // Unedited preset is a name, not 8 KB of schema, in the share link.
+  const sharePreset = activePreset && !activePreset.edited ? activePreset.id : null;
 
+  const navFor = (panel: PanelId) => pinned ? (
+    <InstanceNav
+      index={pinIndex}
+      total={pinTotal}
+      panel={panel}
+      byteless={panel === "cddl" ? undefined : pinnedBlockers[panel] !== null}
+      onStep={stepPin}
+      onReveal={() => revealPin(panel)}
+    />
+  ) : null;
+
+  const cddlExtras = (
+    <>
+      <HelpTooltip>
+        <strong>How to use:</strong> Write (or paste) a CDDL schema. Pick the root rule to validate against. The CBOR hex panel is checked automatically.
+      </HelpTooltip>
+      {schemaSettling && <PendingSpinner label="Checking the schema" />}
+      {passIsSlow && (
+        <span
+          className="panel-badge info"
+          title="This schema and document are expensive to check, or an earlier pass is still holding the library. A pass is abandoned once it has spent ten seconds waiting its turn, or ten seconds running, and the panels will say which."
+        >
+          still working
+        </span>
+      )}
+      {!schemaSettling && schema.result && schema.result.valid && (
+        <span className="panel-badge success">valid</span>
+      )}
+      {!schemaSettling && schema.result && !schema.result.valid && (
+        <span className="panel-badge error" title={cddlErrorReason(schema.result.error.message)}>
+          {schema.result.error.kind}
+        </span>
+      )}
+      {!schemaSettling && schema.checkerFailure && (
+        <span className="panel-badge error" title={schema.checkerFailure}>
+          checker failed
+        </span>
+      )}
+      <span className="cq-flex-grow" />
+      <ShareButton
+        disabled={hydrating || (!cddl.trim() && !shareCbor)}
+        title={
+          hydrating
+            ? "Still restoring the shared state"
+            : !cddl.trim() && !shareCbor
+              ? (share.dropped ?? "Nothing to share yet")
+              : "Share a link to this schema, rule and CBOR"
+        }
+        getTarget={() => ({
+          kind: "cddl",
+          input: { cddl, cbor: shareCbor, rule: effectiveRule, preset: sharePreset },
+          warning: share.dropped,
+        })}
+      />
+      <button onClick={handleClearSchema} className="btn-icon" title="Clear" aria-label="Clear the schema">✕</button>
+    </>
+  );
+
+  const cddlBody = (
+    <>
       <CddlSchemaToolbar
         ruleNames={ruleNames}
+        effectiveRule={effectiveRule}
         selectedRule={selectedRule}
+        ruleNamesAreStale={schema.outlineIsStale}
+        schemaIsValid={schemaIsValid}
         onRulePick={handleRulePick}
         presetLoading={presetLoading}
+        activePreset={activePreset}
         onLoadPreset={handleLoadPreset}
         onFormat={handleFormatCddl}
         formatDisabled={!schema.result || !schema.result.valid}
-        rightSlot={cddlErrors.length > 0 ? <CddlErrorNav errors={cddlErrors} onJump={handleJump} /> : null}
+        undoLabel={replaced?.label}
+        onUndoReplace={handleUndoReplace}
+        rightSlot={refusedAtRoot
+          ? <RootSuggestionNote suggestions={rootSuggestions} onRulePick={handleRulePick} compact />
+          : null}
       />
 
       <HintBanner storageKey="cquisitor_hint_cddl_validator">
-        <strong>How to use:</strong> Edit the CDDL schema on the left and CBOR hex on the right.
-        Mismatches show in red. <strong>Right-click any panel</strong> (CDDL, hex, tree, decoded JSON)
-        → a context menu lets you pin the node and choose which panels mirror the highlight.
+        <strong>How to use:</strong> Edit the CDDL schema and the CBOR hex; mismatches show in red.
+        <strong> Hover any panel</strong> (CDDL schema, CBOR hex, CBOR tree, Decoded JSON)
+        to see the same node lit in the other three. <strong>Right-click any panel</strong>
+        → a context menu lets you pin the node and choose which panels mirror the highlight;
+        pinning works as soon as the schema parses, whether or not the CBOR matches it.
         Cmd-click a rule reference → jump to definition. Alt-click in CDDL → pin matching CBOR bytes.
+        A construct pinned from the schema marks every run it matched; the <strong>‹ k/N ›</strong>
+        chip in each panel&apos;s strip (or Alt+, and Alt+.) steps through them. A run pinned from
+        the hex or a tree is pinned alone.
+        The <strong>✗ chip</strong> beside the CBOR hex tab counts the mismatches and opens the list;
+        each one is also flagged on its row in both trees.
+        <strong> Drag a tab</strong> onto another group, or use a group&apos;s <strong>⋮ menu</strong>,
+        to rearrange the panels.
+        In the schema editor <strong>Tab indents</strong> — press Escape, then Tab, to move focus on.
       </HintBanner>
-      {pinnedEntry && (
+
+      {/* Schema-error UI sits above the editor (editor fills remaining height). */}
+      {hydrating && (
         <div className="cq-link-banner">
           <span className="cq-link-banner-text">
-            Pinned: <code>{pinnedEntry.cbor_path}</code>
-            {pinnedEntry.rule_name ? ` · rule ${pinnedEntry.rule_name}` : ""}
+            {hydratingPreset
+              ? `Opening a shared link — loading the ${hydratingPreset} schema…`
+              : "Opening a shared link…"}
+          </span>
+        </div>
+      )}
+
+      {hydrationError && (
+        <div className="cddl-error-card">
+          <div className="cddl-error-card-head">
+            <span className="cddl-error-card-kind">shared link</span>
+            <button
+              type="button"
+              className="cddl-error-card-close"
+              onClick={dismissHydrationError}
+              title="Dismiss"
+              aria-label="Dismiss"
+            >✕</button>
+          </div>
+          <div className="cddl-error-card-message">{hydrationError}</div>
+        </div>
+      )}
+
+      {detectNotice && (
+        <div className="cq-link-banner" role="status">
+          <span className="cq-link-banner-text">{detectNotice}</span>
+          <button
+            type="button"
+            className="cq-link-banner-close"
+            onClick={() => setDetectNotice(null)}
+            title="Dismiss"
+            aria-label="Dismiss"
+          >✕</button>
+        </div>
+      )}
+      {presetNotice && (
+        <div className="cq-link-banner">
+          <span className="cq-link-banner-text">
+            {describePresetLoad(presetNotice, effectiveRule, schemaSettling)}
           </span>
           <button
             type="button"
             className="cq-link-banner-close"
-            onClick={clearPinnedEntry}
+            onClick={() => setPresetNotice(null)}
+            title="Dismiss"
+            aria-label="Dismiss"
+          >✕</button>
+        </div>
+      )}
+
+      {formatError && (
+        <div className="cddl-error-card">
+          <div className="cddl-error-card-kind">format not applied</div>
+          <div className="cddl-error-card-message">
+            The schema was left as it is because {formatError}.
+          </div>
+        </div>
+      )}
+
+      {pinnedNode && (
+        <div className="cq-link-banner">
+          <span className="cq-link-banner-text">
+            Pinned: <code title={pinnedNode.cborPath}>{abbreviatePath(pinnedNode.cborPath)}</code>
+            {pinnedNode.entry.rule_name ? ` · rule ${pinnedNode.entry.rule_name}` : ""}
+            {pinTotal > 1 ? ` · instance ${pinIndex + 1} of ${pinTotal}` : ""}
+          </span>
+          <button
+            type="button"
+            className="cq-link-banner-close"
+            onClick={clearPinnedNode}
             title="Clear pinned selection"
             aria-label="Clear pinned selection"
           >✕</button>
         </div>
       )}
 
-      <CddlEditor
+      <SchemaErrorLine
+        result={schema.result}
+        checkerFailure={schema.checkerFailure}
+        errorLine={schema.errorLine}
+        unresolvedNames={schema.unresolvedNames}
+        rangesAreStale={schema.rangesAreStale}
+        onRevealError={revealSchemaError}
+        onRevealRange={revealSchemaRange}
+      />
+
+      <EditorPane
+        store={hoverStore}
         ref={editorRef}
         value={cddl}
-        onChange={setCddl}
+        onChange={handleCddlChange}
         marks={editorMarks}
         onSymbolClick={handleSymbolClick}
         onLinkClick={handleLinkClick}
         onPinAtOffset={requestPinFromCddlOffset}
+        canPinAt={canPinAtCddlOffset}
         onCaretMove={setCaretOffset}
-        ruleNames={ruleNames}
+        ruleNames={schema.declaredNames}
       />
 
       {presetError && (
@@ -522,87 +1001,54 @@ export default function CddlValidatorContent() {
           <div className="cddl-error-card-message">{presetError}</div>
         </div>
       )}
-
-      {schema.result && !schema.result.valid && (
-        <div className="cddl-error-card">
-          <div className="cddl-error-card-kind">{schema.result.error.kind}</div>
-          {schema.errorLine !== null && (
-            <div className="cddl-error-card-meta">line {schema.errorLine}</div>
-          )}
-          <div className="cddl-error-card-message">{schema.result.error.message}</div>
-        </div>
-      )}
-    </div>
+    </>
   );
 
-  const validationCard = (
+  // Verdict lives on the hex strip; hide it while a pass is owed or decode failed.
+  const hexExtras = (
     <>
-      {cborResult && cborResult.valid && (
-        <div className="cddl-success-card">
-          ✓ CBOR matches <code>{ruleDebounced}</code>
-        </div>
+      {notification && <span className="panel-badge info">{notification}</span>}
+      {!resultsPending && decodeError && (
+        <span className="panel-badge error" title={decodeError.message}>
+          {decodeError.kind}
+        </span>
       )}
-
-      {cborResult && !cborResult.valid && (
-        <div className="cddl-error-card">
-          <div className="cddl-error-card-kind">{cborResult.error.kind}</div>
-          <div className="cddl-error-card-message">{cborResult.error.message}</div>
-          <dl className="cddl-error-card-fields">
-            {cborResult.error.expected && (
-              <>
-                <dt>expected</dt>
-                <dd><code>{cborResult.error.expected}</code></dd>
-              </>
-            )}
-            {cborResult.error.path && (
-              <>
-                <dt>path</dt>
-                <dd><code>{cborResult.error.path}</code></dd>
-              </>
-            )}
-            {cborResult.error.byte_spans && cborResult.error.byte_spans.length > 0 && (
-              <>
-                <dt>byte spans</dt>
-                <dd>
-                  {cborResult.error.byte_spans.map((s, i) => (
-                    <code key={i} className="cddl-span-chip" onClick={() => setHoverPosition(s)}>
-                      {s.offset}..{s.offset + s.length}
-                    </code>
-                  ))}
-                </dd>
-              </>
-            )}
-            {cborResult.error.anchor_spans && cborResult.error.anchor_spans.length > 0 && (
-              <>
-                <dt>anchors</dt>
-                <dd>
-                  {cborResult.error.anchor_spans.map((s, i) => (
-                    <code key={i} className="cddl-span-chip cddl-span-chip-anchor" onClick={() => setHoverPosition(s)}>
-                      {s.offset}..{s.offset + s.length}
-                    </code>
-                  ))}
-                </dd>
-              </>
-            )}
-          </dl>
+      {!resultsPending && decoderFailure && (
+        <span className="panel-badge error" title={decoderFailure}>
+          decoder failed
+        </span>
+      )}
+      <span className="cq-flex-grow" />
+      {resultsPending && (
+        <span className="cddl-pending-tab-note" role="status" aria-label="Checking this CBOR against the schema">
+          <span className="cddl-pending-spinner animate-spin" />
+          checking…
+        </span>
+      )}
+      {!resultsPending && verdict.kind !== "none" && (
+        <div className="cq-strip-verdict">
+          <VerdictChip
+            verdict={verdict}
+            open={drawerShown}
+            onToggle={toggleDrawer}
+            buttonRef={verdictChipRef}
+          />
+          {cddlErrors.length > 0 && (
+            <CddlErrorNav
+              errors={cddlErrors}
+              unlisted={unlistedErrors}
+              current={selectedErrorIndex}
+              onJump={handleJump}
+            />
+          )}
         </div>
       )}
     </>
   );
 
-  const cborPanel = (
-    <div className="panel-content" ref={hexEditorRef}>
-      <div className="panel-header-compact">
-        <span className="panel-title">CBOR Hex</span>
-        {cborResult && cborResult.valid && (
-          <span className="panel-badge success">matches rule</span>
-        )}
-        {cborResult && !cborResult.valid && (
-          <span className="panel-badge error" title={cborResult.error.message}>
-            {cborResult.error.kind}
-          </span>
-        )}
-      </div>
+  const hexBody = (
+    <>
+      {!resultsPending && hexRefusal && <RefusalBanner refusal={hexRefusal} />}
       {linkedHexSpans.length > 0 && (
         <div className="cq-link-banner">
           <span className="cq-link-banner-text">
@@ -617,107 +1063,130 @@ export default function CddlValidatorContent() {
           >✕</button>
         </div>
       )}
-      <EditableHexView
+      <HexPane
+        store={hoverStore}
         value={cborInput}
-        onChange={setCborInput}
+        onChange={handleCborChange}
         hexValue={cleanHex}
         cborData={decoded}
-        hoverPosition={hoverPosition}
         focusPosition={focusPosition}
+        errorLocation={errorLocation}
         extraErrorSpans={extraErrorSpans}
-        linkedSpans={combinedHexLinkedSpans}
-        onHoverPath={noopHoverPath}
+        linkedSpans={linkedHexSpans}
+        pinnedSpans={hexPinnedSpans}
+        pinnedOtherSpans={hexPinnedOtherSpans}
         onShowInTree={handleShowInTree}
         onContextMenuPin={requestPinFromCborOffset}
       />
-    </div>
+    </>
   );
 
-  const outputPanel = (
-    <div className="panel-content">
-      <Tabs.Root defaultValue="validation" className="cq-tabs-root">
-        <Tabs.List className="cq-tabs-list">
-          <Tabs.Trigger value="validation" className="cq-tabs-trigger">Validation</Tabs.Trigger>
-          <Tabs.Trigger value="decoded" className="cq-tabs-trigger">Decoded against schema</Tabs.Trigger>
-          <Tabs.Trigger value="tree" className="cq-tabs-trigger">Structural tree</Tabs.Trigger>
-        </Tabs.List>
-
-        <Tabs.Content value="validation" className="cq-tabs-content">
-          {!cleanHex ? (
-            <div className="cq-decoded-empty">Paste CBOR hex above to see validation results.</div>
-          ) : validationCard}
-        </Tabs.Content>
-
-        <Tabs.Content value="decoded" className="cq-tabs-content">
-          {!schemaJson && (
-            <div className="cq-decoded-empty">
-              Provide CBOR hex, a valid CDDL schema and a rule to see decoded JSON.
-            </div>
-          )}
-          {schemaJson && !schemaJson.ok && (
-            <div className="cddl-error-card">
-              <div className="cddl-error-card-kind">decode error</div>
-              <div className="cddl-error-card-message">{schemaJson.error}</div>
-            </div>
-          )}
-          {schemaJson && schemaJson.ok && (
-            <div className="cq-decoded-viewer">
-              <DecodedJsonTree
-                data={schemaJson.value}
-                expanded={3}
-                pinnedPath={decodedPinnedPath}
-                onPinPath={requestPinFromDecodedPath}
-              />
-            </div>
-          )}
-        </Tabs.Content>
-
-        <Tabs.Content value="tree" className="cq-tabs-content">
-          {decoded ? (
-            <div className="cq-tree-pane">
-              <CborTreeView
-                data={decoded}
-                hexValue={cleanHex}
-                onHoverPosition={handleTreeHover}
-                onHighlightAndScroll={handleTreeHighlightAndScroll}
-                highlightedTreePosition={treeHighlight}
-                onClearHighlight={handleClearTreeHighlight}
-                onPinPosition={requestPinFromTreePosition}
-              />
-            </div>
-          ) : (
-            <div className="cq-decoded-empty">CBOR didn&apos;t decode — no tree.</div>
-          )}
-        </Tabs.Content>
-      </Tabs.Root>
-    </div>
+  const decodedBody = (
+    <>
+      {!schemaJson && (
+        <div className="cq-decoded-empty">
+          Provide CBOR hex, a valid CDDL schema and a rule to see decoded JSON.
+        </div>
+      )}
+      {schemaJson && !schemaJson.ok && (
+        <WalkRefusalCard refusal={schemaJson.error} walker="decoder" />
+      )}
+      {schemaJson && schemaJson.ok && (
+        // Scroll-into-view only when the decoded panel is actually on screen.
+        <DecodedPane
+          store={hoverStore}
+          data={schemaJson.value}
+          expanded={3}
+          pinnedPath={decodedPinnedPath}
+          pinnedOtherPaths={decodedPinnedOthers}
+          pinnedRole={pinned?.node.entry.entry_role ?? null}
+          openPaths={decodedVisited}
+          revealSeq={pinRevealSeq}
+          onPinPath={requestPinFromDecodedPath}
+          scrollOnHighlight={scrollDecodedToPin}
+          rowDiagnostics={decodedDiagnosticRows}
+          selectedDiagnostic={selectedErrorIndex}
+          onSelectDiagnostic={selectFromDecoded}
+          onRevealBytes={revealInHex}
+          diagnosticRevealSeq={diagnosticRevealSeq}
+          scrollOnDiagnostic={scrollDecodedToDiagnostic}
+        />
+      )}
+    </>
   );
+
+  const treeBody = decoded ? (
+    <TreePane
+      store={hoverStore}
+      data={decoded}
+      hexValue={cleanHex}
+      onHighlightAndScroll={revealInHex}
+      highlightedTreePosition={highlightedTreePosition}
+      onClearHighlight={handleClearTreeHighlight}
+      pinnedPosition={treePinned}
+      pinnedOtherSpans={treePinnedOthers}
+      openPositions={treeVisited}
+      revealSeq={pinRevealSeq}
+      scrollOnHighlight={scrollTreeToPin}
+      onPinPosition={requestPinFromTreePosition}
+      rowDiagnostics={treeDiagnosticRows}
+      selectedDiagnostic={selectedErrorIndex}
+      onSelectDiagnostic={selectFromTree}
+      diagnosticRevealSeq={diagnosticRevealSeq}
+      scrollOnDiagnostic={scrollTreeToDiagnostic}
+    />
+  ) : (
+    <div className="cq-decoded-empty">CBOR didn&apos;t decode — no tree.</div>
+  );
+
+  // Mount a panel body only after it has been shown once.
+  const bodyOf = (panel: PanelId, body: ReactNode) => (shownPanels.has(panel) ? body : null);
+  const panelSpecs: PanelRegistry = {
+    cddl: { extras: cddlExtras, nav: navFor("cddl"), body: bodyOf("cddl", cddlBody) },
+    hex: { extras: hexExtras, nav: navFor("hex"), body: bodyOf("hex", hexBody) },
+    decoded: { extras: null, nav: navFor("decoded"), body: bodyOf("decoded", decodedBody) },
+    tree: { extras: null, nav: navFor("tree"), body: bodyOf("tree", treeBody) },
+  };
 
   return (
     <div className="cddl-validator-layout">
-      <div className="cddl-validator-top">
-        <ResizablePanels
-          leftPanel={leftPanel}
-          rightPanel={cborPanel}
-          defaultLeftWidth={50}
-          minLeftWidth={25}
-          maxLeftWidth={75}
+      <DockWorkspace ref={workspaceRef} panels={panelSpecs} onVisibleChange={handleVisibleChange} />
+      {drawerShown && (
+        <MismatchDrawer
+          verdict={verdict}
+          outcome={cborOutcome}
+          diagnostics={diagnostics}
+          hiddenDiagnostics={validation.hiddenDiagnostics}
+          undescribedDiagnostics={validation.undescribedDiagnostics}
+          selectedIndex={selectedErrorIndex}
+          onSelectDiagnostic={selectFromList}
+          onRevealBytes={revealInHex}
+          rootSuggestions={refusedAtRoot ? rootSuggestions : null}
+          onRulePick={handleRulePick}
+          onClose={closeDrawer}
         />
-      </div>
-      <div className="cddl-validator-bottom">
-        {outputPanel}
-      </div>
+      )}
+      <TypeSelectionModal
+        isOpen={ruleChoice !== null}
+        types={ruleChoice ?? []}
+        onSelect={chooseDetectedRule}
+        onClose={dismissRuleChoice}
+        title="Which rule is this CBOR?"
+        description="It matches more than one root rule of the schema. Pick the one to validate against:"
+      />
       {pinMenu && (
         <PinContextMenu
           x={pinMenu.x}
           y={pinMenu.y}
           candidate={pinMenu.candidate}
+          emptyNotice={pinMenuEmptyNotice}
           source={pinMenu.source}
+          actions={pinMenu.actions}
           targets={pinTargets}
-          hasActivePin={pinnedEntry !== null}
+          hasActivePin={pinned !== null}
           onToggleTarget={togglePinTarget}
-          onPin={(entry) => setPinnedEntry(entry)}
-          onClearPin={clearPinnedEntry}
+          onPin={handlePin}
+          onClearPin={clearPinnedNode}
           onClose={closePinMenu}
         />
       )}

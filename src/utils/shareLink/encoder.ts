@@ -8,6 +8,7 @@ import type {
   ValidatorShareInput,
   CardanoCborShareInput,
   GeneralCborShareInput,
+  CddlShareInput,
 } from "./types";
 
 export interface BuildLinkOpts {
@@ -135,6 +136,37 @@ export async function encodeGeneralCborLink(
   }
 
   return buildUrl(opts, "general-cbor", parts);
+}
+
+/** Encode CDDL validator state. Compressed is the practical mode; minimal still works for a preset name. */
+export async function encodeCddlLink(
+  opts: BuildLinkOpts,
+  input: CddlShareInput,
+  mode: ShareLinkMode
+): Promise<string> {
+  const parts: string[] = [];
+  const preset = input.preset || undefined;
+
+  if (mode.kind === "minimal") {
+    // Minimal: preset id, or the full schema text if there is no preset.
+    if (preset) appendParam(parts, "preset", preset);
+    else appendParam(parts, "cddl", input.cddl);
+    appendParam(parts, "rule", input.rule);
+    appendParam(parts, "cbor", input.cbor);
+  } else {
+    const rest = {
+      preset,
+      cddl: preset ? undefined : input.cddl || undefined,
+      rule: input.rule || undefined,
+    };
+    const encoding: "j" | "b" = mode.kind === "compressed" ? "b" : "j";
+    const data = await encodeRichData(input.cbor, rest, encoding);
+    parts.push(`v=${URL_FORMAT_VERSION}`);
+    parts.push(`e=${encoding}`);
+    parts.push(`d=${data}`);
+  }
+
+  return buildUrl(opts, "cddl-validator", parts);
 }
 
 export function getBuildLinkOpts(): BuildLinkOpts {

@@ -22,6 +22,7 @@ import { createStore, del, entries, set } from "idb-keyval";
 import type { NetworkType } from "@cardananium/cquisitor-lib";
 import type { DataProvider } from "@/utils/transactionValidation";
 import { KoiosClient, type BlockchainDataClient } from "@/utils/koiosClient";
+import { primeAddresses } from "@/lib/decodedAddresses";
 import { BlockfrostClient } from "@/utils/blockfrostClient";
 import type { KoiosUtxoInfo } from "./types";
 
@@ -168,7 +169,12 @@ export function UtxoInfoProvider({
     }
     client
       .getUtxoInfo(refs)
-      .then((utxos) => {
+      .then(async (utxos) => {
+        // A resolved UTxO's address is decoded by the input card that shows
+        // it and by every protocol detector that runs over it, none of which
+        // can wait for a decode. This is the last point where waiting is
+        // possible, so it happens here rather than in the render below.
+        await primeAddresses(utxos.map((u) => u.address));
         const byRef = new Map<string, KoiosUtxoInfo>(
           utxos.map((u) => [`${u.tx_hash}#${u.tx_index}`, u]),
         );

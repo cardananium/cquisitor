@@ -4,6 +4,7 @@ import { ReactNode } from "react";
 import { GeneralCborProvider } from "@/context/GeneralCborContext";
 import { CardanoCborProvider } from "@/context/CardanoCborContext";
 import { TransactionValidatorProvider } from "@/context/TransactionValidatorContext";
+import { CddlValidatorProvider } from "@/context/CddlValidatorContext";
 import WelcomeModal from "./WelcomeModal";
 
 interface ProvidersProps {
@@ -15,8 +16,10 @@ export default function Providers({ children }: ProvidersProps) {
     <GeneralCborProvider>
       <CardanoCborProvider>
         <TransactionValidatorProvider>
-          {children}
-          <WelcomeModal />
+          <CddlValidatorProvider>
+            {children}
+            <WelcomeModal />
+          </CddlValidatorProvider>
         </TransactionValidatorProvider>
       </CardanoCborProvider>
     </GeneralCborProvider>

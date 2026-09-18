@@ -4,7 +4,7 @@
 
 export * from "./plutusData";
 export { getPaymentScriptHash, outputAssetPolicyIds } from "./address";
-export { decodePlutusJsonOrHex, resolveOutputDatum } from "./datum";
+export { decodePlutusJson, resolveOutputDatum } from "./datum";
 export {
   registerDexAdapter,
   listDexAdapters,

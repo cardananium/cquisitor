@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import JsonDocumentView from "./JsonDocumentView";
 import { CheckIcon, CopyIcon } from "@/components/Icons";
 import { readJsonViewerPayload } from "@/utils/jsonViewerHandoff";
+import { indentJsonText } from "@/utils/indentJson";
 
 /**
  * The `#json-viewer` view: a focused, full-page JSON viewer opened in a
@@ -36,14 +37,8 @@ export default function JsonViewerContent() {
 
   const handleCopy = () => {
     if (!payload) return;
-    // Pretty-print when possible so the clipboard copy is readable.
-    let text = payload.json;
-    try {
-      text = JSON.stringify(JSON.parse(payload.json), null, 2);
-    } catch {
-      /* fall back to the raw string */
-    }
-    navigator.clipboard.writeText(text);
+    // Re-space for reading; indentJsonText keeps wide integers that JSON.stringify would not.
+    navigator.clipboard.writeText(indentJsonText(payload.json));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

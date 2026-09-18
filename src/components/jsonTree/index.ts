@@ -1,4 +1,4 @@
-export { default as JsonTreeView } from "./JsonTreeView";
+export { default as JsonTreeView, attrSelector } from "./JsonTreeView";
 export type {
   JsonTreeViewProps,
   JsonNodeContext,
@@ -8,13 +8,18 @@ export type {
 export {
   type IsAncestor,
   type JoinKey,
+  type PathScheme,
   type PathsEqual,
   dotIsPathAncestor,
   dotJoinKey,
+  dotPathScheme,
   dotPathsEqual,
+  dotSplitPath,
   libIsPathAncestor,
   libJoinKey,
+  libPathScheme,
   libPathsEqual,
+  libSegmentOf,
   libSplitPath,
 } from "./paths";
 export {

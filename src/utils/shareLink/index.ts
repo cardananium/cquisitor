@@ -3,6 +3,7 @@ export {
   encodeValidatorLink,
   encodeCardanoCborLink,
   encodeGeneralCborLink,
+  encodeCddlLink,
   getBuildLinkOpts,
 } from "./encoder";
 export type { BuildLinkOpts } from "./encoder";
@@ -11,6 +12,7 @@ export {
   parseValidatorShare,
   parseCardanoCborShare,
   parseGeneralCborShare,
+  parseCddlShare,
 } from "./parser";
 export type { ParsedHash } from "./parser";
 export type {
@@ -19,7 +21,9 @@ export type {
   ValidatorShareInput,
   CardanoCborShareInput,
   GeneralCborShareInput,
+  CddlShareInput,
   ParsedValidatorShare,
   ParsedCardanoCborShare,
   ParsedGeneralCborShare,
+  ParsedCddlShare,
 } from "./types";

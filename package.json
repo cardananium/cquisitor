@@ -10,7 +10,7 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@cardananium/cquisitor-lib": "^0.1.0-beta.63",
+    "@cardananium/cquisitor-lib": "^0.1.0-beta.64",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/material": "^7.3.6",
@@ -26,6 +26,8 @@
     "bech32": "^2.0.0",
     "brotli-wasm": "^3.0.1",
     "cbor-x": "^1.6.0",
+    "dockview": "^8.3.1",
+    "dockview-react": "^8.3.1",
     "idb-keyval": "^6.2.5",
     "json-bigint": "^1.0.0",
     "next": "^16.2.12",

@@ -4,9 +4,6 @@
  */
 
 import {
-  get_necessary_data_list_js,
-  validate_transaction_js,
-  get_ref_script_bytes,
   type NecessaryInputData,
   type ValidationInputContext,
   type ValidationResult,
@@ -31,6 +28,7 @@ import {
   type ExUnitPrices,
 } from '@cardananium/cquisitor-lib';
 
+import { callLib } from '@/lib/cquisitorWorker';
 import { KoiosClient, formatUtxoRef, govActionTypeToKoiosProposalType } from './koiosClient';
 import { BlockfrostClient } from './blockfrostClient';
 import type { GovActionRef, BlockchainDataClient } from './koiosClient';
@@ -283,7 +281,7 @@ async function extractMissingRefScriptBytes(
 
     for (const utxo of utxos) {
       try {
-        const refScriptBytes = get_ref_script_bytes(txCbor, utxo.tx_index);
+        const refScriptBytes = await callLib<string>('get_ref_script_bytes', [txCbor, utxo.tx_index]);
         const key = `${utxo.tx_hash}#${utxo.tx_index}`;
         result.set(key, refScriptBytes);
       } catch (error) {
@@ -820,7 +818,7 @@ export async function validateTransaction(
   const { txHex, network, apiKey, provider = 'koios' } = config;
 
   // Step 1: Get the list of necessary data from the transaction
-  const necessaryDataJson = get_necessary_data_list_js(txHex, network);
+  const necessaryDataJson = await callLib<string>('get_necessary_data_list_js', [txHex, network]);
   console.log('[validateTransaction] necessaryDataJson:', necessaryDataJson);
   const necessaryData: NecessaryInputData = JSON.parse(necessaryDataJson);
 
@@ -845,7 +843,10 @@ export async function validateTransaction(
   };
 
   // Step 4: Validate the transaction
-  const validationResultJson = validate_transaction_js(txHex, stringify(validationContext) ?? '{}');
+  const validationResultJson = await callLib<string>(
+    'validate_transaction_js',
+    [txHex, stringify(validationContext) ?? '{}'],
+  );
   const validationResult: ValidationResult = JSON.parse(validationResultJson);
 
   // Step 5: Build UTxO info map for display purposes
@@ -866,8 +867,11 @@ export async function validateTransaction(
  * Get the list of data that needs to be fetched for validation
  * Useful for understanding what the transaction requires
  */
-export function getNecessaryValidationData(txHex: string, network: NetworkType): NecessaryInputData {
-  const necessaryDataJson = get_necessary_data_list_js(txHex, network);
+export async function getNecessaryValidationData(
+  txHex: string,
+  network: NetworkType,
+): Promise<NecessaryInputData> {
+  const necessaryDataJson = await callLib<string>('get_necessary_data_list_js', [txHex, network]);
   return JSON.parse(necessaryDataJson);
 }
 
@@ -900,10 +904,13 @@ export function buildValidationContext(
  * Validate transaction with custom ValidationInputContext
  * Useful when you've built the context yourself
  */
-export function validateTransactionWithContext(
+export async function validateTransactionWithContext(
   txHex: string,
   context: ValidationInputContext
-): ValidationResult {
-  const validationResultJson = validate_transaction_js(txHex, stringify(context) ?? '{}');
+): Promise<ValidationResult> {
+  const validationResultJson = await callLib<string>(
+    'validate_transaction_js',
+    [txHex, stringify(context) ?? '{}'],
+  );
   return JSON.parse(validationResultJson);
 }

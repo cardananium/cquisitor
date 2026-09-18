@@ -3,8 +3,56 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import logo64 from "../../public/logo-64.png";
+import { VISIBLE_TABS, type TabDefinition } from "./TabNavigation";
 
 const STORAGE_KEY = "cquisitor_welcome_shown";
+
+// One icon per tab of the shell, hidden ones included, so that showing a tab
+// is a single edit in the tab list and never leaves a card without an icon.
+const TAB_ICONS: Record<TabDefinition["id"], React.ReactNode> = {
+  "transaction-validator": (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M9 12l2 2 4-4" />
+      <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
+  "cardano-cbor": (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M7 7h4M7 12h10M7 17h6" />
+    </svg>
+  ),
+  "general-cbor": (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M4 6h16M4 12h16M4 18h12" />
+      <circle cx="19" cy="18" r="2" />
+    </svg>
+  ),
+  "cddl-validator": (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M8 3H7a2 2 0 00-2 2v4a2 2 0 01-2 2 2 2 0 012 2v4a2 2 0 002 2h1" />
+      <path d="M16 3h1a2 2 0 012 2v4a2 2 0 002 2 2 2 0 00-2 2v4a2 2 0 01-2 2h-1" />
+      <path d="M9 12h6" />
+    </svg>
+  ),
+};
+
+/** The feature cards of the welcome modal — one per tab shown in the nav. */
+export function WelcomeFeatures() {
+  return (
+    <div className="welcome-features-grid">
+      {VISIBLE_TABS.map((tab) => (
+        <FeatureCard
+          key={tab.id}
+          icon={TAB_ICONS[tab.id]}
+          title={tab.name}
+          description={tab.description}
+          color={tab.accent}
+        />
+      ))}
+    </div>
+  );
+}
 
 interface FeatureCardProps {
   icon: React.ReactNode;
@@ -102,43 +150,7 @@ export default function WelcomeModal() {
 
         {/* Features section */}
         <div className="welcome-modal-body">
-          <div className="welcome-features-grid">
-            <FeatureCard
-              icon={
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9 12l2 2 4-4"/>
-                  <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-              }
-              title="Transaction Validator"
-              description="Validate Cardano transactions with Phase 1 & 2 checks. See execution units and detect errors in real-time."
-              color="#22c55e"
-            />
-            
-            <FeatureCard
-              icon={
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="3" y="3" width="18" height="18" rx="2"/>
-                  <path d="M7 7h4M7 12h10M7 17h6"/>
-                </svg>
-              }
-              title="Cardano CBOR"
-              description="Decode Cardano-specific CBOR structures like transactions, blocks, witnesses, and protocol params with full type awareness."
-              color="#3b82f6"
-            />
-            
-            <FeatureCard
-              icon={
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M4 6h16M4 12h16M4 18h12"/>
-                  <circle cx="19" cy="18" r="2"/>
-                </svg>
-              }
-              title="General CBOR"
-              description="Parse and visualize any CBOR data with an interactive hex view. Click on tree nodes to highlight corresponding bytes."
-              color="#8b5cf6"
-            />
-          </div>
+          <WelcomeFeatures />
 
           {/* Tips section */}
           <div className="welcome-tips">

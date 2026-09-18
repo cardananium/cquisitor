@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
-import { TabId, getTabFromHash } from "./TabNavigation";
+import { TabId, VISIBLE_TABS, getTabFromHash } from "./TabNavigation";
 import CompactLayout from "./CompactLayout";
 import Image from "next/image";
 import logo32 from "../../public/logo-32.png";
@@ -70,7 +70,7 @@ const CddlValidatorContent = dynamic(
     ssr: false,
     loading: () => (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-gray-500">Loading CDDL Validator...</div>
+        <div className="text-gray-500">Loading CDDL Tool...</div>
       </div>
     ),
   }
@@ -88,15 +88,7 @@ const JsonViewerContent = dynamic(
   }
 );
 
-// CDDL Validator is intentionally omitted from the visible nav / fallback
-// list for now (still mounted on direct `#cddl-validator` hash).
-const tabs = [
-  { name: "Transaction Validator", id: "transaction-validator" as TabId },
-  { name: "Cardano CBOR", id: "cardano-cbor" as TabId },
-  { name: "General CBOR", id: "general-cbor" as TabId },
-];
-
-function InvalidHashError({ invalidHash }: { invalidHash: string }) {
+export function InvalidHashError({ invalidHash }: { invalidHash: string }) {
   const navigateTo = (tabId: TabId) => {
     window.history.pushState(null, "", `#${tabId}`);
     window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -131,7 +123,7 @@ function InvalidHashError({ invalidHash }: { invalidHash: string }) {
             The URL hash <code className="px-2 py-1 bg-gray-100 rounded text-red-600 text-sm">#{invalidHash}</code> is not recognized.
           </p>
           <div className="flex flex-col gap-2">
-            {tabs.map((tab) => (
+            {VISIBLE_TABS.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => navigateTo(tab.id)}

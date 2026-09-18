@@ -7,19 +7,25 @@ import {
   encodeValidatorLink,
   encodeCardanoCborLink,
   encodeGeneralCborLink,
+  encodeCddlLink,
   getBuildLinkOpts,
   type ShareLinkMode,
   type ValidatorShareInput,
   type CardanoCborShareInput,
   type GeneralCborShareInput,
+  type CddlShareInput,
 } from "@/utils/shareLink";
 
 const URL_WARN_THRESHOLD = 4096;
 
-export type ShareDialogInput =
+export type ShareDialogTarget =
   | { kind: "validator"; input: ValidatorShareInput }
   | { kind: "cardano-cbor"; input: CardanoCborShareInput }
-  | { kind: "general-cbor"; input: GeneralCborShareInput };
+  | { kind: "general-cbor"; input: GeneralCborShareInput }
+  | { kind: "cddl"; input: CddlShareInput };
+
+/** Extra warning when some on-screen state could not be encoded into the link. */
+export type ShareDialogInput = ShareDialogTarget & { warning?: string | null };
 
 interface ShareDialogProps {
   open: boolean;
@@ -38,7 +44,10 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
   const hasCtx = target.kind === "validator" && !!target.input.ctx;
   const pageHasCompressibleState = target.kind !== "general-cbor" || target.input.cbor.length > 200;
 
-  const [mode, setMode] = useState<ModeKind>(() => (hasCtx ? "compressed" : "minimal"));
+  // CDDL era schemas are ~25 KB; default to compression even without validation context.
+  const [mode, setMode] = useState<ModeKind>(() =>
+    hasCtx || target.kind === "cddl" ? "compressed" : "minimal"
+  );
   const [includeCtx, setIncludeCtx] = useState<boolean>(() => hasCtx);
   const [urlState, setUrlState] = useState<
     | { status: "encoding" }
@@ -66,6 +75,8 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
           return encodeCardanoCborLink(opts, target.input, shareMode);
         case "general-cbor":
           return encodeGeneralCborLink(opts, target.input, shareMode);
+        case "cddl":
+          return encodeCddlLink(opts, target.input, shareMode);
       }
     };
 
@@ -123,6 +134,13 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
           </Dialog.Description>
 
           <div className="share-dialog-body">
+            {target.warning && (
+              <div className="share-dialog-drop" role="alert">
+                <WarningIcon size={12} className="text-yellow-600" />
+                <span>{target.warning}</span>
+              </div>
+            )}
+
             <fieldset className="share-dialog-section">
               <legend className="share-dialog-legend">Link style</legend>
 
@@ -177,8 +195,18 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
                 <div className="share-dialog-option-body">
                   <div className="share-dialog-option-title">Minimal (third-party style)</div>
                   <div className="share-dialog-option-hint">
-                    Raw query params (<code>cbor</code>, <code>net</code>, …). Anyone can build
-                    this URL by hand.
+                    {target.kind === "cddl" ? (
+                      <>
+                        Raw query params (<code>preset</code> or <code>cddl</code>,{" "}
+                        <code>rule</code>, <code>cbor</code>). A schema that is not an unedited
+                        preset goes into the URL in full.
+                      </>
+                    ) : (
+                      <>
+                        Raw query params (<code>cbor</code>, <code>net</code>, …). Anyone can
+                        build this URL by hand.
+                      </>
+                    )}
                   </div>
                 </div>
               </label>

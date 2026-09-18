@@ -4,11 +4,13 @@ import { URL_FORMAT_VERSION, CTX_SCHEMA_VERSION } from "./version";
 import { fromBase64Url, bytesToText, bytesToHex } from "./base64url";
 import { parseWithBigInt } from "./bigintJson";
 import { brotliDecompress } from "./compression";
+import { MAX_SHARE_PAYLOAD_BYTES, overBudgetMessage } from "@/utils/inputBudget";
 import type {
   TabId,
   ParsedValidatorShare,
   ParsedCardanoCborShare,
   ParsedGeneralCborShare,
+  ParsedCddlShare,
   ValidatorRichPayloadV1,
 } from "./types";
 
@@ -82,10 +84,13 @@ function unpackContainer(container: Uint8Array): RichPayload {
 async function decodeRichPayload(encoding: string, data: string): Promise<RichPayload> {
   const raw = fromBase64Url(data);
   if (encoding === "b") {
-    const decompressed = await brotliDecompress(raw);
+    // Cap decompressed size: URL length does not bound brotli output.
+    const decompressed = await brotliDecompress(raw, MAX_SHARE_PAYLOAD_BYTES);
     return unpackContainer(decompressed);
   }
   if (encoding === "j") {
+    const tooLarge = overBudgetMessage(raw.length, MAX_SHARE_PAYLOAD_BYTES, "This link's payload");
+    if (tooLarge) throw new Error(tooLarge);
     return unpackContainer(raw);
   }
   throw new Error(`Unsupported encoding: ${encoding}`);
@@ -184,6 +189,38 @@ export async function parseCardanoCborShare(
     ) {
       out.pds = rest.pds;
     }
+  } catch (e) {
+    out.parseError = e instanceof Error ? e.message : "Failed to parse rich payload";
+  }
+  return out;
+}
+
+/** Parse a CDDL share. `preset` is the era id; this module does not resolve it to schema text. */
+export async function parseCddlShare(params: URLSearchParams): Promise<ParsedCddlShare> {
+  const out: ParsedCddlShare = {};
+  const rawCddl = params.get("cddl");
+  if (rawCddl) out.cddl = rawCddl;
+  const rawPreset = params.get("preset");
+  if (rawPreset) out.preset = rawPreset;
+  const rawRule = params.get("rule");
+  if (rawRule) out.rule = rawRule;
+  const rawCbor = params.get("cbor");
+  if (rawCbor) out.cbor = rawCbor;
+
+  const vState = getRichVersionState(params);
+  if (vState.kind === "none") return out;
+  if (vState.kind === "future") {
+    out.futureVersion = true;
+    return out;
+  }
+
+  try {
+    const payload = await decodeRichPayload(vState.encoding, vState.data);
+    const rest = payload.rest as Partial<{ cddl: string; rule: string; preset: string }>;
+    if (!out.cbor && payload.cbor) out.cbor = payload.cbor;
+    if (!out.cddl && typeof rest.cddl === "string") out.cddl = rest.cddl;
+    if (!out.preset && typeof rest.preset === "string") out.preset = rest.preset;
+    if (!out.rule && typeof rest.rule === "string") out.rule = rest.rule;
   } catch (e) {
     out.parseError = e instanceof Error ? e.message : "Failed to parse rich payload";
   }

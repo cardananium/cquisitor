@@ -1,137 +1,252 @@
-// Thin, defensive wrappers around the cquisitor-lib functions used by the
-// CDDL validator. They:
-//
-//  1. Run the result through `convertSerdeNumbers` so callers see plain
-//     `number`s instead of `{$serde_json::private::Number: "..."}` boxes.
-//  2. Translate `throw` into a clean `null` / `[]`. Many of these
-//     functions throw on partial input (mid-typing CDDL, hex changing,
-//     unknown rule, etc.); none of those should crash the editor.
-//
-// Use these from React memos so the rest of the app code is free of
-// `try { ... } catch { return null }` boilerplate.
+// Wrappers around cquisitor-lib for the CDDL validator.
+// Calls go through the worker; throws become empty values or `{ok: false}`.
 
-import {
-  cbor_to_json,
-  validate_cddl,
-  validate_cbor_against_cddl,
-  decode_cbor_against_cddl,
-  cddl_outline,
-  cddl_format,
-  cddl_symbol_at,
-  cddl_references,
-  map_cbor_to_cddl,
-  type CborDecodeResult,
-  type CddlValidationResult,
-  type CborValidationResult,
-  type CborCddlMapEntry,
-  type CddlOutlineEntry,
-  type CddlSymbolAtResult,
-  type CddlReferencesResult,
+import type {
+  CborDecodeResult,
+  CddlValidationResult,
+  CborValidationResult,
+  CborCddlMap,
+  CborCddlMapResult,
+  CborCddlWalkError,
+  CborCddlWalkErrorKind,
+  CborDecodeAgainstCddlResult,
+  CddlOutlineEntry,
+  CddlSymbolAtResult,
+  CddlReferencesResult,
 } from "@cardananium/cquisitor-lib";
-import { convertSerdeNumbers } from "@/utils/serdeNumbers";
+import { callLib, libErrorMessage, type LibCallOptions } from "@/lib/cquisitorWorker";
 
-export function safeCborToJson(hex: string): CborDecodeResult | null {
+export type CborToJsonOutcome =
+  | { ok: true; result: CborDecodeResult }
+  | { ok: false; error: string };
+
+/**
+ * `null` when there is nothing to decode. A throw is the decoder giving up —
+ * `{ok: false}` rather than `null`, so a hex panel is never empty without a reason.
+ */
+export async function safeCborToJson(
+  hex: string,
+  options?: LibCallOptions,
+): Promise<CborToJsonOutcome | null> {
   if (!hex) return null;
   try {
-    const raw = cbor_to_json(hex);
-    return convertSerdeNumbers(raw) as CborDecodeResult;
-  } catch {
-    return null;
+    return { ok: true, result: await callLib<CborDecodeResult>("cbor_to_json", [hex], options) };
+  } catch (e) {
+    return { ok: false, error: libErrorMessage(e) };
   }
 }
 
-export function safeValidateCddl(cddl: string): CddlValidationResult | null {
+export type CddlSchemaOutcome =
+  | { ok: true; result: CddlValidationResult }
+  | { ok: false; error: string };
+
+/**
+ * `null` when there is no schema yet. A parse failure is a result (`valid: false`);
+ * a throw is the checker giving up, and every panel below is gated on it.
+ */
+export async function safeValidateCddl(
+  cddl: string,
+  options?: LibCallOptions,
+): Promise<CddlSchemaOutcome | null> {
   if (!cddl.trim()) return null;
   try {
-    const raw = validate_cddl(cddl);
-    return convertSerdeNumbers(raw) as CddlValidationResult;
-  } catch {
-    return null;
+    return { ok: true, result: await callLib<CddlValidationResult>("validate_cddl", [cddl], options) };
+  } catch (e) {
+    return { ok: false, error: libErrorMessage(e) };
   }
 }
 
-export function safeValidateCborAgainstCddl(
+export type CborValidationOutcome =
+  | { ok: true; result: CborValidationResult }
+  | { ok: false; error: string };
+
+/**
+ * `null` when there is nothing to check yet. A throw becomes `{ok: false}`
+ * rather than `null` — bad hex and internal failures both need to be shown.
+ */
+export async function safeValidateCborAgainstCddl(
   hex: string,
   cddl: string,
   rule: string,
-): CborValidationResult | null {
+  options?: LibCallOptions,
+): Promise<CborValidationOutcome | null> {
   if (!hex || !cddl.trim() || !rule.trim()) return null;
   try {
-    const raw = validate_cbor_against_cddl(hex, cddl, rule);
-    return convertSerdeNumbers(raw) as CborValidationResult;
-  } catch {
-    return null;
+    return {
+      ok: true,
+      result: await callLib<CborValidationResult>(
+        "validate_cbor_against_cddl",
+        [hex, cddl, rule],
+        options,
+      ),
+    };
+  } catch (e) {
+    return { ok: false, error: libErrorMessage(e) };
   }
+}
+
+/**
+ * Why a schema walk (labelled decode or bridge map) produced no answer.
+ * Library refusals keep their `kind`; no answer at all is `call_failed`. Branch on `kind`; `message` is not stable.
+ */
+export interface WalkRefusal {
+  kind: CborCddlWalkErrorKind | "call_failed";
+  message: string;
+}
+
+function refusedBy(error: CborCddlWalkError): WalkRefusal {
+  return { kind: error.kind, message: error.message };
+}
+
+function callFailed(e: unknown): WalkRefusal {
+  return { kind: "call_failed", message: libErrorMessage(e) };
 }
 
 export type DecodedAgainstSchema =
   | { ok: true; value: unknown }
-  | { ok: false; error: string };
+  | { ok: false; error: WalkRefusal };
 
-export function safeDecodeCborAgainstCddl(
+/**
+ * `null` when there is nothing to decode yet. A refused walk and a failed call
+ * both come back with a kind, so the panel is never blank without a reason.
+ */
+export async function safeDecodeCborAgainstCddl(
   hex: string,
   cddl: string,
   rule: string,
-): DecodedAgainstSchema | null {
+  options?: LibCallOptions,
+): Promise<DecodedAgainstSchema | null> {
   if (!hex || !cddl.trim() || !rule.trim()) return null;
   try {
-    const raw = decode_cbor_against_cddl(hex, cddl, rule);
-    return { ok: true, value: convertSerdeNumbers(raw) };
+    const result = await callLib<CborDecodeAgainstCddlResult>(
+      "decode_cbor_against_cddl",
+      [hex, cddl, rule],
+      options,
+    );
+    return result.ok
+      ? { ok: true, value: result.value }
+      : { ok: false, error: refusedBy(result.error) };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: callFailed(e) };
   }
 }
 
-export function safeMapCborToCddl(
+export type CborCddlMapOutcome =
+  | { ok: true; map: CborCddlMap }
+  | { ok: false; error: WalkRefusal };
+
+/**
+ * `null` when there is nothing to map yet. A refusal keeps its kind rather
+ * than becoming an empty map — empty means "nothing lined up", which a bound
+ * or missing rule is not.
+ */
+export async function safeMapCborToCddl(
   hex: string,
   cddl: string,
   rule: string,
-): CborCddlMapEntry[] {
-  if (!hex || !cddl.trim() || !rule.trim()) return [];
+  options?: LibCallOptions,
+): Promise<CborCddlMapOutcome | null> {
+  if (!hex || !cddl.trim() || !rule.trim()) return null;
   try {
-    const raw = map_cbor_to_cddl(hex, cddl, rule);
-    return convertSerdeNumbers(raw) as CborCddlMapEntry[];
-  } catch {
-    return [];
+    const result = await callLib<CborCddlMapResult>("map_cbor_to_cddl", [hex, cddl, rule], options);
+    return result.ok
+      ? { ok: true, map: result.value }
+      : { ok: false, error: refusedBy(result.error) };
+  } catch (e) {
+    return { ok: false, error: callFailed(e) };
   }
 }
 
-export function safeOutline(cddl: string): CddlOutlineEntry[] {
+export async function safeOutline(
+  cddl: string,
+  options?: LibCallOptions,
+): Promise<CddlOutlineEntry[]> {
   if (!cddl.trim()) return [];
   try {
-    const raw = cddl_outline(cddl);
-    return convertSerdeNumbers(raw) as CddlOutlineEntry[];
+    return await callLib<CddlOutlineEntry[]>("cddl_outline", [cddl], options);
   } catch {
     return [];
   }
 }
 
-export function safeReferences(cddl: string, name: string): CddlReferencesResult | null {
+export async function safeReferences(
+  cddl: string,
+  name: string,
+  options?: LibCallOptions,
+): Promise<CddlReferencesResult | null> {
   if (!cddl.trim() || !name) return null;
   try {
-    const raw = cddl_references(cddl, name);
-    return convertSerdeNumbers(raw) as CddlReferencesResult;
+    return await callLib<CddlReferencesResult>("cddl_references", [cddl, name], options);
   } catch {
     return null;
   }
 }
 
-export function safeSymbolAt(cddl: string, byteOffset: number): CddlSymbolAtResult | null {
+export async function safeSymbolAt(
+  cddl: string,
+  byteOffset: number,
+  options?: LibCallOptions,
+): Promise<CddlSymbolAtResult | null> {
   if (!cddl) return null;
   try {
-    const raw = cddl_symbol_at(cddl, byteOffset);
-    return convertSerdeNumbers(raw) as CddlSymbolAtResult;
+    return await callLib<CddlSymbolAtResult>("cddl_symbol_at", [cddl, byteOffset], options);
   } catch {
     return null;
   }
 }
 
 /** Returns `null` when the CDDL is invalid (which is when the lib throws). */
-export function safeFormat(cddl: string): string | null {
+export async function safeFormat(
+  cddl: string,
+  options?: LibCallOptions,
+): Promise<string | null> {
   if (!cddl.trim()) return null;
   try {
-    return cddl_format(cddl);
+    return await callLib<string>("cddl_format", [cddl], options);
   } catch {
     return null;
   }
+}
+
+export type FormatOutcome =
+  | { ok: true; text: string }
+  | { ok: false; reason: string };
+
+/** `kind name` for every outlined rule, sorted — identity for "did format change the declarations?". */
+async function ruleSignature(cddl: string): Promise<string[]> {
+  const outline = await safeOutline(cddl);
+  return outline.map(e => `${e.kind} ${e.name}`).sort();
+}
+
+/**
+ * Formats `cddl` only if the result still parses and declares the same rules.
+ * The formatter can drop comments even when accepted; callers should keep the previous text for undo.
+ */
+export async function formatCddlChecked(cddl: string): Promise<FormatOutcome> {
+  const formatted = await safeFormat(cddl);
+  if (formatted === null) return { ok: false, reason: "the formatter could not parse this schema" };
+  if (formatted === cddl) return { ok: true, text: formatted };
+
+  const check = await safeValidateCddl(formatted);
+  if (!check) return { ok: false, reason: "the formatted schema could not be re-checked" };
+  if (!check.ok) return { ok: false, reason: `the formatted schema could not be re-checked — ${check.error}` };
+  if (!check.result.valid) {
+    return {
+      ok: false,
+      reason: `the formatted schema no longer parses — ${check.result.error.kind}: ${check.result.error.message}`,
+    };
+  }
+
+  const before = await ruleSignature(cddl);
+  const after = await ruleSignature(formatted);
+  const lost = before.filter(r => !after.includes(r));
+  const gained = after.filter(r => !before.includes(r));
+  if (lost.length > 0 || gained.length > 0) {
+    const parts: string[] = [];
+    if (lost.length > 0) parts.push(`lost ${lost.join(", ")}`);
+    if (gained.length > 0) parts.push(`added ${gained.join(", ")}`);
+    return { ok: false, reason: `the formatted schema declares different rules — ${parts.join("; ")}` };
+  }
+
+  return { ok: true, text: formatted };
 }

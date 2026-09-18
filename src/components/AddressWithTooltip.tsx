@@ -1,10 +1,8 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { decode_specific_type } from "@cardananium/cquisitor-lib";
-import { convertSerdeNumbers } from "@/utils/serdeNumbers";
-import type { DecodedAddress } from "@/utils/addressTypes";
+import { useDecodedAddress } from "@/lib/useDecodedAddress";
 import { CopyIcon, CheckIcon } from "./Icons";
 
 interface AddressWithTooltipProps {
@@ -59,17 +57,8 @@ export function AddressWithTooltip({
   linkUrl, 
   showCopy = true 
 }: AddressWithTooltipProps) {
-  // Decode address using cquisitor-lib
-  const decoded = useMemo((): DecodedAddress | null => {
-    if (!address) return null;
-    try {
-      const result = decode_specific_type(address, "Address", {});
-      // Convert serde_json numbers to native JS numbers
-      return convertSerdeNumbers(result) as DecodedAddress;
-    } catch {
-      return null;
-    }
-  }, [address]);
+  // Decode is async; render the address now and fill the tooltip when it lands.
+  const decoded = useDecodedAddress(address);
 
   const addressContent = linkUrl ? (
     <a 
