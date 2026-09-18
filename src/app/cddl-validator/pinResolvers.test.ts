@@ -472,6 +472,17 @@ describe("buildEditorMarks", () => {
     expect(PRIORITY_LINKED > PRIORITY_REFERENCE).toBe(true);
   });
 
+  test("a pin from a data panel also marks the site the schema reaches it from", () => {
+    const node = nodeOf(entry({ cddl_byte_span: cddlSpan(40, 4) }));
+    const marks = buildEditorMarks({ ...base, pinnedNode: node, pinnedSite: [12, 16] });
+    const pinned = marks.filter(m => m.className === "cddl-editor-pinned-mark");
+    expect(pinned.map(m => m.range)).toEqual([[40, 44], [12, 16]]);
+    expect(pinned[1].message).toBe(pinned[0].message);
+    expect(pinned[1].priority).toBe(PRIORITY_PINNED);
+    // Not while the pin stays out of the editor.
+    expect(buildEditorMarks({ ...base, pinnedNode: node, pinnedSite: [12, 16], pinInCddl: false })).toEqual([]);
+  });
+
   test("every mismatch with a schema span gets a mark", () => {
     const marks = buildEditorMarks({
       ...base,
@@ -799,6 +810,33 @@ describe("over real library output", () => {
     // Alt-click on the reference lights both persons' bytes.
     const spans = linkedHexSpansForCddlOffset(bridge, reference);
     expect(spans.map(s => s.offset)).toEqual([1, 18]);
+  });
+
+  test("a reference typing a member names that member's instance; hover, pin and alt-click agree", () => {
+    const cddl = "doc = { 1: coin, 2: coin, ? 3: coin, 4: [* coin] }\ncoin = uint\n";
+    // {1: 10, 2: 20, 4: [30, 40]}
+    const hex = ["a3", "01", "0a", "02", "14", "04", "82", "181e", "1828"].join("");
+    const bridge = createCborCddlBridge(mapOf(hex, cddl, "doc"), cddl);
+    const site = (needle: string) => cddl.indexOf(needle) + needle.indexOf("coin");
+    const fee = findNodeByCddlOffset(bridge, site("2: coin"))!;
+    expect(fee.cborPath).toBe("$[2]");
+    expect(fee.instances?.map(e => bridge.node(e).cborPath)).toEqual(["$[2]"]);
+    expect(instanceSetFor(bridge, fee, "cddl").instances).toBe(fee.instances!);
+    const pin = makePin(bridge, fee, "cddl");
+    expect(pin.instances).toBe(fee.instances!);
+    expect(stepPin(pin, 1)).toBe(pin);
+    expect(linkedHexSpansForCddlOffset(bridge, site("2: coin")).map(s => s.offset)).toEqual([4]);
+    // The elements of the array, not the two loose coins.
+    const elements = findNodeByCddlOffset(bridge, site("[* coin]"))!;
+    expect(elements.instances?.map(e => bridge.node(e).cborPath)).toEqual(["$[4][0]", "$[4][1]"]);
+    expect(makePin(bridge, elements, "cddl").instances.length).toBe(2);
+    // The definition is still every coin, and carries no scope of its own.
+    const definition = findNodeByCddlOffset(bridge, cddl.indexOf("coin = uint"))!;
+    expect(definition.instances).toBeUndefined();
+    expect(instanceSetFor(bridge, definition, "cddl").instances.length).toBe(4);
+    // A member the document lacks resolves to nothing.
+    expect(findNodeByCddlOffset(bridge, site("? 3: coin"))).toBeNull();
+    expect(linkedHexSpansForCddlOffset(bridge, site("? 3: coin"))).toEqual([]);
   });
 
   test("a member the input omits is pinnable, but only into the panels that have it", () => {

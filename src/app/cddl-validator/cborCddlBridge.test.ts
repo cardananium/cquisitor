@@ -442,6 +442,162 @@ describe("definitionOffsetFor", () => {
   });
 });
 
+describe("referenceInstancesAt", () => {
+  // `amount` is referenced from map members, an array of them, a positional
+  // array, and a choice; `? 3` is absent from the document.
+  const CDDL = [
+    "doc = {",
+    "  1: amount,",
+    "  2: amount,",
+    "  ? 3: amount,",
+    "  4: [* amount],",
+    "  5: pair,",
+    "  6: money,",
+    "}",
+    "pair = [amount, amount]",
+    "money = amount / [amount, tstr]",
+    "amount = uint",
+    "",
+  ].join("\n");
+  // {1: 10, 2: 20, 4: [30, 40], 5: [50, 60], 6: 70}
+  const HEX = ["a5", "01", "0a", "02", "14", "04", "82", "181e", "1828", "05", "82", "1832", "183c", "06", "1846"].join("");
+  const bridge = () => createCborCddlBridge(libMapOf(HEX, CDDL, "doc"), CDDL);
+  const at = (needle: string, inner = needle) => CDDL.indexOf(needle) + needle.indexOf(inner);
+  const paths = (b: ReturnType<typeof bridge>, entries: readonly { cbor_path: number }[] | null) =>
+    entries === null ? null : entries.map(e => b.node(e as never).cborPath);
+
+  test("a member's type names the instance under that key, not every instance", () => {
+    const b = bridge();
+    expect(paths(b, b.referenceInstancesAt(at("1: amount", "amount")))).toEqual(['$[1]']);
+    expect(paths(b, b.referenceInstancesAt(at("2: amount", "amount")))).toEqual(['$[2]']);
+    expect(paths(b, b.referenceInstancesAt(at("5: pair", "pair")))).toEqual(['$[5]']);
+  });
+
+  test("a member the document does not have names nothing", () => {
+    const b = bridge();
+    expect(b.referenceInstancesAt(at("? 3: amount", "amount"))).toEqual([]);
+  });
+
+  test("inside an array the instances are that array's elements", () => {
+    const b = bridge();
+    expect(paths(b, b.referenceInstancesAt(at("[* amount]", "amount")))).toEqual(['$[4][0]', '$[4][1]']);
+    expect(paths(b, b.referenceInstancesAt(at("[amount, amount]", "amount")))).toEqual(['$[5][0]', '$[5][1]']);
+  });
+
+  test("a reference in a rule body with no construct around it is scoped to that rule", () => {
+    const b = bridge();
+    expect(paths(b, b.referenceInstancesAt(at("money = amount", "amount")))).toEqual(['$[6]']);
+  });
+
+  test("the definition and non-references answer null, so the whole group applies", () => {
+    const b = bridge();
+    expect(b.referenceInstancesAt(at("amount = uint"))).toBeNull();
+    expect(b.referenceInstancesAt(at("uint"))).toBeNull();
+    expect(b.referenceInstancesAt(at("doc = {"))).toBeNull();
+    expect(b.referenceInstancesAt(-1)).toBeNull();
+    expect(createCborCddlBridge(libMapOf(HEX, CDDL, "doc")).referenceInstancesAt(at("1: amount", "amount"))).toBeNull();
+  });
+
+  test("the same site answers the same array; the whole group is the bridge's own", () => {
+    const b = bridge();
+    const site = at("1: amount", "amount");
+    expect(b.referenceInstancesAt(site)).toBe(b.referenceInstancesAt(site + 3));
+    const whole = b.referenceInstancesAt(at("[* amount]", "amount"))!;
+    expect(whole).not.toBe(b.instancesOf(whole[0]));
+    const all = b.instancesOf(whole[0]);
+    expect(all.length).toBe(7);
+  });
+
+  test("a nested recurrence of the rule is not the reference's", () => {
+    // `[* item]` where an item holds items: the elements, not their children.
+    const cddl = "doc = [* item]\nitem = { ? 1: [* item], 2: uint }\n";
+    // [{1: [{2: 1}], 2: 2}]
+    const hex = ["81", "a2", "01", "81", "a1", "02", "01", "02", "02"].join("");
+    const b = createCborCddlBridge(libMapOf(hex, cddl, "doc"), cddl);
+    expect(paths(b, b.referenceInstancesAt(cddl.indexOf("item]")))).toEqual(["$[0]"]);
+    expect(paths(b, b.referenceInstancesAt(cddl.lastIndexOf("item]")))).toEqual(["$[0][1][0]"]);
+  });
+
+  test("strings and comments do not split members", () => {
+    const cddl = 'doc = { "a, b": amount ; c: d, e\n, 2: amount }\namount = uint\n';
+    // {"a, b": 1, 2: 2}
+    const hex = ["a2", "64", "612c2062", "01", "02", "02"].join("");
+    const b = createCborCddlBridge(libMapOf(hex, cddl, "doc"), cddl);
+    expect(paths(b, b.referenceInstancesAt(cddl.indexOf('amount ;')))).toEqual(['$["a, b"]']);
+    expect(paths(b, b.referenceInstancesAt(cddl.indexOf('2: amount') + 3))).toEqual(['$[2]']);
+  });
+});
+
+describe("referenceSiteOf", () => {
+  const CDDL = [
+    "doc = {",
+    "  1: amount,",
+    "  2: amount,",
+    "  4: [* amount],",
+    "  5: pair,",
+    "  6: money,",
+    "  7: items,",
+    "}",
+    "pair = [amount, amount]",
+    "money = amount / [amount, tstr]",
+    "items = [* item]",
+    "item = [label : amount, ? note : tstr]",
+    "amount = uint",
+    "",
+  ].join("\n");
+  // {1: 10, 2: 20, 4: [30, 40], 5: [50, 60], 6: [70, "x"], 7: [[80]]}
+  const HEX = ["a6", "01", "0a", "02", "14", "04", "82", "181e", "1828", "05", "82", "1832", "183c",
+    "06", "82", "1846", "6178", "07", "81", "81", "1850"].join("");
+  const bridge = () => createCborCddlBridge(libMapOf(HEX, CDDL, "doc"), CDDL);
+  const rowOf = (b: ReturnType<typeof bridge>, path: string, rule: string) =>
+    b.entries.find(e => e.rule_name === rule && b.node(e).cborPath === path)!;
+  const text = (r: [number, number] | null) => r && CDDL.slice(r[0], r[1]);
+  const around = (r: [number, number] | null, n: number) => r && CDDL.slice(r[0] - n, r[1]);
+
+  test("a map member's value is reached from the type after its key", () => {
+    const b = bridge();
+    expect(around(b.referenceSiteOf(rowOf(b, "$[1]", "amount")), 3)).toBe("1: amount");
+    expect(around(b.referenceSiteOf(rowOf(b, "$[2]", "amount")), 3)).toBe("2: amount");
+    expect(around(b.referenceSiteOf(rowOf(b, "$[5]", "pair")), 3)).toBe("5: pair");
+  });
+
+  test("an array element is reached from inside the array", () => {
+    const b = bridge();
+    expect(around(b.referenceSiteOf(rowOf(b, "$[4][0]", "amount")), 3)).toBe("[* amount");
+    expect(around(b.referenceSiteOf(rowOf(b, "$[4][1]", "amount")), 3)).toBe("[* amount");
+    expect(around(b.referenceSiteOf(rowOf(b, "$[5][0]", "amount")), 1)).toBe("[amount");
+    expect(around(b.referenceSiteOf(rowOf(b, "$[7][0]", "item")), 3)).toBe("[* item");
+  });
+
+  test("a rule reached through another rule's body is found in that body", () => {
+    const b = bridge();
+    // 6 is the array alternative of `money`; the row still belongs to `money`, then `amount`.
+    expect(around(b.referenceSiteOf(rowOf(b, "$[6]", "money")), 3)).toBe("6: money");
+    expect(around(b.referenceSiteOf(rowOf(b, "$[6].amount", "amount")), 1)).toBe("[amount");
+  });
+
+  test("a labelled array member is reached from its type, not its label", () => {
+    const b = bridge();
+    const site = b.referenceSiteOf(rowOf(b, "$[7][0].label", "amount"));
+    expect(text(site)).toBe("amount");
+    expect(CDDL.slice(site![0] - 8, site![0])).toBe("label : ");
+  });
+
+  test("the root and prelude uses have no site of their own", () => {
+    const b = bridge();
+    expect(b.referenceSiteOf(rowOf(b, "$", "doc"))).toBeNull();
+    expect(b.referenceSiteOf(rowOf(b, "$[1]", "uint"))).toBeNull();
+    expect(b.referenceSiteOf(b.entries.find(e => e.entry_role === "key")!)).toBeNull();
+    expect(createCborCddlBridge(libMapOf(HEX, CDDL, "doc")).referenceSiteOf(rowOf(b, "$[1]", "amount"))).toBeNull();
+  });
+
+  test("the answer for a row is the same object each time", () => {
+    const b = bridge();
+    const row = rowOf(b, "$[1]", "amount");
+    expect(b.referenceSiteOf(row)).toBe(b.referenceSiteOf(row));
+  });
+});
+
 describe("nameRunAt", () => {
   test("covers the RFC 8610 name characters around the offset", () => {
     const text = "a = my-rule.v2 / $ext@x";

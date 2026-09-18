@@ -10,7 +10,7 @@ import CborTreeView, { spanAttr, type CborTreeViewProps } from "@/components/Cbo
 import { holdsLabel, placementOf } from "@/components/treeDiagnostics";
 import DecodedJsonTree, { type DecodedJsonTreeProps } from "./DecodedJsonTree";
 import CddlEditor, { type CddlEditorHandle, type CddlEditorProps } from "./CddlEditor";
-import { hoverEditorMark, type HoverLinkStore } from "./hoverLink";
+import { hoverEditorMarks, type HoverLinkStore } from "./hoverLink";
 import { NO_MARKS, markLinkedRows, treeHolders, treeKeys, type HolderMarks, type RowMarks } from "./instances";
 import {
   selectDecodedLink,
@@ -173,7 +173,7 @@ export const EditorPane = memo(
     const link = useHoverLink(store, selectEditorLink);
     // Derived here rather than in the selector: a snapshot must be the same
     // value for the same link, and a mark is made per call.
-    const hoverMark = useMemo(() => hoverEditorMark(link, rest.value), [link, rest.value]);
+    const hoverMark = useMemo(() => hoverEditorMarks(link, rest.value), [link, rest.value]);
     const onHoverOffset = useCallback(
       (offset: number | null) => (offset === null ? store.leave("cddl") : store.hoverCddl(offset)),
       [store],

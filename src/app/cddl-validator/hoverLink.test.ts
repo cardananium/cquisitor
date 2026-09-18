@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CborCddlMap, CborCddlMapEntry } from "@cardananium/cquisitor-lib";
 import { createCborCddlBridge, type CborCddlBridge, type CborCddlNode } from "./cborCddlBridge";
-import { createHoverLinkStore, hoverEditorMark, projectLink, projectTreeRow, type HoverLink } from "./hoverLink";
+import { createHoverLinkStore, hoverEditorMark, hoverEditorMarks, projectLink, projectTreeRow, type HoverLink } from "./hoverLink";
 import { instanceSetFor } from "./instances";
 import { mapPassFor, mapForCurrentInput, type CborCddlMapSource } from "./hooks";
 import { safeMapCborToCddl } from "./cddlValidatorLib";
@@ -380,6 +380,63 @@ describe("staleness through the map guard", () => {
     const link = store.get()!;
     expect(hoverEditorMark(link, PERSON_CDDL)).not.toBeNull();
     expect(hoverEditorMark(link, `; who\n${PERSON_CDDL}`)).toBeNull();
+  });
+});
+
+describe("two reference sites of one rule", () => {
+  const cddl = "doc = { 1: coin, 2: coin }\ncoin = uint\n";
+  // {1: 10, 2: 20}
+  const hex = "a2010a0214";
+
+  test("are two links, each lighting its own member", () => {
+    const store = createHoverLinkStore();
+    store.setContext(createCborCddlBridge(mapOf(hex, cddl, "doc"), cddl), cddl, hex);
+    store.hoverCddl(cddl.indexOf("1: coin") + 3);
+    const first = store.get()!;
+    expect(first.instances.length).toBe(1);
+    expect(selectHexLink(store.get())).toEqual([{ offset: 2, length: 1 }]);
+    store.hoverCddl(cddl.indexOf("2: coin") + 3);
+    expect(store.get()).not.toBe(first);
+    expect(selectHexLink(store.get())).toEqual([{ offset: 4, length: 1 }]);
+    // The definition lights both.
+    store.hoverCddl(cddl.indexOf("coin = uint"));
+    expect(store.get()!.instances.length).toBe(2);
+  });
+});
+
+describe("hoverEditorMarks", () => {
+  const cddl = "doc = { 1: coin, 2: coin }\ncoin = uint\n";
+  // {1: 10, 2: 20}
+  const hex = "a2010a0214";
+  const at = (needle: string) => cddl.indexOf(needle);
+
+  test("a data-panel link marks the definition and the site the schema reaches it from", () => {
+    const store = createHoverLinkStore();
+    store.setContext(createCborCddlBridge(mapOf(hex, cddl, "doc"), cddl), cddl, hex);
+    store.hoverHex(4);
+    const marks = hoverEditorMarks(store.get(), cddl);
+    expect(marks.map(m => cddl.slice(...m.range))).toEqual(["coin", "coin"]);
+    expect(marks.map(m => m.range[0])).toEqual([at("coin = uint"), at("2: coin") + 3]);
+    expect(marks[1].className).toBe(marks[0].className);
+    expect(marks[1].message).toBe(marks[0].message);
+    store.hoverDecoded("$[1]", "value");
+    expect(hoverEditorMarks(store.get(), cddl).map(m => m.range[0])).toEqual([at("coin = uint"), at("1: coin") + 3]);
+  });
+
+  test("a schema link marks the definition only, and a stale text nothing", () => {
+    const store = createHoverLinkStore();
+    store.setContext(createCborCddlBridge(mapOf(hex, cddl, "doc"), cddl), cddl, hex);
+    store.hoverCddl(at("1: coin") + 3);
+    expect(hoverEditorMarks(store.get(), cddl).map(m => m.range[0])).toEqual([at("coin = uint")]);
+    expect(hoverEditorMarks(store.get(), cddl + " ")).toEqual([]);
+    expect(hoverEditorMarks(null, cddl)).toEqual([]);
+  });
+
+  test("a tree row's link carries the site too", () => {
+    const store = createHoverLinkStore();
+    store.setContext(createCborCddlBridge(mapOf(hex, cddl, "doc"), cddl), cddl, hex);
+    store.hoverTree({ offset: 4, length: 1 });
+    expect(store.get()!.projection.cddlSite).toEqual([at("2: coin") + 3, at("2: coin") + 7]);
   });
 });
 

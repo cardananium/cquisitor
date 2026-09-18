@@ -136,7 +136,7 @@ export interface CddlEditorProps {
   /** Highlights to paint as background marks under the (transparent) text. */
   marks?: OverlayMark[];
   /** Hover mark, layered over segmented lines so a hover does not rebuild the document. */
-  hoverMark?: OverlayMark | null;
+  hoverMark?: OverlayMark | ReadonlyArray<OverlayMark> | null;
   /** Char offset under the pointer, or `null`. Emitted on the event, not a frame — see `pointerMove`. */
   onHoverOffset?: (offset: number | null) => void;
   /** Fired on Cmd/Ctrl + click; parent should resolve symbol-at-offset. */
@@ -444,12 +444,12 @@ function CddlEditorInner(
   const blocks = useMemo(() => blockLines(lines, LINES_PER_BLOCK), [lines]);
 
   // Hover is layered after segmentation so untouched blocks keep identity.
-  const hoverNormalised = useMemo<NormalisedMark | null>(
-    () => (hoverMark ? normaliseMarks([hoverMark], value.length)[0] ?? null : null),
+  const hoverNormalised = useMemo<NormalisedMark[]>(
+    () => (hoverMark ? normaliseMarks(Array.isArray(hoverMark) ? hoverMark : [hoverMark as OverlayMark], value.length) : []),
     [hoverMark, value],
   );
   const layered = useMemo(
-    () => (hoverNormalised ? blocks.map((block) => layerMark(block, hoverNormalised)) : blocks),
+    () => hoverNormalised.reduce((lines, mark) => lines.map((block) => layerMark(block, mark)), blocks),
     [blocks, hoverNormalised],
   );
 

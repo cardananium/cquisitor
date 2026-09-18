@@ -539,6 +539,7 @@ export default function CddlValidatorContent() {
       pinnedNode,
       pinnedInstance: pinned,
       pinInCddl: pinTargets.has("cddl") && pinnedSource === cddl,
+      pinnedSite: pinned && pinned.source !== "cddl" ? pinned.bridge.referenceSiteOf(pinned.node.entry) : null,
     }),
     [schema, diagnostics, selectedErrorIndex, referenceRanges,
      pinned, pinnedNode, pinnedSource, cddl, pinTargets],

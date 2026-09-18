@@ -170,14 +170,19 @@ export function findNodeByCborOffset(
 
 /**
  * Node whose schema span covers `charOffset`, narrowest first.
- * A character inside a known rule reference is taken as that rule's definition.
+ * A character inside a known rule reference names that rule's instances at
+ * that site — the first of them is the node, the rest ride on `instances`.
  */
 export function findNodeByCddlOffset(
   bridge: CborCddlBridge,
   charOffset: number,
 ): CborCddlNode | null {
-  // A pointer on a reference to a rule is a pointer on the rule.
-  charOffset = bridge.definitionOffsetFor(charOffset) ?? charOffset;
+  const scoped = bridge.referenceInstancesAt(charOffset);
+  if (scoped) {
+    if (scoped.length === 0) return null;
+    const node = bridge.node(scoped[0]);
+    return scoped === bridge.instancesOf(scoped[0]) ? node : { ...node, instances: scoped };
+  }
   let best: CborCddlMapEntry | null = null;
   let bestLength = Infinity;
   for (const e of bridge.entries) {
@@ -216,8 +221,7 @@ export function linkedHexSpansForCddlOffset(
   bridge: CborCddlBridge,
   charOffset: number,
 ): ExtraErrorSpan[] {
-  charOffset = bridge.definitionOffsetFor(charOffset) ?? charOffset;
-  const matching = bridge.entries.filter(e => {
+  const matching = bridge.referenceInstancesAt(charOffset) ?? bridge.entries.filter(e => {
     const s = e.cddl_byte_span;
     return hasCddlSpan(s) && charOffset >= s.char_offset && charOffset < s.char_offset + s.char_length;
   });
@@ -287,6 +291,8 @@ export interface EditorMarkInput {
   pinInCddl: boolean;
   /** Where `pinnedNode` sits among its construct's instances, when known. */
   pinnedInstance?: PinnedInstance | null;
+  /** Where the schema reaches the pinned rule for this instance, for a pin from a data panel. */
+  pinnedSite?: CddlRange | null;
 }
 
 /**
@@ -334,12 +340,11 @@ export function buildEditorMarks(input: EditorMarkInput): OverlayMark[] {
   if (input.pinnedNode && pinnedRange) {
     const pin = input.pinnedInstance;
     const position = pin ? ` · instance ${pinPosition(pin).replace("/", " of ")}` : "";
-    out.push({
-      range: pinnedRange,
-      className: "cddl-editor-pinned-mark",
-      message: `Pinned: ${describeNode(input.pinnedNode)}${position}`,
-      priority: PRIORITY_PINNED,
-    });
+    const message = `Pinned: ${describeNode(input.pinnedNode)}${position}`;
+    out.push({ range: pinnedRange, className: "cddl-editor-pinned-mark", message, priority: PRIORITY_PINNED });
+    if (input.pinnedSite) {
+      out.push({ range: input.pinnedSite, className: "cddl-editor-pinned-mark", message, priority: PRIORITY_PINNED });
+    }
   }
 
   return out;

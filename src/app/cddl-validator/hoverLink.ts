@@ -30,6 +30,8 @@ export type HoverSource = PinTarget;
 /** Node projection plus lit instances as each data panel addresses them.
  *  Schema links put every instance of the construct in the arrays. */
 export interface LinkProjection extends NodeProjection {
+  /** Where the schema reaches the row's rule for this instance; only for a data-panel link. */
+  readonly cddlSite: [number, number] | null;
   readonly hexAll: readonly CborPosition[];
   readonly treeAll: readonly CborPosition[];
   readonly decodedAll: readonly string[];
@@ -72,11 +74,13 @@ export function projectTreeRow(
   node: CborCddlNode | null,
   position: CborPosition,
   set: InstanceSet = EMPTY_INSTANCE_SET,
+  bridge: CborCddlBridge | null = null,
 ): LinkProjection {
   const mapped = node ? projectNode(node) : null;
   const own = [position];
   return {
     cddl: mapped?.cddl ?? null,
+    cddlSite: node ? bridge?.referenceSiteOf(node.entry) ?? null : null,
     hex: position,
     tree: position,
     decoded: mapped?.decoded ?? null,
@@ -87,12 +91,13 @@ export function projectTreeRow(
   };
 }
 
-/** Node as the panels paint it for a probe that lit `set`. */
-export function projectLink(bridge: CborCddlBridge, node: CborCddlNode, set: InstanceSet): LinkProjection {
+/** Node as the panels paint it for a probe that lit `set`. A schema probe already sits on its site. */
+export function projectLink(bridge: CborCddlBridge, node: CborCddlNode, set: InstanceSet, source: HoverSource = "hex"): LinkProjection {
   const own = projectNode(node);
   const all = projectInstances(bridge, set.lit);
   return {
     ...own,
+    cddlSite: source === "cddl" ? null : bridge.referenceSiteOf(node.entry),
     label: instanceCountLabel(own.label, set, all.truncated),
     hexAll: all.hexAll,
     treeAll: all.treeAll,
@@ -131,7 +136,7 @@ export function createHoverLinkStore(resolve: ProbeResolver = resolveProbe): Hov
         source,
         node,
         cddlSource,
-        projection: projectTreeRow(node, probe.position, set),
+        projection: projectTreeRow(node, probe.position, set, bridge),
         instances: set.instances,
         instanceIndex: set.index,
       };
@@ -142,14 +147,14 @@ export function createHoverLinkStore(resolve: ProbeResolver = resolveProbe): Hov
       clear();
       return;
     }
-    // Same row from the same panel paints the same thing everywhere.
-    if (link && link.source === source && link.node?.entry === node.entry) return;
     const set = instanceSetFor(bridge, node, source);
+    // Same row from the same panel paints the same thing everywhere.
+    if (link && link.source === source && link.node?.entry === node.entry && link.instances === set.instances) return;
     link = {
       source,
       node,
       cddlSource,
-      projection: projectLink(bridge, node, set),
+      projection: projectLink(bridge, node, set, source),
       instances: set.instances,
       instanceIndex: set.index,
     };
@@ -229,4 +234,13 @@ export function hoverEditorMark(link: HoverLink | null, value: string): OverlayM
     message: link.source === "cddl" ? null : link.projection.label,
     priority: PRIORITY_LINKED,
   };
+}
+
+/** The rule's definition, and for a data-panel link the site the schema reaches it from. */
+export function hoverEditorMarks(link: HoverLink | null, value: string): OverlayMark[] {
+  const definition = hoverEditorMark(link, value);
+  if (!definition) return [];
+  const site = link!.projection.cddlSite;
+  if (!site) return [definition];
+  return [definition, { ...definition, range: site }];
 }

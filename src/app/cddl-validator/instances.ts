@@ -36,7 +36,7 @@ export function instanceSetFor(
   source: PinTarget,
 ): InstanceSet {
   if (!node) return EMPTY_INSTANCE_SET;
-  const instances = bridge.instancesOf(node.entry);
+  const instances = node.instances ?? bridge.instancesOf(node.entry);
   if (source === "cddl") return { instances, lit: instances, index: -1 };
   return {
     instances,
@@ -142,11 +142,12 @@ export function stepInstance(current: number, delta: number, total: number): num
 }
 
 /**
- * Fresh pin. Schema: the construct, first current, arrows through the rest.
+ * Fresh pin. Schema: the construct (or the reference site's share of it),
+ * first current, arrows through the rest.
  * Data: the one run under the pointer — group of that run alone.
  */
 export function makePin(bridge: CborCddlBridge, node: CborCddlNode, source: PinTarget): PinState {
-  const group = bridge.instancesOf(node.entry);
+  const group = node.instances ?? bridge.instancesOf(node.entry);
   const instances = source === "cddl" ? group : singleInstance(bridge, node.entry);
   const current = initialInstanceIndex(instances, node.entry, source);
   return { node, source, bridge, instances, current, visited: [current] };
