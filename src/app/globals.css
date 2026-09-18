@@ -2237,10 +2237,15 @@ input, textarea, select, button {
 .cq-link-banner-text {
   color: #1e40af;
   font-weight: 500;
+  /* A long path has no break opportunity; wrap it rather than push the close button out. */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .cq-link-banner-close {
   margin-left: auto;
+  flex-shrink: 0;
   width: 18px;
   height: 18px;
   display: inline-flex;
