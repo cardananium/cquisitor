@@ -9,7 +9,7 @@
 // => matchScriptHash uses the applied mainnet validator payment hashes below.
 //    Matching is also done via matchNftPolicy on the OADA / sOADA policy ids.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 // matchScriptHash is intentionally omitted from the Optim adapter — its spend
 // validators are parameterized and no applied mainnet payment hash is known;

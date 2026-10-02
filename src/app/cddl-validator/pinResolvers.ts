@@ -1,7 +1,15 @@
 // Probe → node for the four panels. Hover and click share `resolveProbe`.
 // Scans use entry spans only; paths are resolved only for the named node.
 
-import type { CborCddlMapEntry, CborPosition } from "@cardananium/cquisitor-lib";
+import {
+  describeDiagnostic,
+  hasCddlSpan,
+  walkRefusalNotice,
+  type CborCddlMapEntry,
+  type CborPosition,
+  type CborDiagnostic,
+  type CddlRange,
+} from "@cardananium/cquisitor-lib";
 import type { ExtraErrorSpan } from "@/components/EditableHexView";
 import {
   preferRole,
@@ -9,13 +17,6 @@ import {
   type CborCddlNode,
   type EntryRole,
 } from "./cborCddlBridge";
-import {
-  describeDiagnostic,
-  hasCddlSpan,
-  walkRefusalNotice,
-  type CborDiagnostic,
-  type CddlRange,
-} from "./cddlError";
 import type { OverlayMark } from "./cddlOverlay";
 import type { WalkRefusal } from "./cddlValidatorLib";
 import { currentIndex, otherInstances, type PinnedInstance } from "./instances";

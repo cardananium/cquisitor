@@ -25,27 +25,37 @@ import {
 } from "@/components/Icons";
 import { buildCardanoCborUrl, buildExplorerTxUrl, buildTxStudioUrl, openExternalUrl } from "@/utils/externalApps";
 import { buildJsonViewerUrl } from "@/utils/jsonViewerHandoff";
-import { buildAllDeUplcLinks, type DeUplcLinkMaps } from "@/utils/deUplcLink";
 import { DeUplcButton, DecompileButton, DEUPLC_ENABLED } from "@/components/TransactionCardView/components/DeUplcButton";
 import { ErrorDataDetails, getCleanedErrorMessage, DecompositionModalProvider } from "@/components/ErrorDataFormatters";
+import { RenderErrorBoundary } from "@/components/RenderErrorBoundary";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
 import OnChainTxModal from "@/components/OnChainTxModal";
 import {
+  addWitnessesWithReport,
+  buildAllDeUplcLinks,
+  buildValidationContext,
+  decode,
+  extractHashes,
+  normalizeHexOrBase64,
+  reorderTransactionFields,
   submitTransaction,
   validateTransaction,
-  validateTransactionWithContext,
-  buildValidationContext,
+  validateTransactionOnline,
+  type AddWitnessesReport,
   type DataProvider,
+  type DeUplcLinkMaps,
+  type ExtractedHashes,
   type NetworkType,
-} from "@/utils/transactionValidation";
-import type { AddWitnessesReport, ExtractedHashes } from "@cardananium/cquisitor-lib";
-import { callLib, libErrorMessage } from "@/lib/cquisitorWorker";
+  type ValidationPhase1Error,
+  type ValidationPhase2Error,
+  type ValidationPhase1Warning,
+  type ValidationPhase2Warning,
+  type EvalRedeemerResult,
+} from "@cardananium/cquisitor-lib";
 import { collectAddressStrings, primeAddresses } from "@/lib/decodedAddresses";
-import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
-import { normalizeHexOrBase64 } from "@/utils/inputNormalization";
 import { createRunGate } from "@/utils/latestRun";
 import { indentJsonText } from "@/utils/indentJson";
 import {
@@ -55,13 +65,7 @@ import {
 } from "@/context/TransactionValidatorContext";
 import TransactionCardView from "@/components/TransactionCardView";
 import ViewModeSelectionModal, { type ViewMode } from "@/components/ViewModeSelectionModal";
-import type {
-  ValidationPhase1Error,
-  ValidationPhase2Error,
-  ValidationPhase1Warning,
-  ValidationPhase2Warning,
-  EvalRedeemerResult,
-} from "@cardananium/cquisitor-lib";
+import { limitAwareErrorMessage } from "@/utils/implementationLimit";
 
 // Storage keys for view mode preference
 const VIEW_MODE_STORAGE_KEY = "cquisitor_tx_validator_view_mode";
@@ -159,6 +163,19 @@ function formatPhase2Error(
   };
 }
 
+/**
+ * Warnings for parts the library did not examine because they nest past what
+ * it reads: implementation limits, not findings about the transaction.
+ */
+const NOT_EXAMINED_WARNINGS = new Set(["NativeScriptNotExamined", "ScriptContextNotExamined"]);
+
+/** The phase badge, marking a not-examined warning as the tool's limit. */
+function phaseLabel(phase: string, errorType: string | undefined): string {
+  return errorType && NOT_EXAMINED_WARNINGS.has(errorType)
+    ? `${phase} · not examined (implementation limit, not a finding)`
+    : phase;
+}
+
 function formatPhase1Warning(warn: ValidationPhase1Warning): DiagnosticItem {
   const { errorType, errorData } = extractErrorInfo(warn.warning);
   return {
@@ -166,7 +183,7 @@ function formatPhase1Warning(warn: ValidationPhase1Warning): DiagnosticItem {
     message: warn.warning_message,
     hint: warn.hint,
     locations: warn.locations,
-    phase: "Phase 1",
+    phase: phaseLabel("Phase 1", errorType),
     errorType,
     errorData,
   };
@@ -182,7 +199,7 @@ function formatPhase2Warning(
     message: warn.warning_message,
     hint: warn.hint,
     locations: warn.locations,
-    phase: "Phase 2",
+    phase: phaseLabel("Phase 2", errorType),
     errorType,
     errorData,
     traces: findTracesForLocations(warn.locations, evalResults),
@@ -273,14 +290,11 @@ function AddWitnessPanel({ txHex, missingKeyHash, onWitnessAdded }: AddWitnessPa
     // the body bytes), and reports what happened.
     let report: AddWitnessesReport;
     try {
-      report = await callLib<AddWitnessesReport>("add_witnesses_to_tx_with_report", [
-        txHex,
-        [trimmed],
-      ]);
+      report = await addWitnessesWithReport(txHex, [trimmed]);
     } catch (e) {
       setFeedback({
         kind: "error",
-        text: libErrorMessage(e),
+        text: limitAwareErrorMessage(e),
       });
       return;
     }
@@ -1145,11 +1159,7 @@ export default function TransactionValidatorContent() {
 
     void (async () => {
       try {
-        const decoded = await callLib<unknown>(
-          "decode_specific_type",
-          [hex, "Transaction", {}],
-          { signal: controller.signal },
-        );
+        const decoded = await decode(hex, "Transaction", {}, { signal: controller.signal });
         if (cancelled) return;
         const convertedResult = reorderTransactionFields(decoded);
         const newDecodedTx = convertedResult as DecodedTransaction;
@@ -1188,11 +1198,8 @@ export default function TransactionValidatorContent() {
       
         // Extract hashes for datums and scripts
         try {
-          const hashesJson = await callLib<string>("extract_hashes_from_transaction_js", [hex], {
-            signal: controller.signal,
-          });
+          const hashes: ExtractedHashes = await extractHashes(hex, { signal: controller.signal });
           if (cancelled) return;
-          const hashes: ExtractedHashes = JSON.parse(hashesJson);
           setExtractedHashes(hashes);
         } catch {
           // Ignore hash extraction errors - not critical
@@ -1207,7 +1214,7 @@ export default function TransactionValidatorContent() {
         }
       } catch (e) {
         if (cancelled) return;
-        setDecodeError(libErrorMessage(e));
+        setDecodeError(limitAwareErrorMessage(e));
         setDecodedTx(null);
         setExtractedHashes(null);
         previousTxHashRef.current = null;
@@ -1248,7 +1255,7 @@ export default function TransactionValidatorContent() {
       try {
         if (canUseUrlContext) {
           const ctx = buildValidationContext(fetchedContext!, network);
-          const validationResult = await validateTransactionWithContext(hex, ctx);
+          const validationResult = await validateTransaction(hex, ctx);
           if (!isCurrent()) return;
           setResult(validationResult);
           const map: InputUtxoInfoMap = new Map();
@@ -1259,7 +1266,7 @@ export default function TransactionValidatorContent() {
         } else {
           setInputUtxoInfoMap(null);
           const { result: validationResult, utxoInfoMap, fetchedContext: fresh } =
-            await validateTransaction({
+            await validateTransactionOnline({
               txHex: hex,
               network,
               provider,
@@ -1275,7 +1282,7 @@ export default function TransactionValidatorContent() {
         }
       } catch (e) {
         if (!isCurrent()) return;
-        setError(e instanceof Error ? e.message : "Validation failed");
+        setError(limitAwareErrorMessage(e) || "Validation failed");
       } finally {
         // A superseded run must not clear a spinner that now belongs to the newer run.
         if (isCurrent()) setIsLoading(false);
@@ -1333,7 +1340,7 @@ export default function TransactionValidatorContent() {
         void (async () => {
           try {
             const ctx = buildValidationContext(fetchedContext, network);
-            const validationResult = await validateTransactionWithContext(newHex, ctx);
+            const validationResult = await validateTransaction(newHex, ctx);
             if (!isCurrent()) return;
             setResult(validationResult);
           } catch {
@@ -1419,7 +1426,7 @@ export default function TransactionValidatorContent() {
         message: warn.warning_message,
         hint: warn.hint,
         locations: warn.locations?.map(transformPathForJson),
-        phase: "Phase 1",
+        phase: phaseLabel("Phase 1", errorType),
         errorType,
         errorData,
       });
@@ -1432,7 +1439,7 @@ export default function TransactionValidatorContent() {
         message: warn.warning_message,
         hint: warn.hint,
         locations: warn.locations?.map(transformPathForJson),
-        phase: "Phase 2",
+        phase: phaseLabel("Phase 2", errorType),
         errorType,
         errorData,
       });
@@ -1797,12 +1804,14 @@ export default function TransactionValidatorContent() {
         <Tabs.Content value="validation" className="validator-tab-content">
           {result ? (
             <>
-              <DiagnosticsList
-                items={diagnostics}
-                onLocationClick={handleLocationClick}
-                txHex={txCborHex}
-                onWitnessAdded={handleWitnessAdded}
-              />
+              <RenderErrorBoundary what="the validation result" variant="panel" resetKeys={[result]}>
+                <DiagnosticsList
+                  items={diagnostics}
+                  onLocationClick={handleLocationClick}
+                  txHex={txCborHex}
+                  onWitnessAdded={handleWitnessAdded}
+                />
+              </RenderErrorBoundary>
               {result.errors.length === 0 && result.phase2_errors.length === 0 && txCborHex && (
                 <SubmitTransactionPanel
                   key={`${txCborHex}|${network}|${provider}`}
@@ -1824,7 +1833,9 @@ export default function TransactionValidatorContent() {
 
         <Tabs.Content value="plutus" className="validator-tab-content">
           {result ? (
-            <PlutusScriptResults results={result.eval_redeemer_results} deUplcLinks={deUplcLinks} />
+            <RenderErrorBoundary what="the Plutus script results" variant="panel" resetKeys={[result]}>
+              <PlutusScriptResults results={result.eval_redeemer_results} deUplcLinks={deUplcLinks} />
+            </RenderErrorBoundary>
           ) : (
             <div className="empty-state">
               <p className="empty-hint">
@@ -1884,37 +1895,43 @@ export default function TransactionValidatorContent() {
       </div>
       
       {decodedTx ? (
-        viewMode === 'cards' ? (
-          <TransactionCardView
-            data={decodedTx}
-            network={network}
-            diagnostics={jsonViewerDiagnostics}
-            focusedPath={focusedPath}
-            extractedHashes={extractedHashes}
-            inputUtxoInfoMap={inputUtxoInfoMap}
-            txCborHex={txCborHex}
-            protocolMaxes={
-              fetchedContext
-                ? {
-                    maxTxSize: fetchedContext.protocolParameters.maxTransactionSize,
-                    maxTxExUnits: fetchedContext.protocolParameters.maxTxExecutionUnits,
-                  }
-                : null
-            }
-            actualExUnits={actualExUnits}
-            deUplcLinks={deUplcLinks}
-            provider={provider}
-            apiKey={apiKey}
-          />
-        ) : (
-          <ValidationJsonViewer 
-            data={decodedTx} 
-            expanded={3} 
-            network={network}
-            diagnostics={jsonViewerDiagnostics}
-            focusedPath={focusedPath}
-          />
-        )
+        <RenderErrorBoundary
+          what="the decoded transaction"
+          variant="panel"
+          resetKeys={[decodedTx, result, viewMode]}
+        >
+          {viewMode === 'cards' ? (
+            <TransactionCardView
+              data={decodedTx}
+              network={network}
+              diagnostics={jsonViewerDiagnostics}
+              focusedPath={focusedPath}
+              extractedHashes={extractedHashes}
+              inputUtxoInfoMap={inputUtxoInfoMap}
+              txCborHex={txCborHex}
+              protocolMaxes={
+                fetchedContext
+                  ? {
+                      maxTxSize: fetchedContext.protocolParameters.maxTransactionSize,
+                      maxTxExUnits: fetchedContext.protocolParameters.maxTxExecutionUnits,
+                    }
+                  : null
+              }
+              actualExUnits={actualExUnits}
+              deUplcLinks={deUplcLinks}
+              provider={provider}
+              apiKey={apiKey}
+            />
+          ) : (
+            <ValidationJsonViewer 
+              data={decodedTx} 
+              expanded={3} 
+              network={network}
+              diagnostics={jsonViewerDiagnostics}
+              focusedPath={focusedPath}
+            />
+          )}
+        </RenderErrorBoundary>
       ) : decodeError ? (
         <div className="empty-state">
           <p className="empty-hint error-text">{decodeError}</p>

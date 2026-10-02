@@ -1,6 +1,6 @@
 import { bech32 } from "bech32";
 import { blake2b } from "@noble/hashes/blake2.js";
-import type { ValidationDiagnostic, CardanoNetwork, TransactionData } from "./types";
+import type { NativeScript, ValidationDiagnostic, TransactionData } from "@cardananium/cquisitor-lib";
 
 // Decode bech32 vkey and compute blake2b-224 hash
 export function computeVkeyHash(vkeyBech32: string): string | null {
@@ -78,7 +78,7 @@ export {
   getGovActionLink,
   getPoolLink,
   cardanoscanLinks
-} from "@/utils/cardanoscanLinks";
+} from "@cardananium/cquisitor-lib";
 
 // Format ADA amount
 export function formatAda(lovelace: string): string {
@@ -159,3 +159,43 @@ export function decodeAssetName(hex: string): {
   return { display: hex, decoded: null, standard: null, hex };
 }
 
+
+/**
+ * Native-script levels the cards draw. Scripts may nest thousands of levels
+ * deep; drawing each as a nested element would exhaust the renderer's stack.
+ */
+export const NATIVE_SCRIPT_DRAW_DEPTH = 16;
+
+/** The script's own sub-scripts, or none for a leaf. */
+export function nativeScriptChildren(script: NativeScript): NativeScript[] {
+  if ("ScriptAll" in script) return script.ScriptAll.native_scripts;
+  if ("ScriptAny" in script) return script.ScriptAny.native_scripts;
+  if ("ScriptNOfK" in script) return script.ScriptNOfK.native_scripts;
+  return [];
+}
+
+/** How many script levels `script` spans (a leaf is 1). Iterative: safe at any depth. */
+export function nativeScriptDepth(script: NativeScript): number {
+  let deepest = 0;
+  const pending: Array<[NativeScript, number]> = [[script, 1]];
+  while (pending.length > 0) {
+    const [node, level] = pending.pop()!;
+    if (level > deepest) deepest = level;
+    for (const child of nativeScriptChildren(node)) pending.push([child, level + 1]);
+  }
+  return deepest;
+}
+
+/** The line drawn in place of sub-scripts past {@link NATIVE_SCRIPT_DRAW_DEPTH}. */
+export function nativeScriptElidedNote(script: NativeScript): string {
+  const levels = nativeScriptDepth(script);
+  return `… ${levels.toLocaleString("en-US")} more level${levels === 1 ? "" : "s"} not drawn; the Tree view holds the whole script`;
+}
+
+/** What a native script's `TimelockStart` leaf asks of the transaction (the ledger's rule). */
+export const TIMELOCK_START_TITLE =
+  "Holds when the transaction's validity interval starts at or after this slot (validity_interval_start ≥ slot); a transaction without a validity start never satisfies it";
+
+/** What a native script's `TimelockExpiry` leaf asks of the transaction (the ledger's rule). */
+export const TIMELOCK_EXPIRY_TITLE =
+  "Holds when the transaction's validity interval ends at or before this slot (ttl ≤ slot); a transaction without a ttl never satisfies it";

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import TabNavigation, { TABS, VISIBLE_TABS, isValidHash } from "./TabNavigation";
 import { WelcomeFeatures } from "./WelcomeModal";
 import { InvalidHashError } from "./UnifiedContent";
-import { parseHash } from "@/utils/shareLink";
+import { parseHash } from "@cardananium/cquisitor-lib";
 
 const navMarkup = () =>
   renderToStaticMarkup(<TabNavigation activeTab="general-cbor" onTabChange={() => {}} />);

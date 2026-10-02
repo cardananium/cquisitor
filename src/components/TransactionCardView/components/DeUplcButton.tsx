@@ -7,7 +7,7 @@ import {
   fieldsFromDecompile,
   fieldsToDecompileUrl,
   type DeUplcResolved,
-} from "@/utils/deUplcLink";
+} from "@cardananium/cquisitor-lib";
 
 // Toggle the de-uplc / step-debugger buttons across the UI. Now that de-uplc-web
 // is deployed (https://cardananium.github.io/de-uplc-web/), the buttons are on.

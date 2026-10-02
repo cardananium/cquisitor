@@ -1,4 +1,4 @@
-// Walkers over a 10k-nested document, through the same wrappers and transport the UI uses.
+// Walkers over a 10k-nested document, through the same wrappers and library backend the UI uses.
 // Depth must not overflow the JS stack: these verdicts are the real ones, not refusals.
 
 import { describe, expect, test } from "bun:test";
@@ -10,10 +10,10 @@ import {
   safeValidateCborAgainstCddl,
 } from "./cddlValidatorLib";
 
-/** Ten thousand levels: past every host stack, inside the library's bound of 16384. */
+/** Ten thousand levels: past every host stack, inside the library's bound of 32768. */
 export const DEEP_LEVELS = 10_000;
 /** One past the library's bound: the refusal every walker has to give. */
-const PAST_THE_BOUND = 16_385;
+const PAST_THE_BOUND = 32_769;
 
 /** `[[[…leaf…]]]`, `levels` arrays deep. */
 export const nestedArrays = (levels: number, leaf = "05") => "81".repeat(levels) + leaf;

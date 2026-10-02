@@ -6,7 +6,7 @@
 // share one payment credential.
 
 import { readDecodedAddress, requestAddress } from "@/lib/decodedAddresses";
-import type { Credential } from "@/utils/addressTypes";
+import type { Credential } from "@cardananium/cquisitor-lib";
 
 /**
  * The payment credential of an already-decoded address, or null when the

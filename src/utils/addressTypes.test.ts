@@ -1,37 +1,8 @@
+// The pure stakeCredentialOf cases live with the helper in @cardananium/cquisitor-lib
+// (ts/util/addressTypes.test.ts). What stays here needs the app's address cache.
 import { describe, expect, test } from "bun:test";
 import { primeAddresses, readDecodedAddress } from "@/lib/decodedAddresses";
-import { stakeCredentialOf, type DecodedAddress } from "./addressTypes";
-
-describe("stakeCredentialOf", () => {
-  test("a reward address reports the credential the decoder puts in payment_cred", () => {
-    const decoded: DecodedAddress = {
-      address_type: "Reward",
-      details: { payment_cred: { type: "ScriptHash", credential: "abcd" } },
-    };
-    expect(stakeCredentialOf(decoded)).toEqual({ type: "ScriptHash", credential: "abcd" });
-  });
-
-  test("an address carrying both parts reports the staking half, not the payment half", () => {
-    const decoded: DecodedAddress = {
-      address_type: "Base",
-      details: {
-        payment_cred: { type: "ScriptHash", credential: "1111" },
-        staking_cred: { type: "KeyHash", credential: "2222" },
-      },
-    };
-    expect(stakeCredentialOf(decoded)).toEqual({ type: "KeyHash", credential: "2222" });
-  });
-
-  test("an address with no staking part has no stake credential", () => {
-    const enterprise: DecodedAddress = {
-      address_type: "Enterprise",
-      details: { payment_cred: { type: "KeyHash", credential: "3333" } },
-    };
-    expect(stakeCredentialOf(enterprise)).toBeNull();
-    expect(stakeCredentialOf(null)).toBeNull();
-    expect(stakeCredentialOf(undefined)).toBeNull();
-  });
-});
+import { stakeCredentialOf } from "@cardananium/cquisitor-lib";
 
 describe("stakeCredentialOf over addresses the library decoded", () => {
   // A withdrawal key is a reward address, and the card that renders one labels

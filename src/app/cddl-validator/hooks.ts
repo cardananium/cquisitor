@@ -3,21 +3,38 @@
 // pass plus async plumbing that keeps the previous value while the next runs.
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type {
-  CborCddlMap,
-  CborDecodeError,
-  CborPartialValue,
-  CborValue,
-  CddlOutlineEntry,
-  CddlValidationResult,
-  CborPosition,
-  CddlReferencesResult,
-  CddlSymbolAtResult,
+import {
+  base64ToHex,
+  cborErrorToLocation,
+  isLibAbortedError,
+  looksLikeBase64,
+  stripWhitespace,
+  cborDiagnostics,
+  cborDiagnosticsTruncated,
+  cddlErrorRanges,
+  cddlParseErrorLine,
+  cddlParseErrorRange,
+  cddlUnresolvedNames,
+  utf16ToByte,
+  declaredRuleNames,
+  retainOutline,
+  rootRuleNames,
+  type CborCddlMap,
+  type CborDecodeError,
+  type CborPartialValue,
+  type CborValue,
+  type CddlOutlineEntry,
+  type CddlValidationResult,
+  type CborPosition,
+  type CddlReferencesResult,
+  type CddlSymbolAtResult,
+  type CborErrorLocation,
+  type CborDiagnostic,
+  type CddlRange,
+  type CddlUnresolvedName,
+  type OutlineSnapshot,
 } from "@cardananium/cquisitor-lib";
-import type { CborErrorLocation } from "@/utils/cborError";
-import { cborErrorToLocation } from "@/utils/cborError";
-import { base64ToHex, looksLikeBase64, stripWhitespace } from "@/utils/inputNormalization";
-import { isLibAbortedError, type LibCallOptions } from "@/lib/cquisitorWorker";
+import type { LibCallOptions } from "@/lib/cquisitorWorker";
 import {
   safeCborToJson,
   safeDecodeCborAgainstCddl,
@@ -35,18 +52,6 @@ import {
   type WalkRefusal,
 } from "./cddlValidatorLib";
 import {
-  cborDiagnostics,
-  cborDiagnosticsTruncated,
-  cddlErrorRanges,
-  cddlParseErrorLine,
-  cddlParseErrorRange,
-  cddlUnresolvedNames,
-  utf16ToByte,
-  type CborDiagnostic,
-  type CddlRange,
-  type CddlUnresolvedName,
-} from "./cddlError";
-import {
   createCborCddlBridge,
   EMPTY_CBOR_CDDL_MAP,
   type CborCddlBridge,
@@ -54,12 +59,6 @@ import {
 } from "./cborCddlBridge";
 import type { HoverLink, HoverLinkStore } from "./hoverLink";
 import { EMPTY_PATHS, EMPTY_POSITIONS } from "./instances";
-import {
-  declaredRuleNames,
-  retainOutline,
-  rootRuleNames,
-  type OutlineSnapshot,
-} from "./ruleSelection";
 
 /** A debounced view of `value` — re-emits `delayMs` after the last change. */
 export function useDebouncedString(value: string, delayMs: number): string {
@@ -454,7 +453,7 @@ export interface UseCborValidationResult {
 export interface CborValidationPass {
   source: string;
   outcome: CborValidationOutcome | null;
-  /** Whether the transport reported the run as slow before it answered. */
+  /** Whether the run was reported slow before it answered. */
   slow: boolean;
 }
 

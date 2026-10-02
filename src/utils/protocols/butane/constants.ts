@@ -15,7 +15,7 @@
 //
 // No testnet hashes are known → return null for non-mainnet networks.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const BUTANE = {

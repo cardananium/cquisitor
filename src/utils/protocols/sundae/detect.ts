@@ -1,4 +1,4 @@
-import type { TransactionOutput, CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { TransactionOutput, CardanoNetwork } from "@cardananium/cquisitor-lib";
 import { getPaymentScriptHash } from "@/utils/protocols/dex/address";
 import { resolveOutputDatum } from "@/utils/protocols/dex/datum";
 import { lookupSundaeScript, type SundaeScriptEntry } from "./constants";

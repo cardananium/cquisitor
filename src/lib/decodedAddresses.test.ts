@@ -6,7 +6,7 @@ import {
   requestAddress,
   subscribeDecodedAddresses,
 } from "./decodedAddresses";
-import { MAX_LIB_INPUT_BYTES } from "@/utils/inputBudget";
+import { MAX_LIB_INPUT_BYTES } from "@cardananium/cquisitor-lib";
 
 // Base (key/key), script reward, and hex enterprise — shapes DEX/Sundae detectors see.
 const BASE_ADDRESS =

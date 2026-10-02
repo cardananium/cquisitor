@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PD } from "@/utils/protocols/dex/plutusData";
-import { convertSerdeNumbers } from "@/utils/serdeNumbers";
+import { convertSerdeNumbers } from "@cardananium/cquisitor-lib";
 import {
   parseCollateralDatum,
   parseCollateralRedeemer,

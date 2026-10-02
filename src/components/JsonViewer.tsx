@@ -2,27 +2,9 @@
 
 import { JsonViewer as TexteaJsonViewer, defineDataType } from "@textea/json-viewer";
 import { useMemo } from "react";
-import { bech32 } from "bech32";
-import { blake2b } from "@noble/hashes/blake2.js";
-import { getTransactionLink, getAddressLink, type CardanoNetwork } from "@/utils/cardanoscanLinks";
-
-// Decode bech32 vkey and compute blake2b-224 hash
-function computeVkeyHash(vkeyBech32: string): string | null {
-  try {
-    // Decode bech32 - vkey starts with "ed25519_pk"
-    const decoded = bech32.decode(vkeyBech32, 100);
-    // Convert from 5-bit words to 8-bit bytes
-    const publicKeyBytes = bech32.fromWords(decoded.words);
-    // Hash with blake2b-224 (28 bytes = 224 bits)
-    const hash = blake2b(new Uint8Array(publicKeyBytes), { dkLen: 28 });
-    // Convert to hex
-    return Array.from(hash as Uint8Array)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  } catch {
-    return null;
-  }
-}
+import { getTransactionLink, getAddressLink, type CardanoNetwork } from "@cardananium/cquisitor-lib";
+import { boundedJson } from "@/utils/boundedJson";
+import { prepareViewData } from "@/utils/prepareViewData";
 
 interface JsonViewerProps {
   data: unknown;
@@ -52,12 +34,13 @@ function isEntriesMap(v: unknown): v is EntriesMap {
     && Array.isArray((v as Record<string, unknown>)["@entries"]);
 }
 
+/** One-line JSON of a cell, cut at `max`; depth-safe (see `boundedJson`). */
 function compactJson(v: unknown, max = 80): string {
-  let s: string;
-  try { s = JSON.stringify(v); } catch { s = String(v); }
-  if (typeof s !== "string") s = String(s);
-  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+  return boundedJson(v, max);
 }
+
+/** Tooltip text of a cell: longer than the cell, still bounded. */
+const TITLE_MAX = 2_000;
 
 const entriesMapType = defineDataType<EntriesMap>({
   is: (v): v is EntriesMap => isEntriesMap(v),
@@ -73,8 +56,8 @@ const entriesMapType = defineDataType<EntriesMap>({
           <tbody>
             {entries.map((e, i) => {
               const via = e.match?.via;
-              const fullKey = JSON.stringify(e.key);
-              const fullValue = JSON.stringify(e.value);
+              const fullKey = boundedJson(e.key, TITLE_MAX);
+              const fullValue = boundedJson(e.value, TITLE_MAX);
               return (
                 <tr key={i} className="cq-entries-row">
                   <td className="cq-entries-index">[{i}]</td>
@@ -99,47 +82,12 @@ const entriesMapType = defineDataType<EntriesMap>({
 });
 
 
-// Recursively convert BigInt and Uint8Array to serializable types
-// Also enriches vkeys in witness_set with vkey_hash
-function prepareData(data: unknown, parentKey?: string): unknown {
-  if (data === null || data === undefined) {
-    return data;
-  }
-  if (typeof data === "bigint") {
-    return data.toString();
-  }
-  if (data instanceof Uint8Array) {
-    return Array.from(data);
-  }
-  if (Array.isArray(data)) {
-    return data.map((item) => prepareData(item, parentKey));
-  }
-  if (typeof data === "object") {
-    const result: Record<string, unknown> = {};
-    const entries = Object.entries(data);
-    
-    for (const [key, value] of entries) {
-      result[key] = prepareData(value, key);
-      
-      // If this is a vkey field with bech32 format (ed25519_pk prefix), add vkey_hash
-      if (key === "vkey" && typeof value === "string" && value.startsWith("ed25519_pk")) {
-        const vkeyHash = computeVkeyHash(value);
-        if (vkeyHash) {
-          result["vkey_hash"] = vkeyHash;
-        }
-      }
-    }
-    return result;
-  }
-  return data;
-}
-
 export default function JsonViewer({
   data,
   expanded = 3,
   network,
 }: JsonViewerProps) {
-  const preparedData = prepareData(data);
+  const preparedData = useMemo(() => prepareViewData(data), [data]);
   
   // Create custom data types for CardanoScan links + the wire-order
   // map shape produced by `decode_cbor_against_cddl` when keys are

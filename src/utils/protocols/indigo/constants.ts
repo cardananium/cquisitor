@@ -12,7 +12,7 @@
 // The script-hash fields are the 28-byte payment hashes of the addresses
 // holding the auth-token NFTs. Mainnet only — return null for any other network.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const INDIGO = {

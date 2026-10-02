@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import VerdictChip from "./VerdictChip";
-import type { CborDiagnostic } from "./cddlError";
-import type { Verdict } from "./verdict";
+import type { CborDiagnostic, Verdict } from "@cardananium/cquisitor-lib";
 
 const head: CborDiagnostic = {
   kind: "mismatch",

@@ -4,16 +4,16 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { getPathDiagnostics, getGovActionLink } from "../utils";
-import { encodeGovernanceActionId } from "@/utils/cip129";
-import type { 
-  VoterVotes, 
-  Vote,
-  Voter,
-  CredType,
-  Anchor,
-  ValidationDiagnostic,
-  CardanoNetwork
-} from "../types";
+import {
+  encodeGovernanceActionId,
+  type VoterVotes,
+  type Vote,
+  type TxVoter,
+  type CredType,
+  type Anchor,
+  type ValidationDiagnostic,
+  type CardanoNetwork,
+} from "@cardananium/cquisitor-lib";
 
 interface VotingProcedureCardProps {
   voterVotes: VoterVotes;
@@ -25,7 +25,7 @@ interface VotingProcedureCardProps {
 }
 
 // Get voter type info
-function getVoterInfo(voter: Voter): { type: string; icon: string; colorClass: string } {
+function getVoterInfo(voter: TxVoter): { type: string; icon: string; colorClass: string } {
   if ("ConstitutionalCommitteeHotCred" in voter) {
     return { type: "Constitutional Committee", icon: "🏛️", colorClass: "tcv-voter-committee" };
   }
@@ -93,7 +93,7 @@ function AnchorDisplay({ anchor }: { anchor: Anchor }) {
 }
 
 // Display voter details
-function VoterDisplay({ voter }: { voter: Voter }) {
+function VoterDisplay({ voter }: { voter: TxVoter }) {
   if ("ConstitutionalCommitteeHotCred" in voter) {
     return <CredentialDisplay cred={voter.ConstitutionalCommitteeHotCred} label="Hot Credential" />;
   }

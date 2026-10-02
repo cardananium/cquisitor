@@ -6,8 +6,7 @@ import { CollapsibleDataItem } from "./CollapsibleDataItem";
 import { DeUplcButton, DEUPLC_ENABLED } from "./DeUplcButton";
 import { getPathDiagnostics } from "../utils";
 import { formatDexRole, dexThemeKey, type DexRedeemerNote } from "@/utils/protocols/dex";
-import type { Redeemer, ValidationDiagnostic } from "../types";
-import type { DeUplcResolved } from "@/utils/deUplcLink";
+import type { Redeemer, ValidationDiagnostic, DeUplcResolved } from "@cardananium/cquisitor-lib";
 
 interface RedeemerCardProps {
   redeemer: Redeemer;

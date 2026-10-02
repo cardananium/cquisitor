@@ -2,8 +2,7 @@
 
 // Why the run stopped short of a verdict, above the hex. Not dismissible — it describes the current input.
 
-import { abbreviatePath } from "./cddlError";
-import type { HexRefusal } from "./verdict";
+import { abbreviatePath, type HexRefusal } from "@cardananium/cquisitor-lib";
 
 export default function RefusalBanner({ refusal }: { refusal: HexRefusal }) {
   const { kind, message, path, limitNote, note } = refusal;

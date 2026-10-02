@@ -7,8 +7,7 @@ import { DiagnosticBadge } from "./DiagnosticBadge";
 import { HashWithTooltip } from "./HashWithTooltip";
 import { DecompileButton, DEUPLC_ENABLED } from "./DeUplcButton";
 import { getPathDiagnostics } from "../utils";
-import type { ValidationDiagnostic } from "../types";
-import type { PlutusScriptInfo } from "@cardananium/cquisitor-lib";
+import type { ValidationDiagnostic, PlutusScriptInfo } from "@cardananium/cquisitor-lib";
 
 const SCRIPT_ACCENT = "#8b5cf6"; // purple
 

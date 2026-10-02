@@ -1,24 +1,30 @@
+// The codec is the library's; what is checked here is the app's side of it:
+// the brotli-wasm compressor `installCquisitorLib` registers, and where links point.
 import { describe, expect, test } from "bun:test";
-import type { NetworkType } from "@cardananium/cquisitor-lib";
-import type { FetchedValidationData } from "@/utils/transactionValidation";
-import { CONWAY_CDDL } from "@/app/cddl-validator/conwaySchema";
 import {
+  CTX_SCHEMA_VERSION,
   encodeCardanoCborLink,
   encodeCddlLink,
   encodeGeneralCborLink,
   encodeValidatorLink,
-  getBuildLinkOpts,
-  type BuildLinkOpts,
-} from "./encoder";
-import {
+  hexToBytes,
   parseCardanoCborShare,
   parseCddlShare,
   parseGeneralCborShare,
   parseHash,
   parseValidatorShare,
-} from "./parser";
-import { CTX_SCHEMA_VERSION, URL_FORMAT_VERSION } from "./version";
-import { hexToBytes, textToBytes, toBase64Url } from "./base64url";
+  textToBytes,
+  toBase64Url,
+  URL_FORMAT_VERSION,
+  type BuildLinkOpts,
+  type FetchedValidationData,
+  type NetworkType,
+} from "@cardananium/cquisitor-lib";
+import { CONWAY_CDDL } from "@/app/cddl-validator/conwaySchema";
+import { installCquisitorLib } from "@/lib/cquisitorLib";
+import { getBuildLinkOpts } from "./buildLinkOpts";
+
+installCquisitorLib();
 
 const OPTS: BuildLinkOpts = { origin: "https://example.test", basePath: "/cquisitor" };
 

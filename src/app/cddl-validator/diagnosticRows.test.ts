@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { CborPosition } from "@cardananium/cquisitor-lib";
+import {
+  cborDiagnostics,
+  type CborPosition,
+  type CborDiagnostic,
+} from "@cardananium/cquisitor-lib";
 import { NO_TREE_DIAGNOSTICS } from "@/components/treeDiagnostics";
 import { createCborCddlBridge, EMPTY_CBOR_CDDL_MAP, type CborCddlBridge } from "./cborCddlBridge";
-import { cborDiagnostics, type CborDiagnostic } from "./cddlError";
 import {
   diagnosticDecodedRows,
   diagnosticPosition,
@@ -110,9 +113,25 @@ describe("over real library output", () => {
     expect(decoded.get("$")).toMatchObject([{ index: 0, kind: "mismatch", held: false }]);
   });
 
-  test("a missing member is a `generic` diagnostic on the map that lacks it", () => {
+  test("an unexpected member lands on its own entry, key first, not on the map header", () => {
+    // {"name":"Alice","age":30} against a Person with no `age`.
+    const hex = "a2646e616d6565416c69636563616765181e";
+    const cddl = "Person = {name: tstr}\n";
+    const diagnostics = diagnosticsOf(hex, cddl, "Person");
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ path: "$.age", message: 'unexpected key "age"' });
+    // Key span, then value span; the map header is nowhere in it.
+    expect(diagnostics[0].byteSpans).toEqual([{ offset: 12, length: 4 }, { offset: 16, length: 2 }]);
+    const tree = diagnosticTreeRows(diagnostics, ROOT_MAP);
+    expect([...tree.keys()]).toEqual(["12:4"]);
+    const decoded = diagnosticDecodedRows(diagnostics, bridgeOf(hex, cddl, "Person"), ROOT_MAP);
+    expect(decoded.has("$")).toBe(false);
+    expect([...decoded.keys()]).toHaveLength(1);
+  });
+
+  test("a missing member is a `generic` diagnostic on the map that lacks it, naming the key it wanted", () => {
     const diagnostics = diagnosticsOf(NO_AGE_HEX, PERSON_CDDL, "Person");
-    expect(diagnostics[0]).toMatchObject({ kind: "generic", path: "$" });
+    expect(diagnostics[0]).toMatchObject({ kind: "generic", path: "$", expected: '"age"' });
     expect(diagnostics[0].message).toContain("age");
     const tree = diagnosticTreeRows(diagnostics, ROOT_MAP);
     expect(tree.get("0:1")).toMatchObject([{ index: 0, kind: "generic", held: false }]);
@@ -136,6 +155,67 @@ describe("over real library output", () => {
     expect(diagnostics[0].path).toBe("$[1]");
     const decoded = diagnosticDecodedRows(diagnostics, bridgeOf("d9010282016161", cddl, "S"), { offset: 0, length: 3 });
     expect([...decoded.keys()]).toEqual(['$["@value"][1]']);
+  });
+
+  describe("a CBOR path that names more than one node", () => {
+    const KEYED_CDDL = "root = {* k => uint, ? 0: tstr, ? 1: uint}\nk = [* uint]\n";
+    const uintHex = (n: number) =>
+      n < 24 ? n.toString(16).padStart(2, "0") : "18" + n.toString(16).padStart(2, "0");
+
+    test("the value under a key too long to write out, named by its position, is the value's", () => {
+      // {0: "a", [0, 1, …, 199]: "x"}: the key's rendering passes the bound, so
+      // the validator names the entry `$[1]`, which is also the key's item 1.
+      const longKey = "98c8" + Array.from({ length: 200 }, (_, i) => uintHex(i)).join("");
+      const hex = "a2" + "006161" + longKey + "6178";
+      const diagnostics = diagnosticsOf(hex, KEYED_CDDL, "root");
+      expect(diagnostics.map(d => d.path)).toEqual(["$[1]"]);
+      const decoded = diagnosticDecodedRows(diagnostics, bridgeOf(hex, KEYED_CDDL, "root"), ROOT_MAP);
+      expect([...decoded.keys()]).toEqual(['$["@entries"][1].value']);
+      expect(decoded.get('$["@entries"][1].value')).toMatchObject([{ index: 0, held: false }]);
+    });
+
+    test("an entry the validator cannot name, `[...]`, is not the text key \"...\"", () => {
+      // {1: 5, "zzz…" (2000 bytes): "x", "...": 7}: the long key sits at
+      // position 1, which reads as integer key 1, so the validator names the
+      // entry `$[...]`. The key renders past the 1024 bytes the library
+      // writes out, so the path stays `$[...]`; the library still singles
+      // the entry out, so the spans are its value's.
+      const cddl = "root = {* tstr => uint, ? 1: uint}\n";
+      const longKey = "z".repeat(2000);
+      const longText = "7907d0" + "7a".repeat(2000);
+      const hex = "a3" + "0105" + longText + "6178" + "632e2e2e" + "07";
+      const diagnostics = diagnosticsOf(hex, cddl, "root");
+      expect(diagnostics.map(d => d.path)).toEqual(["$[...]"]);
+      // Map header, `1: 5`, the key's 3-byte header and its 2000 bytes.
+      expect(diagnostics[0].byteSpans).toEqual([{ offset: 1 + 2 + 3 + 2000, length: 2 }]);
+      const decoded = diagnosticDecodedRows(diagnostics, bridgeOf(hex, cddl, "root"), ROOT_MAP);
+      expect([...decoded.keys()]).toEqual([`$.${longKey}`]);
+    });
+
+    test("an entry `[...]` the library cannot single out sits on the map, not on the text key \"...\"", () => {
+      // {1: 5, 2: 6, "aaa…" (300 bytes): "x", "bbb…" (300 bytes): 8, "...": 7}:
+      // both long keys pass the validator's bound, and the one at position 2,
+      // which reads as integer key 2, is `$[...]`. Two keys could be that
+      // entry, so its spans are the map's.
+      const cddl = "root = {* tstr => uint, ? 1: uint, ? 2: uint}\n";
+      const longA = "79012c" + "61".repeat(300);
+      const longB = "79012c" + "62".repeat(300);
+      const hex = "a5" + "0105" + "0206" + longA + "6178" + longB + "08" + "632e2e2e" + "07";
+      const diagnostics = diagnosticsOf(hex, cddl, "root");
+      expect(diagnostics.map(d => d.path)).toEqual(["$[...]"]);
+      expect(diagnostics[0].byteSpans).toEqual([ROOT_MAP]);
+      const decoded = diagnosticDecodedRows(diagnostics, bridgeOf(hex, cddl, "root"), ROOT_MAP);
+      expect([...decoded.keys()]).toEqual(["$"]);
+    });
+
+    test("the value under integer key 1 is not item 1 of the composite key beside it", () => {
+      // {1: "a", [5, 6]: 7}
+      const hex = "a2" + "016161" + "820506" + "07";
+      const diagnostics = diagnosticsOf(hex, KEYED_CDDL, "root");
+      expect(diagnostics.map(d => d.path)).toEqual(["$[1]"]);
+      const decoded = diagnosticDecodedRows(diagnostics, bridgeOf(hex, KEYED_CDDL, "root"), ROOT_MAP);
+      expect([...decoded.keys()]).toEqual(['$["@entries"][0].value']);
+    });
   });
 
   test("several diagnostics keep the run's order within a row and across rows", () => {
@@ -182,6 +262,16 @@ describe("diagnostics the map has no row for", () => {
     expect([...decoded.keys()]).toEqual(["$[0].age"]);
     expect(decoded.get("$[0].age")).toMatchObject([{ index: 0, held: false }]);
     expect([...diagnosticTreeRows([d], ROOT_MAP).keys()]).toEqual(["17:3"]);
+  });
+
+  test("one whose path names a row its bytes do not meet is placed by the byte it blames", () => {
+    // `$[0].name` exists, but the blamed bytes are `age`'s value.
+    const d = handBuilt({ kind: "mismatch", path: "$[0].name", byteSpans: [{ offset: 17, length: 3 }] });
+    const decoded = diagnosticDecodedRows([d], persons(), ROOT_MAP);
+    expect([...decoded.keys()]).toEqual(["$[0].age"]);
+    // With no bytes to disagree, the path decides.
+    const pathOnly = diagnosticDecodedRows([handBuilt({ kind: "mismatch", path: "$[0].name" })], persons(), ROOT_MAP);
+    expect([...pathOnly.keys()]).toEqual(["$[0].name"]);
   });
 
   test("one with no path and no bytes is placed nowhere", () => {

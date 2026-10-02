@@ -6,72 +6,34 @@ import { UtxoRef } from "./UtxoRef";
 import { AddressWithTooltip } from "./AddressWithTooltip";
 import { CopyIcon, CheckIcon, XCircleIcon } from "./Icons";
 import { AssetsTable, type AssetRow } from "./AssetsTable";
-import { SlotWithTooltip } from "./TransactionCardView/components/SlotWithTooltip";
-import { formatDurationSeconds } from "@/utils/slotTime";
-import { encodeDRepId, encodeCCHotId, poolIdHexToBech32 } from "@/utils/cip129";
+import { RenderErrorBoundary } from "./RenderErrorBoundary";
+import {
+  formatDurationSeconds,
+  encodeDRepId,
+  encodeCCHotId,
+  poolIdHexToBech32,
+  type Value,
+  type FeeDecomposition,
+  type TxInput,
+  type ExUnits,
+  type GovernanceActionId,
+  type ProtocolVersion,
+  type ScriptDataHashDecomposition,
+} from "@cardananium/cquisitor-lib";
 
 // ============================================================================
 // Type Definitions
 // ============================================================================
 
-interface ValidatorAsset {
-  policy_id: string;
-  asset_name: string;
-  quantity: number;
-}
+// Integers in validation results arrive as `number` up to 2^53 and as `bigint`
+// beyond it, so every formatter below accepts both and never mixes them in
+// arithmetic.
+type IntLike = number | bigint;
 
-interface MultiAsset {
-  assets: ValidatorAsset[];
-}
-
-interface Value {
-  coins: number;
-  assets: MultiAsset;
-}
-
-interface FeeDecomposition {
-  txSizeFee: number;
-  referenceScriptsFee: number;
-  executionUnitsFee: number;
-}
-
-interface TxInput {
-  txHash: string;
-  outputIndex: number;
-}
-
-interface ExUnits {
-  mem: number;
-  steps: number;
-}
-
-interface GovernanceActionId {
-  txHash: number[];
-  index: number;
-}
-
+/** Credential as the validator serialises it: exactly one of the two hashes. */
 interface LocalCredential {
   keyHash?: number[];
   scriptHash?: number[];
-}
-
-interface ProtocolVersion {
-  major: number;
-  minor: number;
-}
-
-/**
- * Script Data Hash Decomposition - shows the components used to compute script_data_hash
- */
-interface ScriptDataHashDecomposition {
-  costModelsCbor?: string | null;
-  datumsCbor?: string | null;
-  datumsCount?: number | null;
-  encodingFormat: string;
-  hashInputDescription: string;
-  plutusVersionsUsed: string[];
-  redeemersCbor?: string | null;
-  redeemersCount: number;
 }
 
 // ============================================================================
@@ -136,14 +98,58 @@ function useDecompositionModal() {
 // Helper Functions
 // ============================================================================
 
-function formatLovelace(lovelace: number, forceLovelace = false): string {
+/**
+ * Exact integer value of a validator number: integral `number`s and `bigint`s
+ * (plus decimal-integer strings, for hand-built data). Null for anything else.
+ */
+export function toExactInteger(value: unknown): bigint | null {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number") return Number.isInteger(value) ? BigInt(value) : null;
+  if (typeof value === "string" && /^-?\d+$/.test(value.trim())) return BigInt(value.trim());
+  return null;
+}
+
+/** Locale-grouped integer, exact at any magnitude. */
+export function formatInteger(value: IntLike): string {
+  const exact = toExactInteger(value);
+  return exact !== null ? exact.toLocaleString() : Number(value).toLocaleString();
+}
+
+let decimalSeparator: string | null = null;
+function localeDecimalSeparator(): string {
+  decimalSeparator ??=
+    new Intl.NumberFormat().formatToParts(1.5).find((p) => p.type === "decimal")?.value ?? ".";
+  return decimalSeparator;
+}
+
+const LOVELACE_PER_ADA = BigInt(1_000_000);
+
+/**
+ * Lovelace as ADA (`₳ 1,234.5`, 2 to 6 fraction digits) or, with
+ * `forceLovelace`, as grouped lovelace. Exact for amounts beyond 2^53.
+ */
+export function formatLovelace(lovelace: IntLike, forceLovelace = false): string {
+  const exact = toExactInteger(lovelace);
+  if (exact === null) return `${String(lovelace)} lovelace`;
   // For fee decomposition, always show in lovelace for precision
   if (forceLovelace) {
-    return `${lovelace.toLocaleString()} lovelace`;
+    return `${exact.toLocaleString()} lovelace`;
   }
-  // Otherwise, always show in ADA
-  const ada = lovelace / 1_000_000;
-  return `₳ ${ada.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
+  const negative = exact < BigInt(0);
+  const magnitude = negative ? -exact : exact;
+  const whole = (magnitude / LOVELACE_PER_ADA).toLocaleString();
+  const fraction = (magnitude % LOVELACE_PER_ADA)
+    .toString()
+    .padStart(6, "0")
+    .replace(/0+$/, "")
+    .padEnd(2, "0");
+  return `₳ ${negative ? "-" : ""}${whole}${localeDecimalSeparator()}${fraction}`;
+}
+
+/** `part / total` as a percentage with one decimal; 0.0 when the total is 0. */
+function formatShare(part: bigint, total: bigint): string {
+  if (total === BigInt(0)) return "0.0";
+  return ((Number(part) / Number(total)) * 100).toFixed(1);
 }
 
 
@@ -193,7 +199,7 @@ const ERROR_TYPE_MESSAGES: Record<string, (data?: Record<string, unknown>) => st
     const actualFee = data?.actual_fee ?? data?.actualFee;
     const minFee = data?.min_fee ?? data?.minFee;
     if (actualFee !== undefined && minFee !== undefined) {
-      return `Fee too small: ${Number(actualFee).toLocaleString()} < ${Number(minFee).toLocaleString()} lovelace required`;
+      return `Fee too small: ${formatInteger(actualFee as IntLike)} < ${formatInteger(minFee as IntLike)} lovelace required`;
     }
     return "Fee too small for this transaction";
   },
@@ -361,7 +367,7 @@ function cleanupErrorMessage(message: string, errorType: string): string {
  */
 export function ValueFormatter({ value }: { value: Value }) {
   const hasAssets = value.assets?.assets?.length > 0;
-  const isNegative = value.coins < 0;
+  const isNegative = (toExactInteger(value.coins) ?? BigInt(0)) < BigInt(0);
   
   // Convert assets to the format expected by AssetsTable
   const assetRows: AssetRow[] = hasAssets
@@ -396,30 +402,33 @@ export function ValueFormatter({ value }: { value: Value }) {
  * Formats a Fee Decomposition
  */
 export function FeeDecompositionFormatter({ fee }: { fee: FeeDecomposition }) {
-  const total = fee.txSizeFee + fee.referenceScriptsFee + fee.executionUnitsFee;
+  const txSize = toExactInteger(fee.txSizeFee) ?? BigInt(0);
+  const refScripts = toExactInteger(fee.referenceScriptsFee) ?? BigInt(0);
+  const execution = toExactInteger(fee.executionUnitsFee) ?? BigInt(0);
+  const total = txSize + refScripts + execution;
   
   return (
     <div className="error-formatter fee-decomposition-formatter">
       <div className="fee-breakdown">
         <div className="fee-row">
           <span className="fee-label">TX Size:</span>
-          <span className="fee-value">{formatLovelace(fee.txSizeFee, true)}</span>
+          <span className="fee-value">{formatLovelace(txSize, true)}</span>
           <span className="fee-percent">
-            ({((fee.txSizeFee / total) * 100).toFixed(1)}%)
+            ({formatShare(txSize, total)}%)
           </span>
         </div>
         <div className="fee-row">
           <span className="fee-label">Ref Scripts:</span>
-          <span className="fee-value">{formatLovelace(fee.referenceScriptsFee, true)}</span>
+          <span className="fee-value">{formatLovelace(refScripts, true)}</span>
           <span className="fee-percent">
-            ({((fee.referenceScriptsFee / total) * 100).toFixed(1)}%)
+            ({formatShare(refScripts, total)}%)
           </span>
         </div>
         <div className="fee-row">
           <span className="fee-label">Execution:</span>
-          <span className="fee-value">{formatLovelace(fee.executionUnitsFee, true)}</span>
+          <span className="fee-value">{formatLovelace(execution, true)}</span>
           <span className="fee-percent">
-            ({((fee.executionUnitsFee / total) * 100).toFixed(1)}%)
+            ({formatShare(execution, total)}%)
           </span>
         </div>
         <div className="fee-row fee-total">
@@ -438,7 +447,7 @@ export function TxInputFormatter({ input }: { input: TxInput }) {
   return (
     <UtxoRef 
       txHash={input.txHash}
-      index={input.outputIndex}
+      index={Number(input.outputIndex)}
       variant="error"
     />
   );
@@ -452,12 +461,12 @@ export function ExUnitsFormatter({ units }: { units: ExUnits }) {
     <div className="error-formatter exunits-formatter">
       <div className="exunits-row">
         <span className="exunits-label">Memory:</span>
-        <span className="exunits-value">{units.mem.toLocaleString()}</span>
+        <span className="exunits-value">{formatInteger(units.mem)}</span>
         <span className="exunits-unit">units</span>
       </div>
       <div className="exunits-row">
         <span className="exunits-label">CPU Steps:</span>
-        <span className="exunits-value">{units.steps.toLocaleString()}</span>
+        <span className="exunits-value">{formatInteger(units.steps)}</span>
         <span className="exunits-unit">units</span>
       </div>
     </div>
@@ -473,7 +482,7 @@ export function GovActionIdFormatter({ actionId }: { actionId: GovernanceActionI
     <div className="error-formatter gov-action-formatter">
       <span className="gov-hash">{txHash}</span>
       <span className="gov-separator">#</span>
-      <span className="gov-index">{actionId.index}</span>
+      <span className="gov-index">{String(actionId.index)}</span>
     </div>
   );
 }
@@ -503,7 +512,7 @@ export function CredentialFormatter({ credential }: { credential: LocalCredentia
 export function ProtocolVersionFormatter({ version }: { version: ProtocolVersion }) {
   return (
     <span className="error-formatter protocol-version-formatter">
-      v{version.major}.{version.minor}
+      v{String(version.major)}.{String(version.minor)}
     </span>
   );
 }
@@ -721,30 +730,6 @@ export function ScriptDataHashDecompositionButton({
 }
 
 /**
- * Formats a Slot number with epoch calculation
- */
-export function SlotFormatter({ slot, currentSlot }: { slot: number; currentSlot?: number }) {
-  // Approximate epoch (432000 slots per epoch on mainnet)
-  const SLOTS_PER_EPOCH = 432000;
-  const epoch = Math.floor(slot / SLOTS_PER_EPOCH);
-  
-  return (
-    <div className="error-formatter slot-formatter">
-      <SlotWithTooltip slot={slot} className="slot-value" />
-      <span className="slot-epoch">(epoch ~{epoch})</span>
-      {currentSlot !== undefined && (
-        <span className={`slot-diff ${slot > currentSlot ? "future" : "past"}`}>
-          {slot > currentSlot
-            ? `+${(slot - currentSlot).toLocaleString()} slots ahead`
-            : `${(currentSlot - slot).toLocaleString()} slots ago`
-          }
-        </span>
-      )}
-    </div>
-  );
-}
-
-/**
  * Formats an Address with network detection
  */
 export function AddressFormatter({ address }: { address: string }) {
@@ -835,6 +820,8 @@ interface FormattedStructure {
   component: React.ReactNode;
 }
 
+type FormattedPart = { key: string; formatted: FormattedStructure };
+
 function detectAndFormat(key: string, value: unknown): FormattedStructure | null {
   if (value === null || value === undefined) return null;
   
@@ -850,7 +837,7 @@ function detectAndFormat(key: string, value: unknown): FormattedStructure | null
   if (typeof value === "object" && 
       (("txSizeFee" in value && "referenceScriptsFee" in value) ||
        ("tx_size_fee" in value && "reference_scripts_fee" in value))) {
-    const fee = value as Record<string, number>;
+    const fee = value as Record<string, IntLike | undefined>;
     const normalized: FeeDecomposition = {
       txSizeFee: fee.txSizeFee ?? fee.tx_size_fee ?? 0,
       referenceScriptsFee: fee.referenceScriptsFee ?? fee.reference_scripts_fee ?? 0,
@@ -869,7 +856,7 @@ function detectAndFormat(key: string, value: unknown): FormattedStructure | null
     const input = value as Record<string, unknown>;
     const normalized: TxInput = {
       txHash: (input.txHash ?? input.tx_hash) as string,
-      outputIndex: (input.outputIndex ?? input.output_index) as number,
+      outputIndex: Number(input.outputIndex ?? input.output_index),
     };
     return {
       type: "TxInput",
@@ -971,8 +958,9 @@ function BudgetComparisonFormatter({
   const declared = actual;
   
   // Calculate how much extra was declared vs what was used
-  const memOverhead = declared.mem - used.mem;
-  const stepsOverhead = declared.steps - used.steps;
+  const zero = BigInt(0);
+  const memOverhead = (toExactInteger(declared.mem) ?? zero) - (toExactInteger(used.mem) ?? zero);
+  const stepsOverhead = (toExactInteger(declared.steps) ?? zero) - (toExactInteger(used.steps) ?? zero);
   
   return (
     <div className="smart-message-formatter">
@@ -982,23 +970,23 @@ function BudgetComparisonFormatter({
         </div>
         <div className="budget-comparison-inline">
           <span className="budget-inline-label">Memory:</span>
-          <span className="budget-inline-value">{declared.mem.toLocaleString()}</span>
+          <span className="budget-inline-value">{formatInteger(declared.mem)}</span>
           <span className="budget-inline-arrow">→</span>
-          <span className="budget-inline-value">{used.mem.toLocaleString()}</span>
-          {memOverhead !== 0 && (
-            <span className={`budget-inline-diff ${memOverhead > 0 ? 'over' : 'under'}`}>
-              ({memOverhead > 0 ? '+' : ''}{memOverhead.toLocaleString()})
+          <span className="budget-inline-value">{formatInteger(used.mem)}</span>
+          {memOverhead !== zero && (
+            <span className={`budget-inline-diff ${memOverhead > zero ? 'over' : 'under'}`}>
+              ({memOverhead > zero ? '+' : ''}{memOverhead.toLocaleString()})
             </span>
           )}
         </div>
         <div className="budget-comparison-inline">
           <span className="budget-inline-label">CPU:</span>
-          <span className="budget-inline-value">{declared.steps.toLocaleString()}</span>
+          <span className="budget-inline-value">{formatInteger(declared.steps)}</span>
           <span className="budget-inline-arrow">→</span>
-          <span className="budget-inline-value">{used.steps.toLocaleString()}</span>
-          {stepsOverhead !== 0 && (
-            <span className={`budget-inline-diff ${stepsOverhead > 0 ? 'over' : 'under'}`}>
-              ({stepsOverhead > 0 ? '+' : ''}{stepsOverhead.toLocaleString()})
+          <span className="budget-inline-value">{formatInteger(used.steps)}</span>
+          {stepsOverhead !== zero && (
+            <span className={`budget-inline-diff ${stepsOverhead > zero ? 'over' : 'under'}`}>
+              ({stepsOverhead > zero ? '+' : ''}{stepsOverhead.toLocaleString()})
             </span>
           )}
         </div>
@@ -1024,8 +1012,8 @@ function isScriptDataHashDecomposition(value: unknown): value is ScriptDataHashD
 /**
  * Recursively find and format known structures in nested objects
  */
-function findAndFormatNested(data: Record<string, unknown>, hint?: string | null): Array<{ key: string; formatted: FormattedStructure }> {
-  const parts: Array<{ key: string; formatted: FormattedStructure }> = [];
+function findAndFormatNested(data: Record<string, unknown>, hint?: string | null): FormattedPart[] {
+  const parts: FormattedPart[] = [];
   
   // Special case: BudgetIsBiggerThanExpected with expected_budget/expectedBudget and actual_budget/actualBudget
   const expectedBudgetKey = "expected_budget" in data ? "expected_budget" : 
@@ -1098,6 +1086,28 @@ export function parseErrorMessage(message: string): {
 }
 
 /**
+ * Renders detected structures. Each one sits in its own error boundary, so a
+ * value that one formatter cannot handle costs only that value, not the
+ * diagnostic or the page.
+ */
+function FormattedPartsList({ parts }: { parts: FormattedPart[] }) {
+  return (
+    <div className="message-structures">
+      {parts.map(({ key, formatted }) => (
+        <div key={key} className="message-structure-item">
+          {key !== "budget_comparison" && key !== "expected_decomposition" && (
+            <span className="structure-key">{key.replace(/_/g, " ")}:</span>
+          )}
+          <RenderErrorBoundary what="this value" variant="inline" resetKeys={[formatted]}>
+            {formatted.component}
+          </RenderErrorBoundary>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Smart message formatter that detects and formats known data structures
  */
 export function SmartMessageFormatter({ 
@@ -1160,18 +1170,7 @@ export function SmartMessageFormatter({
   return (
     <div className="smart-message-formatter">
       {!shouldHideMessage && displayMessage && <div className="message-text">{displayMessage}</div>}
-      {formattedParts && (
-        <div className="message-structures">
-          {formattedParts.map(({ key, formatted }) => (
-            <div key={key} className="message-structure-item">
-              {key !== "budget_comparison" && key !== "expected_decomposition" && (
-                <span className="structure-key">{key.replace(/_/g, " ")}:</span>
-              )}
-              {formatted.component}
-            </div>
-          ))}
-        </div>
-      )}
+      {formattedParts && <FormattedPartsList parts={formattedParts} />}
     </div>
   );
 }
@@ -1223,16 +1222,7 @@ export function ErrorDataDetails({
   
   return (
     <div className="smart-message-formatter">
-      <div className="message-structures">
-        {formattedParts.map(({ key, formatted }) => (
-          <div key={key} className="message-structure-item">
-            {key !== "budget_comparison" && key !== "expected_decomposition" && (
-              <span className="structure-key">{key.replace(/_/g, " ")}:</span>
-            )}
-            {formatted.component}
-          </div>
-        ))}
-      </div>
+      <FormattedPartsList parts={formattedParts} />
     </div>
   );
 }

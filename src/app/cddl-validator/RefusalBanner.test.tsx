@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { CborDecodeError } from "@cardananium/cquisitor-lib";
+import { hexRefusalFor, type CborDecodeError, type HexRefusal } from "@cardananium/cquisitor-lib";
 import RefusalBanner from "./RefusalBanner";
-import { hexRefusalFor, type HexRefusal } from "./verdict";
 
-const LIMIT = "CBOR nesting is deeper than the supported limit of 16384 levels";
+const LIMIT = "CBOR nesting is deeper than the supported limit of 32768 levels";
 
 const markup = (refusal: HexRefusal) => renderToStaticMarkup(<RefusalBanner refusal={refusal} />);
 

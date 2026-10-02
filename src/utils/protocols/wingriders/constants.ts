@@ -6,7 +6,7 @@
 // live under the same policy but with a per-pool asset name, so the pool match
 // MUST check the asset name, not just the policy.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 // WingRiders has shipped more than one Constant-product contract set (same datum

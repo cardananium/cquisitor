@@ -3,15 +3,15 @@
 // Schema-error line under the editor toolbar: kind, parser reason, jump-to-span.
 // Unresolved names get a second row of chips (one per name, every use site) instead of a single moving error.
 
-import type { CddlValidationResult } from "@cardananium/cquisitor-lib";
 import {
   cddlErrorReason,
   groupUnresolvedNames,
   hasCddlSpan,
   schemaErrorGuidance,
+  type CddlValidationResult,
   type CddlRange,
   type CddlUnresolvedName,
-} from "./cddlError";
+} from "@cardananium/cquisitor-lib";
 
 export interface SchemaErrorLineProps {
   /** Schema check result — `null` when the checker itself gave up. */

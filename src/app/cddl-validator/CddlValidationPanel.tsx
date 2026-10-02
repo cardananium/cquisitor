@@ -4,15 +4,15 @@
 // The mismatch drawer and decoded pane reuse the same refusal card; the toolbar uses the compact root offer.
 
 import { useEffect, useRef, useState } from "react";
-import type { CborPosition } from "@cardananium/cquisitor-lib";
 import {
   abbreviatePath,
   cddlErrorReason,
   describeDiagnosticCoverage,
   implementationLimitNote,
   isRootMismatch,
+  type CborPosition,
   type CborDiagnostic,
-} from "./cddlError";
+} from "@cardananium/cquisitor-lib";
 import type { WalkRefusal } from "./cddlValidatorLib";
 
 // Messages include a rendering of the failed value; clamp so large containers do not push the fields off-screen.
@@ -259,7 +259,7 @@ export function WalkRefusalCard({
   );
 }
 
-/** Validator threw instead of answering: the transport's reason. */
+/** Validator threw instead of answering: the backend's reason. */
 export function ValidatorErrorCard({ error }: { error: string }) {
   return (
     <div className="cddl-error-card">

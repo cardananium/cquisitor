@@ -3,7 +3,7 @@
 // Synchronous React reads of the decoded-address store; subscribe so late answers re-render.
 
 import { useSyncExternalStore } from "react";
-import type { DecodedAddress } from "@/utils/addressTypes";
+import type { DecodedAddress } from "@cardananium/cquisitor-lib";
 import {
   decodedAddressesVersion,
   readDecodedAddress,

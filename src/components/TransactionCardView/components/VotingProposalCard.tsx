@@ -5,15 +5,15 @@ import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { AddressWithTooltip } from "../../AddressWithTooltip";
 import { getPathDiagnostics, formatAda, getStakeKeyLink, getGovActionLink } from "../utils";
-import { encodeGovernanceActionId } from "@/utils/cip129";
-import type { 
-  VotingProposal, 
-  GovernanceAction,
-  Anchor,
-  ValidationDiagnostic,
-  CardanoNetwork,
-  UnitInterval
-} from "../types";
+import {
+  encodeGovernanceActionId,
+  type VotingProposal,
+  type GovernanceAction,
+  type Anchor,
+  type ValidationDiagnostic,
+  type CardanoNetwork,
+  type UnitInterval,
+} from "@cardananium/cquisitor-lib";
 
 interface VotingProposalCardProps {
   proposal: VotingProposal;

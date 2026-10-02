@@ -26,6 +26,7 @@ import {
   type TreeDiagnostic,
   type TreeDiagnosticRows,
 } from "./treeDiagnostics";
+import { boundedJson } from "@/utils/boundedJson";
 
 export interface CborTreeViewProps {
   // CborPartialValue is structurally compatible with CborValue for our traversal
@@ -201,11 +202,7 @@ function formatValue(val: unknown): string {
     if ("value" in obj) {
       return formatValue(obj.value);
     }
-    try {
-      return JSON.stringify(val);
-    } catch {
-      return "[object]";
-    }
+    return boundedJson(val);
   }
   return String(val);
 }

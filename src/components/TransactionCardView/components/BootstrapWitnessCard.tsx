@@ -5,7 +5,7 @@ import * as Collapsible from "@radix-ui/react-collapsible";
 import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { getPathDiagnostics } from "../utils";
-import type { BootstrapWitness, ValidationDiagnostic } from "../types";
+import type { BootstrapWitness, ValidationDiagnostic } from "@cardananium/cquisitor-lib";
 
 interface BootstrapWitnessCardProps {
   witness: BootstrapWitness;

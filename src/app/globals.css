@@ -2151,6 +2151,10 @@ input, textarea, select, button {
   line-height: 1.6;
   color: #2d3748;
   word-break: break-all;
+  /* Every character is a break opportunity. Without it WebKit's line breaker
+     rescans the unbroken hex run across all node spans, superlinear in their
+     count (tens of thousands of spans took seconds per layout). */
+  line-break: anywhere;
   white-space: pre-wrap;
   outline: none;
   cursor: text;
@@ -3164,6 +3168,19 @@ input, textarea, select, button {
   align-items: flex-start;
 }
 
+.cardano-cbor-skipped-note {
+  margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 96px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  flex-shrink: 0;
+}
+
 /* Safari fallback for gap */
 @supports not (gap: 16px) {
   .cardano-cbor-controls > * {
@@ -4013,6 +4030,52 @@ input, textarea, select, button {
   border-bottom: 1px solid #fecaca;
   color: #dc2626;
   font-size: 13px;
+}
+
+/* Fallbacks of RenderErrorBoundary: a subtree that failed to render. */
+.render-error-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 12px;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #991b1b;
+  font-size: 13px;
+}
+
+.render-error-panel-title {
+  font-weight: 600;
+}
+
+.render-error-panel-detail {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.render-error-panel-retry {
+  padding: 4px 10px;
+  border: 1px solid #fca5a5;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #991b1b;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.render-error-panel-retry:hover {
+  background: #fee2e2;
+}
+
+.render-error-inline {
+  color: #b91c1c;
+  font-size: 12px;
+  font-style: italic;
+  word-break: break-word;
 }
 
 .share-btn {

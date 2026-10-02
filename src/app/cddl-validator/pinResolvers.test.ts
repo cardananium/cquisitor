@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  CborCddlMapEntry,
-  CborCddlPathEntry,
-  SourceSpan,
+import {
+  cborDiagnostics,
+  hasCddlSpan,
+  type CborCddlMapEntry,
+  type CborCddlPathEntry,
+  type SourceSpan,
+  type CborDiagnostic,
 } from "@cardananium/cquisitor-lib";
 import { createCborCddlBridge, type CborCddlBridge, type CborCddlNode } from "./cborCddlBridge";
-import { cborDiagnostics, hasCddlSpan, type CborDiagnostic } from "./cddlError";
 import { hoverEditorMark, projectLink, type HoverLink, type HoverSource } from "./hoverLink";
 import { instanceSetFor, makePin, stepPin, type PinnedInstance } from "./instances";
 import { mapOf, validateCborOf } from "./libForTests";
@@ -901,12 +903,12 @@ describe("pinMenuNotice", () => {
       mapIsEmpty: true,
       mapRefusal: {
         kind: "nesting_too_deep",
-        message: "CBOR nesting is deeper than the supported limit of 16384 levels",
+        message: "CBOR nesting is deeper than the supported limit of 32768 levels",
       },
     });
     expect(limit).toContain("was refused");
     expect(limit).toContain("nesting_too_deep");
-    expect(limit).toContain("supported limit of 16384 levels");
+    expect(limit).toContain("supported limit of 32768 levels");
     expect(limit).toContain("not a finding about the input");
     expect(limit).not.toContain("could be mapped");
 

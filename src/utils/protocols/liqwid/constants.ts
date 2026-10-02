@@ -21,7 +21,7 @@
 //   action    fa3603d2 -> addr1w8arvq7j9qlrmt0wpdvpp7h4jr4fmfk8l653p9t907v2nsss7w7r4
 //   state hub 26aea7e0 -> addr1wyn2aflq8ff7xaxpmqk9vz53ks28hz256tkyaj739rsvrrq3u5ft3
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const LIQWID = {

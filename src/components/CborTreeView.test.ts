@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { cbor_to_json, type CborDecodeResult, type CborValue } from "@cardananium/cquisitor-lib";
-import { parseSerdeJson } from "@/utils/serdeNumbers";
+import { readAnswer, type CborDecodeResult, type CborValue } from "@cardananium/cquisitor-lib";
+import { cbor_to_json } from "@cardananium/cquisitor-lib/wasm";
 import CborTreeView, { findPathToPosition, hoverPositionOf, rowSpanAttr, spanAttr } from "./CborTreeView";
 
 // {"name": "Alice", "age": "20"} — map header is 1 byte, whole extent is 19, so the root's two spans differ.
 const MAP_HEX = "a2646e616d6565416c69636563616765623230";
 
 function decode(hex: string): CborValue {
-  const r = parseSerdeJson<CborDecodeResult>(cbor_to_json(hex));
+  const r = readAnswer<CborDecodeResult>("cbor_to_json", cbor_to_json(hex));
   if (!r.ok) throw new Error(`fixture did not decode: ${r.error.message}`);
   return r.value;
 }

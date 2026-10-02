@@ -5,15 +5,21 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import ResizablePanels from "@/components/ResizablePanels";
 import EditableHexView from "@/components/EditableHexView";
 import CborTreeView from "@/components/CborTreeView";
-import { type CborPosition, type CborDecodeResult } from "@cardananium/cquisitor-lib";
+import {
+  base64ToHex,
+  cborErrorToLocation,
+  cborToJson,
+  looksLikeBase64,
+  stripWhitespace,
+  type CborDecodeResult,
+  type CborPosition,
+} from "@cardananium/cquisitor-lib";
 import { useGeneralCbor } from "@/context/GeneralCborContext";
+import { limitAwareErrorMessage } from "@/utils/implementationLimit";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
-import { callLib, libErrorMessage } from "@/lib/cquisitorWorker";
-import { cborErrorToLocation } from "@/utils/cborError";
-import { base64ToHex, looksLikeBase64, stripWhitespace } from "@/utils/inputNormalization";
 
 export default function GeneralCborContent() {
   const {
@@ -81,14 +87,12 @@ export default function GeneralCborContent() {
         let result: CborDecodeResult;
         try {
           // { ok: false } is a decode error; a throw means the call never ran.
-          result = await callLib<CborDecodeResult>("cbor_to_json", [hex], {
-            signal: controller.signal,
-          });
+          result = await cborToJson(hex, { signal: controller.signal });
         } catch (e) {
           if (cancelled) return;
           setHexValue(hexByteLength > 0 ? hex : "");
           setDecodedJson(null);
-          setError(libErrorMessage(e));
+          setError(limitAwareErrorMessage(e));
           setErrorLocation(null);
           return;
         }
@@ -103,7 +107,7 @@ export default function GeneralCborContent() {
           setErrorLocation(null);
         } else {
           setDecodedJson(result.partial ?? null);
-          setError(result.error.message);
+          setError(limitAwareErrorMessage(result.error.message));
           setErrorLocation(cborErrorToLocation(result.error, hexByteLength));
         }
       })();

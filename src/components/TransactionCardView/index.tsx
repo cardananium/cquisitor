@@ -29,26 +29,23 @@ import { DatumInfoProvider } from "./DatumInfoContext";
 import {
   buildDiagnosticsMap,
   formatAda,
-  isTransactionData
+  isTransactionData,
 } from "./utils";
 import { buildSundaeTxContext } from "@/utils/protocols/sundae";
 import { buildDexTxContext, type DexRedeemerNote } from "@/utils/protocols/dex";
 import { useDecodedAddressVersion } from "@/lib/useDecodedAddress";
 import "@/utils/protocols/dex/adapters";
-import type { 
-  TransactionCardViewProps, 
+import type {
+  CardanoNetwork,
+  PlutusScript,
+  PlutusScriptInfo,
   TransactionData,
-  ValidationDiagnostic
-} from "./types";
-import type { PlutusScriptInfo } from "@cardananium/cquisitor-lib";
-import type { DeUplcLinkMaps } from "@/utils/deUplcLink";
+  ValidationDiagnostic,
+} from "@cardananium/cquisitor-lib";
+import type { TransactionCardViewProps } from "./types";
 
 // Re-export types for external usage
-export type { 
-  ValidationDiagnostic, 
-  TransactionCardViewProps,
-  CardanoNetwork 
-} from "./types";
+export type { ValidationDiagnostic, CardanoNetwork, TransactionCardViewProps };
 
 // Compact number formatter for large execution-unit counts (e.g. "1.2B").
 const compactFmt = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 2 });
@@ -455,8 +452,8 @@ export default function TransactionCardView({
   const txSize = txCborHex ? Math.floor(txCborHex.length / 2) : null;
 
   const maxTxSize = protocolMaxes?.maxTxSize;
-  const maxMem = protocolMaxes?.maxTxExUnits?.mem;
-  const maxSteps = protocolMaxes?.maxTxExUnits?.steps;
+  const maxMem = protocolMaxes?.maxTxExUnits ? toBig(protocolMaxes.maxTxExUnits.mem) : null;
+  const maxSteps = protocolMaxes?.maxTxExUnits ? toBig(protocolMaxes.maxTxExUnits.steps) : null;
 
   const certCount = body.certs?.length ?? 0;
   const vkeyCount = witnessSet.vkeys?.length ?? 0;
@@ -519,13 +516,13 @@ export default function TransactionCardView({
                   label="CPU"
                   actual={actualExUnits ? actualExUnits.steps : null}
                   declared={totalSteps}
-                  max={maxSteps ?? null}
+                  max={maxSteps}
                 />
                 <ExUnitTripleStat
                   label="Mem"
                   actual={actualExUnits ? actualExUnits.mem : null}
                   declared={totalMem}
-                  max={maxMem ?? null}
+                  max={maxMem}
                 />
               </>
             )}
@@ -1015,7 +1012,7 @@ function ScriptsList({
   focusedPath,
   plutusScriptsInfo,
 }: {
-  scripts: string[];
+  scripts: readonly PlutusScript[];
   path: string;
   diagnosticsMap: Map<string, ValidationDiagnostic[]>;
   focusedPath?: string[] | null;
@@ -1026,7 +1023,7 @@ function ScriptsList({
       {scripts.map((script, i) => (
         <PlutusScriptCard
           key={i}
-          script={script}
+          script={script.bytes}
           index={i}
           path={path}
           diagnosticsMap={diagnosticsMap}

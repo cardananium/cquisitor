@@ -8,7 +8,7 @@ import {
   type LoadedPreset,
   type PresetSource,
 } from "./CddlValidatorContext";
-import type { ParsedCddlShare } from "@/utils/shareLink";
+import type { ParsedCddlShare } from "@cardananium/cquisitor-lib";
 import { CARDANO_PRESETS } from "@/app/cddl-validator/presets";
 
 describe("readInitialCddlState", () => {

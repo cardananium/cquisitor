@@ -5,9 +5,12 @@ import { DiagnosticBadge } from "./DiagnosticBadge";
 import { AddressWithTooltip } from "../../AddressWithTooltip";
 import { getPathDiagnostics, formatAda, getStakeKeyLink } from "../utils";
 import { useDecodedAddress, useDecodedAddressVersion } from "@/lib/useDecodedAddress";
-import { stakeCredentialOf } from "@/utils/addressTypes";
+import {
+  stakeCredentialOf,
+  type ValidationDiagnostic,
+  type CardanoNetwork,
+} from "@cardananium/cquisitor-lib";
 import { detectDexWithdrawal, dexThemeKey } from "@/utils/protocols/dex";
-import type { ValidationDiagnostic, CardanoNetwork } from "../types";
 
 interface WithdrawalCardProps {
   address: string;

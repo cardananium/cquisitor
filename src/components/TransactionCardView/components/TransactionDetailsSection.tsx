@@ -6,7 +6,7 @@ import { CopyButton } from "./CopyButton";
 import { HashWithTooltip } from "./HashWithTooltip";
 import { SlotWithTooltip } from "./SlotWithTooltip";
 import { getPathDiagnostics } from "../utils";
-import type { TransactionBody, ValidationDiagnostic } from "../types";
+import type { TransactionBody, ValidationDiagnostic } from "@cardananium/cquisitor-lib";
 
 interface TransactionDetailsSectionProps {
   body: TransactionBody;

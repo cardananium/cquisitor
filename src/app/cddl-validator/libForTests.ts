@@ -1,12 +1,10 @@
-// Library called on the calling thread. Tests only; the app uses the worker transport.
-// Wrappers in `cddlValidatorLib.ts` are async; this keeps assertions synchronous for pure projections of library output.
+// The raw wasm called on the calling thread. Tests only; the app goes through the
+// typed API and its worker backend. The typed wrappers are async; this keeps
+// assertions synchronous for pure projections of library output, read with the
+// same `readAnswer` the wrappers use.
 
 import {
-  cddl_outline,
-  cddl_symbol_at,
-  map_cbor_to_cddl,
-  validate_cbor_against_cddl,
-  validate_cddl,
+  readAnswer,
   type CborCddlMap,
   type CborCddlMapResult,
   type CborValidationResult,
@@ -14,7 +12,13 @@ import {
   type CddlSymbolAtResult,
   type CddlValidationResult,
 } from "@cardananium/cquisitor-lib";
-import { convertSerdeNumbers, parseSerdeJson } from "@/utils/serdeNumbers";
+import {
+  cddl_outline,
+  cddl_symbol_at,
+  map_cbor_to_cddl,
+  validate_cbor_against_cddl,
+  validate_cddl,
+} from "@cardananium/cquisitor-lib/wasm";
 import type { CborValidationOutcome, CddlSchemaOutcome } from "./cddlValidatorLib";
 
 // ---------- documents ----------
@@ -40,7 +44,7 @@ export const CONWAY_TX_HEX =
 export function outlineOf(cddl: string): CddlOutlineEntry[] {
   if (!cddl.trim()) return [];
   try {
-    return convertSerdeNumbers(cddl_outline(cddl)) as CddlOutlineEntry[];
+    return readAnswer<CddlOutlineEntry[]>("cddl_outline", cddl_outline(cddl));
   } catch {
     return [];
   }
@@ -50,7 +54,7 @@ export function outlineOf(cddl: string): CddlOutlineEntry[] {
  * Map for `hex`. A walk the library refuses is thrown, naming the kind — an empty map would pass as "nothing mapped".
  */
 export function mapOf(hex: string, cddl: string, rule: string): CborCddlMap {
-  const result = parseSerdeJson<CborCddlMapResult>(map_cbor_to_cddl(hex, cddl, rule));
+  const result = readAnswer<CborCddlMapResult>("map_cbor_to_cddl", map_cbor_to_cddl(hex, cddl, rule));
   if (!result.ok) {
     throw new Error(`map_cbor_to_cddl refused ${rule}: ${result.error.kind} — ${result.error.message}`);
   }
@@ -61,7 +65,7 @@ export function mapOf(hex: string, cddl: string, rule: string): CborCddlMap {
 export function validateCddlOf(cddl: string): CddlSchemaOutcome | null {
   if (!cddl.trim()) return null;
   try {
-    return { ok: true, result: convertSerdeNumbers(validate_cddl(cddl)) as CddlValidationResult };
+    return { ok: true, result: readAnswer<CddlValidationResult>("validate_cddl", validate_cddl(cddl)) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -76,7 +80,10 @@ export function validateCborOf(
   try {
     return {
       ok: true,
-      result: parseSerdeJson<CborValidationResult>(validate_cbor_against_cddl(hex, cddl, rule)),
+      result: readAnswer<CborValidationResult>(
+        "validate_cbor_against_cddl",
+        validate_cbor_against_cddl(hex, cddl, rule),
+      ),
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -86,7 +93,7 @@ export function validateCborOf(
 export function symbolAtOf(cddl: string, byteOffset: number): CddlSymbolAtResult | null {
   if (!cddl) return null;
   try {
-    return convertSerdeNumbers(cddl_symbol_at(cddl, byteOffset)) as CddlSymbolAtResult;
+    return readAnswer<CddlSymbolAtResult>("cddl_symbol_at", cddl_symbol_at(cddl, byteOffset));
   } catch {
     return null;
   }

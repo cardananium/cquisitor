@@ -1,10 +1,16 @@
 "use client";
 
 import { useRef, useEffect, useCallback, useLayoutEffect, useMemo, useState } from "react";
-import type { CborValue, CborPartialValue, CborPosition, CborOddity } from "@cardananium/cquisitor-lib";
-import type { CborErrorLocation } from "@/utils/cborError";
+import type {
+  CborValue,
+  CborPartialValue,
+  CborPosition,
+  CborOddity,
+  CborErrorLocation,
+} from "@cardananium/cquisitor-lib";
 import type { PanelMenuAction } from "./panelMenuActions";
 import { domPointAt, domRuns, hoverHexCharRangesAll, runElementsIn, type CharRange, type HexOccluder } from "./hexHover";
+import { boundedJson } from "@/utils/boundedJson";
 
 // Colors for CBOR syntax highlighting
 const CBOR_COLORS = [
@@ -41,6 +47,19 @@ function paintsHighlightsAsClasses(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
   return /AppleWebKit\//.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS/.test(ua);
+}
+
+/**
+ * Past this many node runs, WebKit keeps a focused editor's markup plain. Every
+ * caret move in a focused editable costs WebKit time superlinear in the inline
+ * elements of its paragraph (measured: 6k runs ≈ 0.8 s per move, 30k ≈ 20 s);
+ * plain text costs nothing. The runs come back when the editor loses focus.
+ */
+export const WEBKIT_FOCUSED_MARKUP_MAX_RUNS = 2_000;
+
+/** True when a focused editor showing `runs` node runs should hold plain text instead. */
+export function editsAsPlainText(runs: number, focused: boolean, webkit: boolean = paintsHighlightsAsClasses()): boolean {
+  return focused && webkit && runs > WEBKIT_FOCUSED_MARKUP_MAX_RUNS;
 }
 
 let hexHighlights: { hover: Highlight; pinOther: Highlight } | null | undefined;
@@ -171,11 +190,7 @@ function formatValue(val: unknown): string {
     if ("value" in obj) {
       return formatValue(obj.value);
     }
-    try {
-      return JSON.stringify(val);
-    } catch {
-      return "[object]";
-    }
+    return boundedJson(val);
   }
   return String(val);
 }
@@ -773,6 +788,10 @@ export default function EditableHexView({
   onContextMenuPin,
 }: EditableHexViewProps) {
   const editorRef = useRef<HTMLDivElement>(null);
+  // Re-run the markup effect on focus changes (see `editsAsPlainText`).
+  const [hasFocus, setHasFocus] = useState(false);
+  const handleFocus = useCallback(() => setHasFocus(true), []);
+  const handleBlur = useCallback(() => setHasFocus(false), []);
   const cursorPosRef = useRef<number>(0);
   const isUserTypingRef = useRef<boolean>(false);
   
@@ -1016,7 +1035,14 @@ export default function EditableHexView({
     if (isHighlighted) {
       // Render highlighted HTML
       const html = buildHighlightedHTML();
-      if (editorRef.current.innerHTML !== html) {
+      if (editsAsPlainText(positionPathsRef.current.size, isFocused)) {
+        // Large markup while editing on WebKit: plain text until focus leaves.
+        if (editorRef.current.childElementCount > 0 || editorRef.current.textContent !== value) {
+          const cursorPos = saveSelection(editorRef.current);
+          editorRef.current.textContent = value;
+          restoreSelection(editorRef.current, isUserTypingRef.current ? cursorPosRef.current : cursorPos);
+        }
+      } else if (editorRef.current.innerHTML !== html) {
         const cursorPos = isFocused ? saveSelection(editorRef.current) : 0;
         editorRef.current.innerHTML = html;
         if (isFocused) {
@@ -1035,13 +1061,13 @@ export default function EditableHexView({
     }
     
     lastRenderedRef.current = { showHighlighted: isHighlighted, hexValue };
-  }, [showHighlighted, hexValue, focusPosition, value, buildHighlightedHTML]);
+  }, [showHighlighted, hexValue, focusPosition, value, buildHighlightedHTML, hasFocus]);
 
   // Paint hover over the markup from the effect above. Runs after that effect so a rebuild gets a repaint in the same commit.
   useLayoutEffect(() => {
     paintOthers();
     paintHover();
-  }, [paintOthers, paintHover, buildHighlightedHTML, showHighlighted, value]);
+  }, [paintOthers, paintHover, buildHighlightedHTML, showHighlighted, value, hasFocus]);
   useEffect(() => () => {
     const highlights = sharedHighlights();
     if (!highlights) return;
@@ -1273,6 +1299,8 @@ export default function EditableHexView({
         suppressContentEditableWarning
         onInput={handleInput}
         onPaste={handlePaste}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
         onKeyDown={handleKeyDown}
         onMouseDown={handleMouseDown}
         onContextMenu={handleContextMenu}

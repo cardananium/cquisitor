@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cddl_outline, validate_cbor_against_cddl, validate_cddl } from "@cardananium/cquisitor-lib";
+import { cddlOutline, validateCborAgainstCddl, validateCddl } from "@cardananium/cquisitor-lib";
 import {
   CARDANO_PRESETS,
   LEDGER_REV,
@@ -116,17 +116,17 @@ describe("CARDANO_PRESETS", () => {
 });
 
 describe("the bundled schema", () => {
-  test("the bundled Conway schema is the ledger schema and parses", () => {
+  test("the bundled Conway schema is the ledger schema and parses", async () => {
     expect(CONWAY_CDDL).toContain("This file was auto-generated using generate-cddl");
     // Escaping the vendored text as a JS string must not eat the byte escapes in its comments.
     expect(CONWAY_CDDL).toContain('"\\x00" for multisig/native scripts');
-    expect(validate_cddl(CONWAY_CDDL)).toEqual({ valid: true });
-    const names = (cddl_outline(CONWAY_CDDL) as { name: string }[]).map(e => e.name);
+    expect(await validateCddl(CONWAY_CDDL)).toEqual({ valid: true });
+    const names = (await cddlOutline(CONWAY_CDDL)).map(e => e.name);
     expect(names).toContain(CONWAY.rootRule);
   });
 
-  test("the transaction the tests use validates against the bundled schema", () => {
-    expect(JSON.parse(validate_cbor_against_cddl(CONWAY_TX_HEX, CONWAY_CDDL, CONWAY.rootRule)))
+  test("the transaction the tests use validates against the bundled schema", async () => {
+    expect(await validateCborAgainstCddl(CONWAY_TX_HEX, CONWAY_CDDL, CONWAY.rootRule))
       .toEqual({ valid: true });
   });
 });

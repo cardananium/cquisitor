@@ -4,7 +4,7 @@ import React, { useRef, useEffect } from "react";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { CopyButton } from "./CopyButton";
 import { getPathDiagnostics } from "../utils";
-import type { ValidationDiagnostic } from "../types";
+import type { ValidationDiagnostic } from "@cardananium/cquisitor-lib";
 
 interface RequiredSignersCardProps {
   signers: string[];

@@ -8,13 +8,13 @@ import {
   encodeCardanoCborLink,
   encodeGeneralCborLink,
   encodeCddlLink,
-  getBuildLinkOpts,
   type ShareLinkMode,
   type ValidatorShareInput,
   type CardanoCborShareInput,
   type GeneralCborShareInput,
   type CddlShareInput,
-} from "@/utils/shareLink";
+} from "@cardananium/cquisitor-lib";
+import { getBuildLinkOpts } from "@/utils/shareLink/buildLinkOpts";
 
 const URL_WARN_THRESHOLD = 4096;
 

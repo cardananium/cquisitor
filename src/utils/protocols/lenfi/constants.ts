@@ -20,7 +20,7 @@
 // same 28-byte hash as their respective script, so matching the payment hash is
 // the primary path; matchNftPolicy is provided for the validity-NFT case.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const LENFI_V2 = {

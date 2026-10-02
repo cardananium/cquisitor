@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { cbor_to_json, type CborDecodeResult, type CborValue } from "@cardananium/cquisitor-lib";
-import { parseSerdeJson } from "@/utils/serdeNumbers";
-import { buildHexMarkup, hoverOccludersFor, spliceText, type HexMarkupInput } from "./EditableHexView";
+import { readAnswer, type CborDecodeResult, type CborValue } from "@cardananium/cquisitor-lib";
+import { cbor_to_json } from "@cardananium/cquisitor-lib/wasm";
+import {
+  buildHexMarkup,
+  editsAsPlainText,
+  hoverOccludersFor,
+  spliceText,
+  WEBKIT_FOCUSED_MARKUP_MAX_RUNS,
+  type HexMarkupInput,
+} from "./EditableHexView";
 
 describe("spliceText", () => {
   test("replaces the selected run and puts the caret after what was inserted", () => {
@@ -29,7 +36,7 @@ const PERSON_HEX = "a3646e616d6565416c696365636167651 81e686e69636b6e616d6563416
 const NODE_STARTS = [0, 2, 12, 24, 32, 36, 54];
 
 function decode(hex: string): CborValue {
-  const r = parseSerdeJson<CborDecodeResult>(cbor_to_json(hex));
+  const r = readAnswer<CborDecodeResult>("cbor_to_json", cbor_to_json(hex));
   if (!r.ok) throw new Error(`fixture did not decode: ${r.error.message}`);
   return r.value;
 }
@@ -197,5 +204,15 @@ describe("hoverOccludersFor", () => {
 
   test("nothing set is no occluders", () => {
     expect(hoverOccludersFor({})).toEqual([]);
+  });
+});
+
+describe("editsAsPlainText", () => {
+  test("only a focused WebKit editor over large markup holds plain text", () => {
+    const large = WEBKIT_FOCUSED_MARKUP_MAX_RUNS + 1;
+    expect(editsAsPlainText(large, true, true)).toBe(true);
+    expect(editsAsPlainText(large, false, true)).toBe(false);
+    expect(editsAsPlainText(large, true, false)).toBe(false);
+    expect(editsAsPlainText(WEBKIT_FOCUSED_MARKUP_MAX_RUNS, true, true)).toBe(false);
   });
 });

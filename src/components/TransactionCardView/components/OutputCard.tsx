@@ -14,14 +14,19 @@ import { AssetNameWithTooltip, AssetAmount } from "./AssetNameWithTooltip";
 import { useUtxoInfo } from "../UtxoInfoContext";
 import { useDatum } from "../DatumInfoContext";
 import { DecompileButton, DEUPLC_ENABLED } from "./DeUplcButton";
-import { plutusVersionFromScriptType } from "@/utils/deUplcLink";
+import {
+  plutusVersionFromScriptType,
+  type TransactionOutput,
+  type ValidationDiagnostic,
+  type CardanoNetwork,
+  type DataOption,
+  type InlineScriptInfo,
+} from "@cardananium/cquisitor-lib";
 import { detectSundaeOutput } from "@/utils/protocols/sundae";
 import { detectDexOutput, formatDexRole, dexThemeKey } from "@/utils/protocols/dex";
 import { useDecodedAddressVersion } from "@/lib/useDecodedAddress";
 import "@/utils/protocols/dex/adapters";
 import type { PD as SundaePD } from "@/utils/protocols/sundae/plutusData";
-import type { TransactionOutput, ValidationDiagnostic, CardanoNetwork, DataOption } from "../types";
-import type { InlineScriptInfo } from "@cardananium/cquisitor-lib";
 
 /**
  * Extended script info that works with both lib and Koios types
@@ -247,7 +252,7 @@ export function OutputCard({
     
     // PlutusScript - show hex bytes directly (not as JSON)
     if ('PlutusScript' in scriptRef) {
-      return { text: scriptRef.PlutusScript, isJson: false };
+      return { text: scriptRef.PlutusScript.bytes, isJson: false };
     }
     
     // Fallback
@@ -258,7 +263,7 @@ export function OutputCard({
   const scriptSize = inlineScriptInfo && 'size' in inlineScriptInfo ? inlineScriptInfo.size : null;
   const plutusHex =
     hasScriptRef && output.script_ref && "PlutusScript" in output.script_ref
-      ? output.script_ref.PlutusScript
+      ? output.script_ref.PlutusScript.bytes || null
       : null;
   const plutusVersion = plutusVersionFromScriptType(inlineScriptInfo?.script_type);
   

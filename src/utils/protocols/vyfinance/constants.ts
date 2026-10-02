@@ -14,7 +14,7 @@
 //    policy (qty 1 on the pool UTxO).
 // Match a UTxO by the 28-byte PAYMENT credential only.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole, PoolPair } from "@/utils/protocols/dex/registry";
 import { VYFINANCE_POOLS } from "./pools.generated";
 

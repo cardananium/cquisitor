@@ -4,7 +4,7 @@
 // an NFT whose policy a protocol claims). The first adapter that matches wins —
 // adapters claim disjoint script hashes / NFT policies, so order is irrelevant.
 
-import type { TransactionOutput, CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { TransactionOutput, CardanoNetwork } from "@cardananium/cquisitor-lib";
 import { getPaymentScriptHash } from "./address";
 import { resolveOutputDatum } from "./datum";
 import { listDexAdapters, type DexAdapter, type DexRole, type DexOrderView } from "./registry";

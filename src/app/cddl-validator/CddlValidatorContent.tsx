@@ -5,8 +5,21 @@ import ShareButton from "@/components/ShareButton";
 import type { ExtraErrorSpan } from "@/components/EditableHexView";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
-import type { CborPosition } from "@cardananium/cquisitor-lib";
+import {
+  abbreviatePath,
+  cddlErrorReason,
+  describeDiagnostic,
+  isRootMismatch,
+  utf16ToByte,
+  candidateRootRules,
+  cborRootKind,
+  hexRefusalFor,
+  isListable,
+  verdictFor,
+  type CborPosition,
+} from "@cardananium/cquisitor-lib";
 import type { PanelMenuAction } from "@/components/panelMenuActions";
+import { passDeadlineNotice } from "@/lib/cquisitorWorker";
 import CddlSchemaToolbar, { type ActivePreset } from "./CddlSchemaToolbar";
 import { type CddlEditorHandle } from "./CddlEditor";
 import { DecodedPane, EditorPane, HexPane, TreePane } from "./linkedPanes";
@@ -29,14 +42,7 @@ import {
   loadCardanoPreset,
   type PresetLoad,
 } from "./presets";
-import {
-  abbreviatePath,
-  cddlErrorReason,
-  describeDiagnostic,
-  isRootMismatch,
-  utf16ToByte,
-} from "./cddlError";
-import { formatCddlChecked, safeSymbolAt } from "./cddlValidatorLib";
+import { formatCddlChecked, resolveSocketAwareRootRule, safeSymbolAt } from "./cddlValidatorLib";
 import type { CborCddlNode } from "./cborCddlBridge";
 import { diagnosticDecodedRows, diagnosticTreeRows } from "./diagnosticRows";
 import {
@@ -66,9 +72,6 @@ import {
   ALL_PIN_TARGETS,
   type PinTarget,
 } from "./pinResolvers";
-import { candidateRootRules, resolveRootRule } from "./ruleSelection";
-import { cborRootKind } from "./rootKinds";
-import { hexRefusalFor, isListable, verdictFor } from "./verdict";
 import { type PanelId } from "./workspaceLayout";
 import {
   caretForReferences,
@@ -172,7 +175,7 @@ export default function CddlValidatorContent() {
   // Resolve the root in render, not via an effect that would validate the
   // previous (now-invalid) rule for one pass.
   const effectiveRule = useMemo(
-    () => resolveRootRule(ruleNames, selectedRule, ruleTyped),
+    () => resolveSocketAwareRootRule(ruleNames, selectedRule, ruleTyped),
     [ruleNames, selectedRule, ruleTyped],
   );
 
@@ -816,7 +819,7 @@ export default function CddlValidatorContent() {
       {passIsSlow && (
         <span
           className="panel-badge info"
-          title="This schema and document are expensive to check, or an earlier pass is still holding the library. A pass is abandoned once it has spent ten seconds waiting its turn, or ten seconds running, and the panels will say which."
+          title={`This schema and document are expensive to check, or an earlier pass is still holding the library. ${passDeadlineNotice()}`}
         >
           still working
         </span>

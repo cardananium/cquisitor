@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import MismatchDrawer, { escapeCloses, type MismatchDrawerProps } from "./MismatchDrawer";
-import type { CborDiagnostic } from "./cddlError";
+import type { CborDiagnostic } from "@cardananium/cquisitor-lib";
 import type { CborValidationOutcome } from "./cddlValidatorLib";
 
-const LIMIT = "CBOR nesting is deeper than the supported limit of 16384 levels";
+const LIMIT = "CBOR nesting is deeper than the supported limit of 32768 levels";
 
 function diagnostic(over: Partial<CborDiagnostic> = {}): CborDiagnostic {
   return {

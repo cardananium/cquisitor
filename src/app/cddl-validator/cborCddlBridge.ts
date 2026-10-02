@@ -3,13 +3,13 @@
 // only for the pinned/hovered node; whole-map scans use spans. Path, instance,
 // and definition indexes are built on first use.
 
-import type {
-  CborCddlMap,
-  CborCddlMapEntry,
-  CborCddlPathEntry,
+import {
+  hasCddlSpan,
+  type CborCddlMap,
+  type CborCddlMapEntry,
+  type CborCddlPathEntry,
 } from "@cardananium/cquisitor-lib";
 import { libSplitPath } from "@/components/jsonTree/paths";
-import { hasCddlSpan } from "./cddlError";
 
 /** Which of a map entry's two rows a click meant. */
 export type EntryRole = "key" | "value";

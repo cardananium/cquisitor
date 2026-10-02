@@ -16,7 +16,7 @@
 // below by its mainnet payment script hash and labeled role "offer" to keep it
 // distinct from the v3 ask "listing".
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const JPGSTORE = {

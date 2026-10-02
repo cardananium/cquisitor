@@ -12,7 +12,7 @@
 // and let `decode(datum, role)` refine it from the datum's top constructor
 // (0 = offer, 1 = active loan, 2 = settlement).
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const LEVVY = {

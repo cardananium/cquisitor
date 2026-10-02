@@ -20,7 +20,7 @@
 // pairs, price/extra packed under a Constr1 record) that this V1 parser does
 // NOT decode, so V1.1 is deliberately NOT matched here — see blockers.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const GENIUS_YIELD_V1 = {

@@ -1,6 +1,6 @@
 // Strike Finance (Perpetuals) decoder: normalized views + adapter registration.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import {
   registerDexAdapter,
   type DexAssetRow,

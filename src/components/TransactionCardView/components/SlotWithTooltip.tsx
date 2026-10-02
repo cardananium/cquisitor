@@ -3,7 +3,7 @@
 import React from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useTransactionValidator } from "@/context/TransactionValidatorContext";
-import { formatSlotDate, formatSlotRelative } from "@/utils/slotTime";
+import { formatSlotDate, formatSlotRelative } from "@cardananium/cquisitor-lib";
 
 interface SlotWithTooltipProps {
   slot: number | bigint | string;

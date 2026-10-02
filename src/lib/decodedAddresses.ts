@@ -1,10 +1,9 @@
 // Synchronous decoded-address cache. Decode runs in the worker; renders read this store.
 // Callers that already await (tx decode, UTxO fetch) prime it first.
 // Unprimed addresses are requested on render, then a version bump re-renders.
-// All decodes go through the same worker transport as document passes.
+// All decodes go through the same library backend as document passes.
 
-import type { DecodedAddress } from "@/utils/addressTypes";
-import { callLib } from "./cquisitorWorker";
+import { decode, type DecodedAddress } from "@cardananium/cquisitor-lib";
 
 /** Longer than a real bech32/base58/hex address; answered without calling the decoder. */
 const MAX_ADDRESS_LENGTH = 512;
@@ -41,11 +40,7 @@ export function readDecodedAddress(address: string): DecodedAddress | null | und
 
 async function decodeOne(address: string): Promise<void> {
   try {
-    const value = await callLib<DecodedAddress>("decode_specific_type", [
-      address,
-      "Address",
-      {},
-    ]);
+    const value = await decode<DecodedAddress>(address, "Address");
     remember(address, value ?? null);
   } catch {
     // Treat any failure as "nothing to show" so the miss is not retried every render.

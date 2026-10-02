@@ -5,7 +5,7 @@
 // 28-byte PAYMENT credential only — order addresses share a payment hash across
 // many different staking parts.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const SPLASH = {

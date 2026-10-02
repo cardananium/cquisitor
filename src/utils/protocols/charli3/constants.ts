@@ -14,7 +14,7 @@
 //     name "OracleFeed" (= 4f7261636c6546656564). The asset name MUST be checked
 //     so unrelated tokens under a policy don't false-positive.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 // Feed NFT token name "OracleFeed" (hex), shared across every pair instance.

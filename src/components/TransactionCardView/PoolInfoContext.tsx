@@ -18,10 +18,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { NetworkType } from "@cardananium/cquisitor-lib";
-import type { DataProvider } from "@/utils/transactionValidation";
-import { KoiosClient, type BlockchainDataClient } from "@/utils/koiosClient";
-import { BlockfrostClient } from "@/utils/blockfrostClient";
+import {
+  BlockfrostClient,
+  KoiosClient,
+  type BlockchainDataClient,
+  type DataProvider,
+  type NetworkType,
+} from "@cardananium/cquisitor-lib";
 import { getDexAdapter, type PoolPair, type PoolRef } from "@/utils/protocols/dex/registry";
 import type { PD } from "@/utils/protocols/dex/plutusData";
 

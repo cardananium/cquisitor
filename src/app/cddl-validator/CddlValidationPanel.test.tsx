@@ -9,7 +9,7 @@ import {
   type MismatchListProps,
   type RootSuggestionsView,
 } from "./CddlValidationPanel";
-import type { CborDiagnostic } from "./cddlError";
+import type { CborDiagnostic } from "@cardananium/cquisitor-lib";
 
 function diagnostic(over: Partial<CborDiagnostic> = {}): CborDiagnostic {
   return {
@@ -97,7 +97,7 @@ describe("MismatchList", () => {
 });
 
 describe("ValidatorErrorCard", () => {
-  test("names the validator and carries the transport's reason", () => {
+  test("names the validator and carries the backend's reason", () => {
     const html = renderToStaticMarkup(<ValidatorErrorCard error="wasm trap: unreachable" />);
     expect(html).toContain('class="cddl-error-card-kind">validator error<');
     expect(html).toContain("wasm trap: unreachable");
@@ -275,7 +275,7 @@ describe("the offer of another root under a mismatch at the root", () => {
 });
 
 describe("a walk refused at a bound", () => {
-  const LIMIT = "CBOR nesting is deeper than the supported limit of 16384 levels";
+  const LIMIT = "CBOR nesting is deeper than the supported limit of 32768 levels";
   const limitDiagnostic = diagnostic({
     kind: "nesting_too_deep",
     message: LIMIT,
@@ -321,7 +321,7 @@ describe("a walk refused at a bound", () => {
     expect(html).not.toContain("not a finding");
   });
 
-  test("a call that did not answer is named as such, with the transport's reason", () => {
+  test("a call that did not answer is named as such, with the backend's reason", () => {
     const html = renderToStaticMarkup(
       <WalkRefusalCard
         refusal={{ kind: "call_failed", message: "This input is 6.7 MB, over the 2.0 MB limit." }}

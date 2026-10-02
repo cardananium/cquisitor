@@ -12,7 +12,7 @@
 // never the full bech32 (pool addresses ship with and without a stake part but
 // agree on the payment hash).
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const MUESLISWAP = {

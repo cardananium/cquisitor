@@ -6,7 +6,7 @@
 // output, it just lets the WithdrawalCard label the scooper.
 
 import { registerDexAdapter } from "@/utils/protocols/dex/registry";
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 
 registerDexAdapter({
   id: "sundae-v3-batcher",

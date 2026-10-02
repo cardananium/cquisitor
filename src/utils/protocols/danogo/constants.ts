@@ -58,7 +58,7 @@
 // policy id cde0ddc1e46f26d886eb972319bcb76418cb42c1cd8aded18a042537 is a TOKEN
 // policy, not an order/bond/validator hash.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const DANOGO = {

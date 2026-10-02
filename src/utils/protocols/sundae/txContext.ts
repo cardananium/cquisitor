@@ -16,8 +16,8 @@ import type {
   TransactionOutput,
   Redeemer,
   CardanoNetwork,
-} from "@/components/TransactionCardView/types";
-import type { KoiosUtxoInfo } from "@/utils/koiosTypes";
+  KoiosUtxoInfo,
+} from "@cardananium/cquisitor-lib";
 import { lookupSundaeScript, type SundaeScriptEntry } from "./constants";
 import { asConstr, asInt, asList, asOptional, isConstr, type PD } from "./plutusData";
 import {

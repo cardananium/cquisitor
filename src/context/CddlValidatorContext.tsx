@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { parseHash, parseCddlShare, type ParsedCddlShare } from "@/utils/shareLink";
+import { parseHash, parseCddlShare, type ParsedCddlShare } from "@cardananium/cquisitor-lib";
 // Only the boot document is imported statically. This provider is on every page;
 // the preset table is ~15 KB and unused elsewhere — see DEFAULT_HYDRATION_DEPS.
 

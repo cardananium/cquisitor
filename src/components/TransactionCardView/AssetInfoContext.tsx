@@ -18,10 +18,14 @@ import {
   type ReactNode,
 } from "react";
 import { createStore, del, entries, set } from "idb-keyval";
-import type { NetworkType } from "@cardananium/cquisitor-lib";
-import type { DataProvider } from "@/utils/transactionValidation";
-import { KoiosClient, type AssetMetadata, type BlockchainDataClient } from "@/utils/koiosClient";
-import { BlockfrostClient } from "@/utils/blockfrostClient";
+import {
+  BlockfrostClient,
+  KoiosClient,
+  type AssetMetadata,
+  type BlockchainDataClient,
+  type DataProvider,
+  type NetworkType,
+} from "@cardananium/cquisitor-lib";
 
 /** undefined = not requested/loading; null = looked up but not found. */
 export type AssetMetaState = AssetMetadata | null | undefined;

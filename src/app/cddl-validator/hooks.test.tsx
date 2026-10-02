@@ -46,15 +46,18 @@ import { createCborCddlBridge, EMPTY_CBOR_CDDL_MAP } from "./cborCddlBridge";
 import { buildEditorMarks, findNodeByCborOffset } from "./pinResolvers";
 import { createHoverLinkStore } from "./hoverLink";
 import { normaliseMarks } from "./cddlOverlay";
-import { candidateRootRules, resolveRootRule } from "./ruleSelection";
-import { cborRootKind } from "./rootKinds";
-import { isRootMismatch } from "./cddlError";
+import {
+  candidateRootRules,
+  resolveRootRule,
+  cborRootKind,
+  isRootMismatch,
+  LibAbortedError,
+} from "@cardananium/cquisitor-lib";
 import { CONWAY_CDDL } from "./conwaySchema";
 import { CONWAY_TX_HEX } from "./libForTests";
-import { LibAbortedError } from "@/lib/cquisitorWorker";
 
 // Projections of settled passes, checked against real library output.
-// Retention and cancellation live in workerClient.test.ts and the render probes.
+// Retention and cancellation live in the library's worker backend tests and the render probes.
 
 /** First server render of a hook; effects do not run. */
 function readHook<T>(run: () => T): T {
@@ -611,7 +614,7 @@ describe("useCborCddlMap", () => {
 
     test("a refusal is answered for the input it was given and no other", async () => {
       // A bound the previous document reached says nothing about this one.
-      const deep = { cleanHex: "81".repeat(16385) + "00", cddl: "deep = [deep] / uint\n", rule: "deep" };
+      const deep = { cleanHex: "81".repeat(32769) + "00", cddl: "deep = [deep] / uint\n", rule: "deep" };
       const pass = await passFor(deep);
       expect(pass.refusal?.kind).toBe("nesting_too_deep");
       expect(offered(pass, deep).refusal?.kind).toBe("nesting_too_deep");
@@ -682,14 +685,14 @@ describe("useDecodeAgainstSchema", () => {
 
   test("a document nested past the bound is a reason with its kind, not a blank panel", async () => {
     const decoded = await safeDecodeCborAgainstCddl(
-      "81".repeat(16385) + "00",
+      "81".repeat(32769) + "00",
       "deep = [deep] / uint\n",
       "deep",
     );
     expect(decoded?.ok).toBe(false);
     if (decoded?.ok !== false) return;
     expect(decoded.error.kind).toBe("nesting_too_deep");
-    expect(decoded.error.message).toContain("16384");
+    expect(decoded.error.message).toContain("32768");
   });
 });
 
@@ -841,7 +844,7 @@ describe("sweepRootRules", () => {
     expect(r).toEqual({ matches: [], checked: 0 });
   });
 
-  test("a call the transport refuses as superseded ends the sweep the same way", async () => {
+  test("a call the backend refuses as superseded ends the sweep the same way", async () => {
     const v = fakeValidator([]);
     const r = await sweepRootRules("05", "x = int", CANDIDATES, NO_ROOT_SWEEP, {
       validate: async (hex, cddl, rule, options) => {
@@ -997,7 +1000,7 @@ describe("settleDelayFor", () => {
 });
 
 // Debounce and retention need a DOM renderer (effects don't run under SSR).
-// Projections are covered above; transport is in workerClient.test.ts.
+// Projections are covered above; the worker backend is tested in the library.
 test.todo("useDebouncedString re-emits the latest value after the delay", () => {});
 test.todo("useDebouncedString cancels a pending emit when the value changes again", () => {});
 test.todo("useLibResource keeps the previous value while the next pass runs", () => {});

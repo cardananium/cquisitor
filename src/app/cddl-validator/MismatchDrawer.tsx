@@ -11,7 +11,7 @@ import {
   WalkRefusalCard,
   type MismatchListProps,
 } from "./CddlValidationPanel";
-import type { Verdict } from "./verdict";
+import type { Verdict } from "@cardananium/cquisitor-lib";
 
 export interface MismatchDrawerProps extends MismatchListProps {
   verdict: Extract<Verdict, { kind: "mismatches" | "refused" }>;

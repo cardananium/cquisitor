@@ -1,20 +1,31 @@
 // Wrappers around cquisitor-lib for the CDDL validator.
-// Calls go through the worker; throws become empty values or `{ok: false}`.
+// Calls go through the page's worker backend; throws become empty values or `{ok: false}`.
 
-import type {
-  CborDecodeResult,
-  CddlValidationResult,
-  CborValidationResult,
-  CborCddlMap,
-  CborCddlMapResult,
-  CborCddlWalkError,
-  CborCddlWalkErrorKind,
-  CborDecodeAgainstCddlResult,
-  CddlOutlineEntry,
-  CddlSymbolAtResult,
-  CddlReferencesResult,
+import {
+  cborToJson,
+  cddlFormat,
+  cddlOutline,
+  cddlReferences,
+  cddlSymbolAt,
+  decodeCborAgainstCddl,
+  libErrorMessage,
+  mapCborToCddl,
+  resolveRootRule,
+  validateCborAgainstCddl,
+  validateCddl,
+  type CborCddlMap,
+  type CborCddlWalkError,
+  type CborCddlWalkErrorKind,
+  type CborDecodeResult,
+  type CborValidationOutcome,
+  type CddlOutlineEntry,
+  type CddlReferencesResult,
+  type CddlSymbolAtResult,
+  type CddlValidationResult,
 } from "@cardananium/cquisitor-lib";
-import { callLib, libErrorMessage, type LibCallOptions } from "@/lib/cquisitorWorker";
+import { withSlowNotice, type LibCallOptions } from "@/lib/cquisitorWorker";
+
+export type { CborValidationOutcome };
 
 export type CborToJsonOutcome =
   | { ok: true; result: CborDecodeResult }
@@ -30,7 +41,7 @@ export async function safeCborToJson(
 ): Promise<CborToJsonOutcome | null> {
   if (!hex) return null;
   try {
-    return { ok: true, result: await callLib<CborDecodeResult>("cbor_to_json", [hex], options) };
+    return { ok: true, result: await withSlowNotice(options, o => cborToJson(hex, o)) };
   } catch (e) {
     return { ok: false, error: libErrorMessage(e) };
   }
@@ -50,15 +61,11 @@ export async function safeValidateCddl(
 ): Promise<CddlSchemaOutcome | null> {
   if (!cddl.trim()) return null;
   try {
-    return { ok: true, result: await callLib<CddlValidationResult>("validate_cddl", [cddl], options) };
+    return { ok: true, result: await withSlowNotice(options, o => validateCddl(cddl, o)) };
   } catch (e) {
     return { ok: false, error: libErrorMessage(e) };
   }
 }
-
-export type CborValidationOutcome =
-  | { ok: true; result: CborValidationResult }
-  | { ok: false; error: string };
 
 /**
  * `null` when there is nothing to check yet. A throw becomes `{ok: false}`
@@ -74,11 +81,7 @@ export async function safeValidateCborAgainstCddl(
   try {
     return {
       ok: true,
-      result: await callLib<CborValidationResult>(
-        "validate_cbor_against_cddl",
-        [hex, cddl, rule],
-        options,
-      ),
+      result: await withSlowNotice(options, o => validateCborAgainstCddl(hex, cddl, rule, o)),
     };
   } catch (e) {
     return { ok: false, error: libErrorMessage(e) };
@@ -118,11 +121,7 @@ export async function safeDecodeCborAgainstCddl(
 ): Promise<DecodedAgainstSchema | null> {
   if (!hex || !cddl.trim() || !rule.trim()) return null;
   try {
-    const result = await callLib<CborDecodeAgainstCddlResult>(
-      "decode_cbor_against_cddl",
-      [hex, cddl, rule],
-      options,
-    );
+    const result = await withSlowNotice(options, o => decodeCborAgainstCddl(hex, cddl, rule, o));
     return result.ok
       ? { ok: true, value: result.value }
       : { ok: false, error: refusedBy(result.error) };
@@ -148,7 +147,7 @@ export async function safeMapCborToCddl(
 ): Promise<CborCddlMapOutcome | null> {
   if (!hex || !cddl.trim() || !rule.trim()) return null;
   try {
-    const result = await callLib<CborCddlMapResult>("map_cbor_to_cddl", [hex, cddl, rule], options);
+    const result = await withSlowNotice(options, o => mapCborToCddl(hex, cddl, rule, o));
     return result.ok
       ? { ok: true, map: result.value }
       : { ok: false, error: refusedBy(result.error) };
@@ -163,7 +162,7 @@ export async function safeOutline(
 ): Promise<CddlOutlineEntry[]> {
   if (!cddl.trim()) return [];
   try {
-    return await callLib<CddlOutlineEntry[]>("cddl_outline", [cddl], options);
+    return await withSlowNotice(options, o => cddlOutline(cddl, o));
   } catch {
     return [];
   }
@@ -176,7 +175,7 @@ export async function safeReferences(
 ): Promise<CddlReferencesResult | null> {
   if (!cddl.trim() || !name) return null;
   try {
-    return await callLib<CddlReferencesResult>("cddl_references", [cddl, name], options);
+    return await withSlowNotice(options, o => cddlReferences(cddl, name, o));
   } catch {
     return null;
   }
@@ -189,7 +188,7 @@ export async function safeSymbolAt(
 ): Promise<CddlSymbolAtResult | null> {
   if (!cddl) return null;
   try {
-    return await callLib<CddlSymbolAtResult>("cddl_symbol_at", [cddl, byteOffset], options);
+    return await withSlowNotice(options, o => cddlSymbolAt(cddl, byteOffset, o));
   } catch {
     return null;
   }
@@ -202,7 +201,7 @@ export async function safeFormat(
 ): Promise<string | null> {
   if (!cddl.trim()) return null;
   try {
-    return await callLib<string>("cddl_format", [cddl], options);
+    return await withSlowNotice(options, o => cddlFormat(cddl, o));
   } catch {
     return null;
   }
@@ -249,4 +248,17 @@ export async function formatCddlChecked(cddl: string): Promise<FormatOutcome> {
   }
 
   return { ok: true, text: formatted };
+}
+
+/**
+ * The root the validator runs against, as {@link resolveRootRule} picks it, except that a
+ * bare name whose only declaration is a type socket (`m` for `$m /= …`) resolves to the
+ * socket, as the library's walkers resolve it, rather than falling back to the first root.
+ */
+export function resolveSocketAwareRootRule(ruleNames: string[], picked: string, typed: string): string {
+  const name = picked.trim();
+  if (name && !name.startsWith("$") && !ruleNames.includes(name) && ruleNames.includes(`$${name}`)) {
+    return `$${name}`;
+  }
+  return resolveRootRule(ruleNames, picked, typed);
 }

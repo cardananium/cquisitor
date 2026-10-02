@@ -1,8 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import "@/utils/protocols/dex/adapters";
 import { buildDexTxContext } from "./txContext";
-import type { TransactionBody, Redeemer } from "@/components/TransactionCardView/types";
-import type { KoiosUtxoInfo } from "@/utils/koiosTypes";
+import type { TransactionBody, Redeemer, KoiosUtxoInfo } from "@cardananium/cquisitor-lib";
 import { primeAddresses } from "@/lib/decodedAddresses";
 
 // Minswap V2 order validator (mainnet), as a hex enterprise address (71 = script payment cred).

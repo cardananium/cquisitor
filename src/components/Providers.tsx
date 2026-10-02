@@ -6,6 +6,10 @@ import { CardanoCborProvider } from "@/context/CardanoCborContext";
 import { TransactionValidatorProvider } from "@/context/TransactionValidatorContext";
 import { CddlValidatorProvider } from "@/context/CddlValidatorContext";
 import WelcomeModal from "./WelcomeModal";
+import { installCquisitorLib } from "@/lib/cquisitorLib";
+
+// Before the first render: every panel's effects call the library through this.
+installCquisitorLib();
 
 interface ProvidersProps {
   children: ReactNode;

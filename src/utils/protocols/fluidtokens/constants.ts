@@ -18,7 +18,7 @@
 // PRIMARY mechanism here; script-hash matching can only yield the generic "loan"
 // role.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 /**

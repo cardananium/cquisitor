@@ -17,8 +17,8 @@ import type {
   TransactionInput,
   Redeemer,
   CardanoNetwork,
-} from "@/components/TransactionCardView/types";
-import type { KoiosUtxoInfo } from "@/utils/koiosTypes";
+  KoiosUtxoInfo,
+} from "@cardananium/cquisitor-lib";
 import { getPaymentScriptHash, rewardAccountSortKey } from "./address";
 import { decodePlutusJson } from "./datum";
 import { detectDexWithdrawal } from "./detect";

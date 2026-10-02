@@ -32,7 +32,7 @@
 // Orders use a datum HASH (not an inline datum); the witness set carries the
 // datum, so a UTxO at this script is matched by its 28-byte PAYMENT credential.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const CHADSWAP = {

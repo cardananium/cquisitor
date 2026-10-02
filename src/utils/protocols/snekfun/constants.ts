@@ -22,7 +22,7 @@
 // confirmed live on Koios (plutusV2 validators with datum-bearing UTxOs). The
 // Splash graduation-pool hash d9143ac6 is intentionally NOT referenced here.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const SNEKFUN = {

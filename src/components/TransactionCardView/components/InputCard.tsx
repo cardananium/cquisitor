@@ -6,7 +6,7 @@ import { DiagnosticBadge } from "./DiagnosticBadge";
 import { UtxoRef } from "../../UtxoRef";
 import { OutputCard } from "./OutputCard";
 import { getPathDiagnostics, getTransactionLink } from "../utils";
-import type { TransactionInput, TransactionOutput, ValidationDiagnostic, CardanoNetwork, KoiosUtxoInfo } from "../types";
+import type { TransactionInput, TransactionOutput, ValidationDiagnostic, CardanoNetwork, KoiosUtxoInfo, PlutusLanguage } from "@cardananium/cquisitor-lib";
 import { detectSundaeOutput, type SundaeInputDetection } from "@/utils/protocols/sundae";
 import { detectDexOutput, formatDexRole, dexThemeKey, type DexInputDetection } from "@/utils/protocols/dex";
 import { useUtxoInfo } from "../UtxoInfoContext";
@@ -37,6 +37,20 @@ function isNativeScriptType(type: string | undefined): boolean {
   if (!type) return false;
   const lowerType = type.toLowerCase();
   return lowerType === 'native' || lowerType === 'timelock' || lowerType === 'multisig';
+}
+
+/** The Plutus language a Koios script type names (`plutusV1`, …), or null. */
+function plutusLanguageOfKoiosType(type: string | undefined): PlutusLanguage | null {
+  switch (type?.toLowerCase()) {
+    case "plutusv1":
+      return "PlutusV1";
+    case "plutusv2":
+      return "PlutusV2";
+    case "plutusv3":
+      return "PlutusV3";
+    default:
+      return null;
+  }
 }
 
 /**
@@ -81,7 +95,8 @@ function koiosUtxoToTransactionOutput(utxoInfo: KoiosUtxoInfo): TransactionOutpu
       script_ref = { NativeScript: utxoInfo.reference_script.value as any };
     } else if (!isNativeScriptType(scriptType) && utxoInfo.reference_script.bytes) {
       // For Plutus scripts with actual bytes (not just hash)
-      script_ref = { PlutusScript: utxoInfo.reference_script.bytes };
+      const language = plutusLanguageOfKoiosType(scriptType);
+      if (language) script_ref = { PlutusScript: { bytes: utxoInfo.reference_script.bytes, language } };
     }
     // If we only have hash - don't set script_ref
     // The hash/type/size will be shown via inlineScriptInfo

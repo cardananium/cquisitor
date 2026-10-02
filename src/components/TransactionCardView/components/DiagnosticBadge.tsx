@@ -3,7 +3,7 @@
 import React from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { ErrorFormatter } from "../../ErrorDataFormatters";
-import type { ValidationDiagnostic } from "../types";
+import type { ValidationDiagnostic } from "@cardananium/cquisitor-lib";
 
 interface DiagnosticBadgeProps {
   diagnostics: ValidationDiagnostic[];

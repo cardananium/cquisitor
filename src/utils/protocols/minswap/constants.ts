@@ -10,7 +10,7 @@
 //   pool UTxOs additionally hold the MSP validity NFT (policy above, asset name
 //   4d5350 = "MSP"); LP tokens share the same policy.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const MINSWAP_V2 = {

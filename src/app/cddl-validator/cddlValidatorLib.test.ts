@@ -1,17 +1,23 @@
-import { describe, expect, mock, test } from "bun:test";
-import type {
-  CborCddlMap,
-  CborCddlMapResult,
-  CborDecodeResult,
-  CddlValidationResult,
+import { describe, expect, test } from "bun:test";
+import {
+  callLib,
+  cborDiagnostics,
+  cddlErrorReason,
+  configure,
+  getBackend,
+  hasCddlSpan,
+  MAX_LIB_INPUT_BYTES,
+  type CborCddlMap,
+  type CborDecodeResult,
+  type CddlValidationResult,
+  type LibBackend,
+  type LibCallOptions,
+  type WasmFunctionName,
 } from "@cardananium/cquisitor-lib";
-import * as lib from "@cardananium/cquisitor-lib";
-import { callLib } from "@/lib/cquisitorWorker";
-import { MAX_LIB_INPUT_BYTES } from "@/utils/inputBudget";
 import { createCborCddlBridge } from "./cborCddlBridge";
-import { cborDiagnostics, cddlErrorReason, hasCddlSpan } from "./cddlError";
 import {
   formatCddlChecked,
+  resolveSocketAwareRootRule,
   safeCborToJson,
   safeDecodeCborAgainstCddl,
   safeFormat,
@@ -73,7 +79,7 @@ const UNPARSEABLE_CDDL = "Person = {";
 
 // 300 arrays deep — past the depth any walker follows — against a rule that
 // descends with it.
-const DEEP_HEX = "81".repeat(16385) + "00";
+const DEEP_HEX = "81".repeat(32769) + "00";
 const DEEP_CDDL = "deep = [deep] / uint\n";
 
 // Twelve levels of brackets, past the nine the parser is run on.
@@ -158,7 +164,7 @@ describe("a walk the library refuses comes back with the kind it was refused und
     const r = await refusal(DEEP_HEX, DEEP_CDDL, "deep");
     expect(r.kind).toBe("nesting_too_deep");
     // The message names the bound; the kind is what a panel branches on.
-    expect(r.message).toContain("16384");
+    expect(r.message).toContain("32768");
   });
 
   test("a schema nested past the bracket bound is refused under the same kind", async () => {
@@ -182,9 +188,9 @@ describe("a walk the library refuses comes back with the kind it was refused und
     expect(refusalOf(await safeDecodeCborAgainstCddl(oversized, "x = [* uint]\n", "x"))).toEqual(map);
   });
 
-  test("the envelope is a return through the transport, with its numbers converted", async () => {
-    // Transport hands the library's answer on as a value; offsets are plain numbers.
-    const result = await callLib<CborCddlMapResult>("map_cbor_to_cddl", ["a26461", PERSON_CDDL, "Person"]);
+  test("the envelope is a return through the backend, with its numbers converted", async () => {
+    // The backend hands the library's answer on as a value; offsets are plain numbers.
+    const result = await callLib("map_cbor_to_cddl", ["a26461", PERSON_CDDL, "Person"]);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.kind).toBe("input_parse");
@@ -256,19 +262,33 @@ describe("errors the library reports as a result rather than a throw", () => {
   });
 });
 
-// Snapshot `lib` before any mock — it is a live namespace. Restore before the assertion returns.
-const REAL_LIB = { ...lib };
-
+/**
+ * Run with a backend that answers `stubs` itself (a raw wasm return: JSON text
+ * for the text answers, the value for the others) and hands everything else on
+ * as before. The previous backend is put back before the assertion returns.
+ */
 async function withStubbedLib<T>(
-  stubs: Partial<typeof REAL_LIB>,
+  stubs: Partial<Record<WasmFunctionName, (...args: unknown[]) => unknown>>,
   run: () => Promise<T>,
 ): Promise<T> {
-  mock.module("@cardananium/cquisitor-lib", () => ({ ...REAL_LIB, ...stubs }));
+  const real = getBackend();
+  const stubbed: LibBackend = {
+    callRaw<R>(fn: WasmFunctionName, args: unknown[], options?: LibCallOptions): Promise<R> {
+      const stub = stubs[fn];
+      if (!stub) return real.callRaw<R>(fn, args, options);
+      try {
+        return Promise.resolve(stub(...args) as R);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    },
+  };
+  configure({ backend: stubbed });
   try {
-    // Await inside `try`: returning the promise would restore exports before the stubbed call.
+    // Await inside `try`: returning the promise would restore the backend before the stubbed call.
     return await run();
   } finally {
-    mock.module("@cardananium/cquisitor-lib", () => REAL_LIB);
+    configure({ backend: real });
   }
 }
 
@@ -369,6 +389,24 @@ describe("safeMapCborToCddl", () => {
     expect(absent).toBeDefined();
     expect(absent!.entry.cbor_byte_span).toBeUndefined();
     expect(absent!.entry.cbor_anchor_span).toBeUndefined();
+  });
+
+  test("a socket's bodies are one choice: verdict, decode and map agree on the body that fits", async () => {
+    // The picker offers `$m` (the outline's name); `{3: "x"}` is the second body's.
+    const cddl = "$m /= {1: uint}\n$m /= {3: tstr}\n";
+    const hex = "a1036178";
+    const validation = await safeValidateCborAgainstCddl(hex, cddl, "$m");
+    expect(validation?.ok === true && validation.result.valid).toBe(true);
+    expect(await safeDecodeCborAgainstCddl(hex, cddl, "$m")).toEqual({ ok: true, value: { "3": "x" } });
+    const nodes = await pathsOf(hex, cddl, "$m");
+    const text = (n: (typeof nodes)[number]) => {
+      const span = n.entry.cddl_byte_span;
+      return hasCddlSpan(span) ? cddl.slice(span!.char_offset, span!.char_offset + span!.char_length) : null;
+    };
+    const value = nodes.filter(n => n.cborPath === "$[3]" && n.entry.entry_role === "value").at(-1);
+    expect(value && text(value)).toBe("tstr");
+    const root = nodes.find(n => n.cborPath === "$");
+    expect(root?.entry.cddl_byte_span?.char_offset).toBe(16);
   });
 
 });
@@ -520,5 +558,40 @@ describe("formatCddlChecked", () => {
     if (!once.ok) return;
     const twice = await formatCddlChecked(once.text);
     expect(twice).toEqual({ ok: true, text: once.text });
+  });
+});
+
+describe("type sockets as roots", () => {
+  const SOCKETS = "$m /= { a: uint }\n$m /= { b: tstr }\ntop = [ $m ]\n$$g //= ( c: uint )\ngm = { $$g }\n";
+
+  test("a bare name resolves to its type socket; a declared pick stands; an unknown one falls back", () => {
+    const roots = ["$m", "top", "gm"];
+    expect(resolveSocketAwareRootRule(roots, "m", "m")).toBe("$m");
+    expect(resolveSocketAwareRootRule(roots, "top", "top")).toBe("top");
+    expect(resolveSocketAwareRootRule(roots, "nope", "nope")).toBe("$m");
+    expect(resolveSocketAwareRootRule([], "m", "m")).toBe("m");
+  });
+
+  test("the outline offers the socket by its own name, and the map files the root row under it", async () => {
+    const outline = await safeOutline(SOCKETS);
+    expect(outline.filter(e => e.kind === "type").map(e => e.name)).toEqual(["$m", "$m", "top", "gm"]);
+    for (const asked of ["m", "$m"]) {
+      const mapped = await safeMapCborToCddl("a1616101", SOCKETS, asked);
+      expect(mapped?.ok).toBe(true);
+      if (mapped?.ok) expect(mapped.map.entries[0]?.rule_name).toBe("$m");
+      const validated = await safeValidateCborAgainstCddl("a1616101", SOCKETS, asked);
+      expect(validated).toEqual({ ok: true, result: { valid: true } });
+    }
+  });
+
+  test("a group socket root is refused as a group rule by every walker", async () => {
+    const mapped = await safeMapCborToCddl("a1616101", SOCKETS, "$$g");
+    expect(mapped?.ok).toBe(false);
+    if (mapped && !mapped.ok) expect(mapped.error.kind).toBe("group_rule_root");
+  });
+
+  test("an unplugged group socket names the socket no plug fills", async () => {
+    const validated = await safeValidateCborAgainstCddl("a0", "gm = { $$h }\n", "gm");
+    expect(JSON.stringify(validated)).toContain("group socket $$h, which no plug fills");
   });
 });

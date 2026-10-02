@@ -4,15 +4,7 @@ import React, { useRef, useEffect } from "react";
 import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { getPathDiagnostics, formatAda } from "../utils";
-import type { 
-  Certificate, 
-  ValidationDiagnostic,
-  CredType,
-  DRep,
-  Anchor,
-  PoolParams,
-  Relay
-} from "../types";
+import type { Certificate, ValidationDiagnostic, CredType, DRep, Anchor, PoolParams, Relay } from "@cardananium/cquisitor-lib";
 
 interface CertificateCardProps {
   cert: Certificate;

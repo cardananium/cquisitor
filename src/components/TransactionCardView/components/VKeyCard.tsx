@@ -5,7 +5,7 @@ import * as Collapsible from "@radix-ui/react-collapsible";
 import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { getPathDiagnostics, computeVkeyHash } from "../utils";
-import type { VkeyWitness, ValidationDiagnostic } from "../types";
+import type { VkeyWitness, ValidationDiagnostic } from "@cardananium/cquisitor-lib";
 
 interface VKeyCardProps {
   vkey: VkeyWitness;

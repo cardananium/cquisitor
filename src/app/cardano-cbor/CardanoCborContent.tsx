@@ -6,125 +6,29 @@ import JsonViewer from "@/components/JsonViewer";
 import TypeSelectionModal from "@/components/TypeSelectionModal";
 import Select from "@/components/Select";
 import {
+  decode,
+  reorderTransactionFields,
+  type DecodingParams,
   type NetworkType,
   type PlutusDataSchema,
-  type DecodingParams,
 } from "@cardananium/cquisitor-lib";
+import { detectTypesWithFallback } from "./typeDetection";
+import { limitAwareErrorMessage, NOT_EXAMINED_PREFIX } from "@/utils/implementationLimit";
 import { useCardanoCbor } from "@/context/CardanoCborContext";
 import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
 import { CheckCircleIcon, ExternalLinkIcon } from "@/components/Icons";
-import { callLib, isLibRefusal, libErrorMessage } from "@/lib/cquisitorWorker";
-import { reorderTransactionFields } from "@/utils/reorderTransactionFields";
 import {
   buildTxStudioUrl,
   buildValidatorUrl,
   openExternalUrlDeferred,
 } from "@/utils/externalApps";
-import { isValidBase64, isValidHex, base64ToHex, stripWhitespace } from "@/utils/inputNormalization";
-import { nestsPastTypedDecoding, TYPED_DECODING_DEPTH_LIMIT } from "@/utils/cborDepth";
 
 // Types that require DecodingParams
 const TYPES_WITH_PLUTUS_SCRIPT_VERSION = ["PlutusScript"];
 const TYPES_WITH_PLUTUS_DATA_SCHEMA = ["PlutusData"];
-
-// Result of trying to detect types
-interface DetectionResult {
-  types: string[];
-  processedInput: string;
-  notification: string | null;
-  /** True when typed decoding was skipped because the document nests too deep. */
-  deeperThanTypedDecoding: boolean;
-}
-
-/** Typed decoders return no types past this nesting; check depth first so we can say why. */
-const TYPED_DECODING_DEPTH_MESSAGE =
-  `This document nests deeper than the ${TYPED_DECODING_DEPTH_LIMIT}-level typed-decoding limit, so no`
-  + " Cardano type can be tried against it. The general CBOR tab decodes it as plain CBOR.";
-
-// Address subtypes that should be filtered out when "Address" is present
-const ADDRESS_SUBTYPES = [
-  "ByronAddress",
-  "RewardAddress", 
-  "PointerAddress",
-  "BaseAddress",
-  "EnterpriseAddress",
-];
-
-// Filter types to remove redundant subtypes
-function filterTypes(types: string[]): string[] {
-  // If "Address" is in the list, remove specific address subtypes
-  if (types.includes("Address")) {
-    return types.filter((t) => !ADDRESS_SUBTYPES.includes(t));
-  }
-  return types;
-}
-
-// Try to detect types for input, with fallback to base64 conversion
-async function detectTypesWithFallback(
-  rawInput: string,
-  signal?: AbortSignal,
-): Promise<DetectionResult> {
-  const normalized = stripWhitespace(rawInput);
-  const tooDeep = (hex: string): DetectionResult => ({
-    types: [],
-    processedInput: hex,
-    notification: null,
-    deeperThanTypedDecoding: true,
-  });
-
-  if (isValidHex(normalized) && nestsPastTypedDecoding(normalized)) return tooDeep(normalized);
-
-  // First, try the normalized input directly
-  // This handles: hex, bech32, base58, and potentially base64 if decoder supports it
-  try {
-    const rawTypes = await callLib<string[]>("get_possible_types_for_input", [normalized], { signal });
-    const types = filterTypes(rawTypes);
-    if (types.length > 0) {
-      return {
-        types,
-        processedInput: normalized,
-        notification: null,
-        deeperThanTypedDecoding: false,
-      };
-    }
-  } catch (e) {
-    // A refused call never ran; do not treat it as "no Cardano type".
-    if (isLibRefusal(e)) throw e;
-    // Continue to fallback
-  }
-
-  // If original input didn't work and it could be base64, try converting to hex
-  if (isValidBase64(normalized)) {
-    try {
-      const hexFromBase64 = base64ToHex(normalized);
-      if (nestsPastTypedDecoding(hexFromBase64)) return tooDeep(hexFromBase64);
-      const rawTypes = await callLib<string[]>("get_possible_types_for_input", [hexFromBase64], { signal });
-      const types = filterTypes(rawTypes);
-      if (types.length > 0) {
-        return {
-          types,
-          processedInput: hexFromBase64,
-          notification: "Base64 → hex",
-          deeperThanTypedDecoding: false,
-        };
-      }
-    } catch (e) {
-      if (isLibRefusal(e)) throw e;
-      // Base64 conversion failed
-    }
-  }
-
-  // Nothing worked
-  return {
-    types: [],
-    processedInput: normalized,
-    notification: null,
-    deeperThanTypedDecoding: false,
-  };
-}
 
 export default function CardanoCborContent() {
   const {
@@ -154,6 +58,8 @@ export default function CardanoCborContent() {
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [pendingTypes, setPendingTypes] = useState<string[]>([]);
+  /** Types the library did not try on its nesting bound while others decoded. */
+  const [skippedNote, setSkippedNote] = useState<string | null>(null);
 
   // Detect possible types when input changes
   useEffect(() => {
@@ -171,6 +77,7 @@ export default function CardanoCborContent() {
         setDecodedJson(null);
         setError(null);
         setNotification(null);
+        setSkippedNote(null);
         setShowTypeModal(false);
         return;
       }
@@ -178,20 +85,19 @@ export default function CardanoCborContent() {
       void (async () => {
         try {
           // Try to detect types with fallback to base64 conversion
-          const { types, notification: notificationMsg, deeperThanTypedDecoding } =
+          const { types, notification: notificationMsg, unexamined, skipped } =
             await detectTypesWithFallback(input, controller.signal);
           if (cancelled) return;
 
           setPossibleTypes(types);
           setNotification(notificationMsg);
+          setSkippedNote(skipped);
 
           if (types.length === 0) {
             setSelectedType(null);
             setDecodedJson(null);
             setError(
-              deeperThanTypedDecoding
-                ? TYPED_DECODING_DEPTH_MESSAGE
-                : "No valid Cardano type detected for this input",
+              unexamined ?? "No valid Cardano type detected for this input",
             );
             setShowTypeModal(false);
           } else if (types.length === 1) {
@@ -205,7 +111,8 @@ export default function CardanoCborContent() {
           }
         } catch (e) {
           if (cancelled) return;
-          setError(libErrorMessage(e));
+          setError(limitAwareErrorMessage(e));
+          setSkippedNote(null);
           setPossibleTypes([]);
           setSelectedType(null);
           setShowTypeModal(false);
@@ -252,7 +159,7 @@ export default function CardanoCborContent() {
     let cancelled = false;
     const controller = new AbortController();
 
-    const decode = async () => {
+    const runDecode = async () => {
       setIsLoading(true);
       try {
         // Use the same detection logic to get the processed input
@@ -267,12 +174,8 @@ export default function CardanoCborContent() {
           params.plutus_data_schema = plutusDataSchema;
         }
 
-        // Worker already converted serde numbers.
-        let result = await callLib<unknown>(
-          "decode_specific_type",
-          [processedInput, selectedType, params],
-          { signal: controller.signal },
-        );
+        // Integers come back as numbers, or bigint past 2^53.
+        let result = await decode(processedInput, selectedType, params, { signal: controller.signal });
         if (cancelled) return;
 
         // Reorder transaction fields for better readability
@@ -284,7 +187,7 @@ export default function CardanoCborContent() {
         setError(null);
       } catch (e) {
         if (cancelled) return;
-        setError(libErrorMessage(e));
+        setError(limitAwareErrorMessage(e));
         setDecodedJson(null);
       } finally {
         // Do not clear loading if a newer decode has already started.
@@ -292,7 +195,7 @@ export default function CardanoCborContent() {
       }
     };
 
-    void decode();
+    void runDecode();
     return () => {
       cancelled = true;
       controller.abort();
@@ -303,6 +206,7 @@ export default function CardanoCborContent() {
 
   const handleClear = useCallback(() => {
     clearAll();
+    setSkippedNote(null);
   }, [clearAll]);
 
   const handleNetworkChange = useCallback(
@@ -423,6 +327,12 @@ export default function CardanoCborContent() {
         </div>
       </div>
 
+      {skippedNote && input.trim() && (
+        <p className="cardano-cbor-skipped-note" role="note">
+          {skippedNote}
+        </p>
+      )}
+
       {/* DecodingParams section */}
       {(needsPlutusScriptVersion || needsPlutusDataSchema) && (
         <div className="cardano-cbor-params">
@@ -506,7 +416,7 @@ export default function CardanoCborContent() {
         <div className="empty-state">
           <p className="empty-hint">
             {error}
-            {error === TYPED_DECODING_DEPTH_MESSAGE && (
+            {error.startsWith(NOT_EXAMINED_PREFIX) && (
               <>
                 {" "}
                 <a href="#general-cbor">Open the general CBOR tab</a>

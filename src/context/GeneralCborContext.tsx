@@ -1,9 +1,14 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
-import { type CborValue, type CborPartialValue, type CborPosition } from "@cardananium/cquisitor-lib";
-import { parseHash, parseGeneralCborShare } from "@/utils/shareLink";
-import type { CborErrorLocation } from "@/utils/cborError";
+import {
+  parseGeneralCborShare,
+  parseHash,
+  type CborErrorLocation,
+  type CborPartialValue,
+  type CborPosition,
+  type CborValue,
+} from "@cardananium/cquisitor-lib";
 
 interface GeneralCborState {
   input: string;

@@ -20,7 +20,7 @@
 // Verified live on mainnet via Koios script_info (all plutusV3, bytes present)
 // and credential_utxos (real inline-datum UTxOs at both order + pool).
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const CSWAP = {

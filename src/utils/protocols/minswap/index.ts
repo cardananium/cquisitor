@@ -51,7 +51,7 @@ import {
   type V1OrderStep,
 } from "./v1";
 import type { DexRole } from "@/utils/protocols/dex/registry";
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 
 const FEE_DENOMINATOR = 10_000;
 

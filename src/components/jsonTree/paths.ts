@@ -3,11 +3,21 @@
 // 1. Lib-canonical (`$.foo[0]["bar"]`) — emitted by cquisitor-lib's
 //    `decoded_path` field. Numeric *map* keys come out as `["0"]` while
 //    array indices use bare `[0]`. Used by the CDDL validator's decoded
-//    JSON view to bridge with CBOR/CDDL panels.
+//    JSON view to bridge with CBOR/CDDL panels. The grammar itself lives in
+//    the library (`core/cddl/cborPath`); this file adapts it to `PathScheme`.
 //
 // 2. Dot-joined (`transaction.body.0`) — used by the Transaction
 //    Validator's diagnostic locations. No `$` prefix; array indices and
 //    string keys are dot-joined alike.
+
+import {
+  CBOR_PATH_ROOT,
+  cborPathSegment,
+  cborPathsEqual,
+  isCborPathAncestor,
+  joinCborPath,
+  splitCborPath,
+} from "@cardananium/cquisitor-lib";
 
 export type JoinKey = (
   parentPath: string,
@@ -31,62 +41,21 @@ export interface PathScheme {
   segmentOf(key: string | number): string;
 }
 
-const IDENT_RE = /^[a-zA-Z_][\w-]*$/;
-
-function isIdent(s: string): boolean {
-  return IDENT_RE.test(s);
-}
-
-function escString(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
 // ---------- Lib-canonical scheme ----------
 
-export const libJoinKey: JoinKey = (parentPath, key) => {
-  if (typeof key === "number") return `${parentPath}[${key}]`;
-  if (isIdent(key)) return `${parentPath}.${key}`;
-  return `${parentPath}["${escString(key)}"]`;
-};
+export const libJoinKey: JoinKey = (parentPath, key) => joinCborPath(parentPath, key);
 
-const LIB_SEG_RE = /\.([^.[\]]+)|\["((?:[^"\\]|\\.)*)"\]|\[(\d+)\]/g;
+export const libSplitPath = splitCborPath;
 
-export function libSplitPath(path: string): string[] {
-  const out: string[] = [];
-  // Stateful regex — reset before each use.
-  LIB_SEG_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = LIB_SEG_RE.exec(path)) !== null) {
-    out.push(m[1] ?? m[2] ?? m[3]);
-  }
-  return out;
-}
+export const libPathsEqual: PathsEqual = cborPathsEqual;
 
-export const libPathsEqual: PathsEqual = (a, b) => {
-  if (a === b) return true;
-  const sa = libSplitPath(a);
-  const sb = libSplitPath(b);
-  if (sa.length !== sb.length) return false;
-  for (let i = 0; i < sa.length; i++) if (sa[i] !== sb[i]) return false;
-  return true;
-};
-
-export const libIsPathAncestor: IsAncestor = (ancestor, descendant) => {
-  const sa = libSplitPath(ancestor);
-  const sd = libSplitPath(descendant);
-  if (sa.length >= sd.length) return false;
-  for (let i = 0; i < sa.length; i++) if (sa[i] !== sd[i]) return false;
-  return true;
-};
+export const libIsPathAncestor: IsAncestor = isCborPathAncestor;
 
 /** Key as `libSplitPath` would yield it; quoted-form escapes are kept, never unescaped. */
-export const libSegmentOf = (key: string | number): string => {
-  if (typeof key === "number") return String(key);
-  return isIdent(key) ? key : escString(key);
-};
+export const libSegmentOf = cborPathSegment;
 
 export const libPathScheme: PathScheme = {
-  rootPath: "$",
+  rootPath: CBOR_PATH_ROOT,
   joinKey: libJoinKey,
   splitPath: libSplitPath,
   segmentOf: libSegmentOf,

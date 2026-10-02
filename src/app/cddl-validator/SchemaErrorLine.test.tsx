@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { CddlValidationResult } from "@cardananium/cquisitor-lib";
+import type { CddlValidationResult, CddlUnresolvedName } from "@cardananium/cquisitor-lib";
 import SchemaErrorLine, { type SchemaErrorLineProps } from "./SchemaErrorLine";
-import type { CddlUnresolvedName } from "./cddlError";
 
 const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
 

@@ -11,11 +11,10 @@
 
 import { useCallback, useMemo, useState } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { bech32 } from "bech32";
-import { blake2b } from "@noble/hashes/blake2.js";
 import { ErrorFormatter } from "./ErrorDataFormatters";
-import { getTransactionLink, getAddressLink, type CardanoNetwork } from "@/utils/cardanoscanLinks";
+import { getTransactionLink, getAddressLink, type CardanoNetwork } from "@cardananium/cquisitor-lib";
 import { JsonTreeView, dotPathScheme, type RenderRowArgs } from "@/components/jsonTree";
+import { prepareViewData } from "@/utils/prepareViewData";
 
 // Diagnostic item structure (same as in TransactionValidatorContent)
 export interface ValidationDiagnostic {
@@ -73,38 +72,6 @@ function getDescendantDiagnosticCounts(
     }
   }
   return { errors, warnings };
-}
-
-function computeVkeyHash(vkeyBech32: string): string | null {
-  try {
-    const decoded = bech32.decode(vkeyBech32, 100);
-    const publicKeyBytes = bech32.fromWords(decoded.words);
-    const hash = blake2b(new Uint8Array(publicKeyBytes), { dkLen: 28 });
-    return Array.from(hash as Uint8Array)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  } catch {
-    return null;
-  }
-}
-
-function prepareData(data: unknown): unknown {
-  if (data === null || data === undefined) return data;
-  if (typeof data === "bigint") return data.toString();
-  if (data instanceof Uint8Array) return Array.from(data);
-  if (Array.isArray(data)) return data.map((item) => prepareData(item));
-  if (typeof data === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data)) {
-      result[key] = prepareData(value);
-      if (key === "vkey" && typeof value === "string" && value.startsWith("ed25519_pk")) {
-        const vkeyHash = computeVkeyHash(value);
-        if (vkeyHash) result["vkey_hash"] = vkeyHash;
-      }
-    }
-    return result;
-  }
-  return data;
 }
 
 function DiagnosticIndicator({ diagnostics }: { diagnostics: ValidationDiagnostic[] }) {
@@ -318,7 +285,7 @@ export default function ValidationJsonViewer({
   expanded = 3,
   focusedPath,
 }: ValidationJsonViewerProps) {
-  const preparedData = useMemo(() => prepareData(data), [data]);
+  const preparedData = useMemo(() => prepareViewData(data), [data]);
   const diagnosticsMap = useMemo(() => buildDiagnosticsMap(diagnostics), [diagnostics]);
 
   const highlightedPaths = useMemo(() => focusedPath ?? [], [focusedPath]);

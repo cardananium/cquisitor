@@ -5,8 +5,14 @@ import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { HashWithTooltip } from "./HashWithTooltip";
 import { SlotWithTooltip } from "./SlotWithTooltip";
-import { getPathDiagnostics } from "../utils";
-import type { NativeScript, ValidationDiagnostic } from "../types";
+import {
+  getPathDiagnostics,
+  NATIVE_SCRIPT_DRAW_DEPTH,
+  nativeScriptElidedNote,
+  TIMELOCK_EXPIRY_TITLE,
+  TIMELOCK_START_TITLE,
+} from "../utils";
+import type { NativeScript, ValidationDiagnostic } from "@cardananium/cquisitor-lib";
 
 interface NativeScriptCardProps {
   script: NativeScript;
@@ -29,20 +35,20 @@ function getScriptType(script: NativeScript): { type: string; icon: string; desc
     return { type: "ScriptAny", icon: "🔓", description: `ANY of ${script.ScriptAny.native_scripts.length}` };
   }
   if ("ScriptNOfK" in script) {
-    return { type: "ScriptNOfK", icon: "🔢", description: `${script.ScriptNOfK.n} of ${script.ScriptNOfK.native_scripts.length}` };
+    return { type: "ScriptNOfK", icon: "🔢", description: `${String(script.ScriptNOfK.n)} of ${script.ScriptNOfK.native_scripts.length}` };
   }
   if ("TimelockStart" in script) {
     return {
       type: "TimelockStart",
       icon: "⏰",
-      description: <>Valid after slot <SlotWithTooltip slot={script.TimelockStart.slot} /></>,
+      description: <span title={TIMELOCK_START_TITLE}>Valid from slot <SlotWithTooltip slot={script.TimelockStart.slot} /></span>,
     };
   }
   if ("TimelockExpiry" in script) {
     return {
       type: "TimelockExpiry",
       icon: "⏱️",
-      description: <>Valid before slot <SlotWithTooltip slot={script.TimelockExpiry.slot} /></>,
+      description: <span title={TIMELOCK_EXPIRY_TITLE}>Valid before slot <SlotWithTooltip slot={script.TimelockExpiry.slot} /></span>,
     };
   }
   return { type: "Unknown", icon: "❓", description: "Unknown script type" };
@@ -51,6 +57,14 @@ function getScriptType(script: NativeScript): { type: string; icon: string; desc
 // Recursive component to display native script structure
 function NativeScriptDisplay({ script, depth = 0 }: { script: NativeScript; depth?: number }) {
   const indent = depth * 16;
+
+  if (depth >= NATIVE_SCRIPT_DRAW_DEPTH) {
+    return (
+      <div className="tcv-ns-item tcv-ns-elided" style={{ marginLeft: indent }}>
+        {nativeScriptElidedNote(script)}
+      </div>
+    );
+  }
   
   if ("ScriptPubkey" in script) {
     return (
@@ -99,7 +113,7 @@ function NativeScriptDisplay({ script, depth = 0 }: { script: NativeScript; dept
       <div className="tcv-ns-group" style={{ marginLeft: indent }}>
         <div className="tcv-ns-group-header tcv-ns-nofk">
           <span className="tcv-ns-item-icon">🔢</span>
-          <span className="tcv-ns-group-type">{script.ScriptNOfK.n} of {script.ScriptNOfK.native_scripts.length}</span>
+          <span className="tcv-ns-group-type">{String(script.ScriptNOfK.n)} of {script.ScriptNOfK.native_scripts.length}</span>
         </div>
         <div className="tcv-ns-group-children">
           {script.ScriptNOfK.native_scripts.map((child, i) => (
@@ -114,7 +128,7 @@ function NativeScriptDisplay({ script, depth = 0 }: { script: NativeScript; dept
     return (
       <div className="tcv-ns-item tcv-ns-timelock" style={{ marginLeft: indent }}>
         <span className="tcv-ns-item-icon">⏰</span>
-        <span className="tcv-ns-timelock-label">Valid after</span>
+        <span className="tcv-ns-timelock-label" title={TIMELOCK_START_TITLE}>Valid from</span>
         <SlotWithTooltip slot={script.TimelockStart.slot} className="tcv-ns-slot" />
       </div>
     );
@@ -124,7 +138,7 @@ function NativeScriptDisplay({ script, depth = 0 }: { script: NativeScript; dept
     return (
       <div className="tcv-ns-item tcv-ns-timelock" style={{ marginLeft: indent }}>
         <span className="tcv-ns-item-icon">⏱️</span>
-        <span className="tcv-ns-timelock-label">Valid before</span>
+        <span className="tcv-ns-timelock-label" title={TIMELOCK_EXPIRY_TITLE}>Valid before</span>
         <SlotWithTooltip slot={script.TimelockExpiry.slot} className="tcv-ns-slot" />
       </div>
     );

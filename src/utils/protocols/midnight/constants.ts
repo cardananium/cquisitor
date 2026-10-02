@@ -10,7 +10,7 @@
 //   - config contract 5c7bcedf… (plutusV3, a parameter of the validator): holds
 //     the 7-field Glacier Drop config datum.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const MIDNIGHT = {

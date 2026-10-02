@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { DataProvider } from "@/utils/transactionValidation";
-import { fetchTxCbor } from "@/utils/transactionValidation";
-import type { NetworkType } from "@cardananium/cquisitor-lib";
+import { fetchTxCbor, type DataProvider, type NetworkType } from "@cardananium/cquisitor-lib";
 
 interface OnChainTxModalProps {
   isOpen: boolean;

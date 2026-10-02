@@ -39,43 +39,32 @@ interface SundaeOrderPanelProps {
   detection: SundaeOutputDetection;
 }
 
-// Resolve a pool ident through the cache. Triggers a fetch on first use; the
-// hook re-renders once the network request resolves.
+// Resolve a pool ident through the cache. A cache hit is answered during render; only a miss
+// triggers a fetch, tracked by ident so a stale answer for an earlier ident never shows.
 function usePoolInfo(poolIdent: string | null | undefined): {
   pool: SundaePoolInfo | null | undefined;
   loading: boolean;
 } {
-  const [pool, setPool] = useState<SundaePoolInfo | null | undefined>(() =>
-    poolIdent ? getCachedPool(poolIdent) : undefined
-  );
-  const [loading, setLoading] = useState(false);
+  const cached = poolIdent ? getCachedPool(poolIdent) : undefined;
+  const [fetched, setFetched] = useState<{ ident: string; pool: SundaePoolInfo | null } | null>(null);
   useEffect(() => {
-    if (!poolIdent) {
-      setPool(undefined);
-      return;
-    }
-    const cached = getCachedPool(poolIdent);
-    if (cached !== undefined) {
-      setPool(cached);
-      return;
-    }
+    if (!poolIdent || cached !== undefined) return;
     let cancelled = false;
-    setLoading(true);
     loadPool(poolIdent)
       .then((info) => {
-        if (!cancelled) setPool(info);
+        if (!cancelled) setFetched({ ident: poolIdent, pool: info });
       })
       .catch(() => {
-        if (!cancelled) setPool(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setFetched({ ident: poolIdent, pool: null });
       });
     return () => {
       cancelled = true;
     };
-  }, [poolIdent]);
-  return { pool, loading };
+  }, [poolIdent, cached]);
+  if (!poolIdent) return { pool: undefined, loading: false };
+  if (cached !== undefined) return { pool: cached, loading: false };
+  if (fetched && fetched.ident === poolIdent) return { pool: fetched.pool, loading: false };
+  return { pool: undefined, loading: true };
 }
 
 // Format raw on-chain (policy, name, amount) using pool-side metadata when we

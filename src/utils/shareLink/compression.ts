@@ -1,5 +1,5 @@
 import type { BrotliWasmType } from "brotli-wasm";
-import { MAX_SHARE_PAYLOAD_BYTES, formatByteSize } from "@/utils/inputBudget";
+import { MAX_SHARE_PAYLOAD_BYTES, formatByteSize } from "@cardananium/cquisitor-lib";
 
 let brotliPromise: Promise<BrotliWasmType> | null = null;
 

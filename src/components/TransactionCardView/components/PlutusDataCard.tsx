@@ -6,7 +6,7 @@ import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { HashWithTooltip } from "./HashWithTooltip";
 import { getPathDiagnostics } from "../utils";
-import type { ValidationDiagnostic } from "../types";
+import type { ValidationDiagnostic } from "@cardananium/cquisitor-lib";
 
 const DATUM_ACCENT = "#6366f1"; // indigo
 

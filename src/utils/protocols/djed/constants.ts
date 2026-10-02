@@ -13,7 +13,7 @@
 // alone is NOT sufficient — that same policy also mints the circulating
 // DjedMicroUSD / ShenMicroUSD tokens — so we require the NFT asset name.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const DJED = {

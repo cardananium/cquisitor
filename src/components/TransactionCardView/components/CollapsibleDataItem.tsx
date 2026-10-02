@@ -4,7 +4,7 @@ import React from "react";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
-import type { ValidationDiagnostic } from "../types";
+import type { ValidationDiagnostic } from "@cardananium/cquisitor-lib";
 
 interface CollapsibleDataItemProps {
   label: string;

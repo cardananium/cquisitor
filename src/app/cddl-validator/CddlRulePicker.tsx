@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { filterRuleNames } from "./ruleSelection";
+import { filterRuleNames } from "@cardananium/cquisitor-lib";
 
 interface CddlRulePickerProps {
   /** Rules that can be a validation root, in schema order. */

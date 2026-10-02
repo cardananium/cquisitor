@@ -13,7 +13,7 @@
 // single FS script hash (it is not a fixed constant). Match a UTxO by the
 // 28-byte PAYMENT credential only.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const ORCFAX = {

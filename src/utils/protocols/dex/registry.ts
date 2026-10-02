@@ -7,7 +7,7 @@
 // validity NFT policy id, and turns a parsed datum into a normalized
 // `DexOrderView` the generic panel can render.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { PD } from "./plutusData";
 
 // "order"/"pool" for DEXs; protocols of other shapes use their own role label

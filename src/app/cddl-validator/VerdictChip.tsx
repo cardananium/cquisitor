@@ -3,8 +3,7 @@
 // Hex-strip verdict: a match note, or a red button that opens the mismatch list.
 
 import type { Ref } from "react";
-import { describeDiagnostic } from "./cddlError";
-import { verdictChipText, type Verdict } from "./verdict";
+import { describeDiagnostic, verdictChipText, type Verdict } from "@cardananium/cquisitor-lib";
 
 export interface VerdictChipProps {
   verdict: Verdict;

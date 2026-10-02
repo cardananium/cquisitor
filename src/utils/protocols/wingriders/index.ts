@@ -8,7 +8,7 @@ import {
   type DexRow,
   type PoolPair,
 } from "@/utils/protocols/dex/registry";
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 import { asConstr, isBytes, isConstr } from "@/utils/protocols/dex/plutusData";
 import type { AssetClass, PD, PlutusAddress } from "@/utils/protocols/dex/plutusData";

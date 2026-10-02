@@ -13,8 +13,7 @@
 // An output can also reference its datum by hash, which is resolved against
 // the tx's witness-set datums. This module is the one place that handles both.
 
-import { convertSerdeNumbers } from "@/utils/serdeNumbers";
-import type { DataOption } from "@/components/TransactionCardView/types";
+import { convertSerdeNumbers, type DataOption } from "@cardananium/cquisitor-lib";
 import type { PD } from "./plutusData";
 
 /** Decode a DetailedSchema JSON string to `PD`. */

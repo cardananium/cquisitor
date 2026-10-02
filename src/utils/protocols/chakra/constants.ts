@@ -19,7 +19,7 @@
 //    and are intentionally NOT matched here (they would be indistinguishable
 //    from any other CIP-68 reference-token script).
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const CHAKRA = {

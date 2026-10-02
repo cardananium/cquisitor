@@ -10,7 +10,7 @@
 // Note: manage_positions_script_hash = 268eca9c… is a stale/test value; the REAL
 // deployed hash is e4b0afad… — do not use 268eca9c.
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const STRIKE = {

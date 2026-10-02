@@ -7,7 +7,7 @@
 // staking parts (the protocol stake credential is appended to the spend
 // address).
 
-import type { CardanoNetwork } from "@/components/TransactionCardView/types";
+import type { CardanoNetwork } from "@cardananium/cquisitor-lib";
 import type { DexRole } from "@/utils/protocols/dex/registry";
 
 export const SATURNSWAP = {

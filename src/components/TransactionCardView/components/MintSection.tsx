@@ -6,7 +6,7 @@ import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { getPathDiagnostics } from "../utils";
 import { AssetNameWithTooltip, AssetAmount } from "./AssetNameWithTooltip";
-import type { ValidationDiagnostic } from "../types";
+import type { ValidationDiagnostic } from "@cardananium/cquisitor-lib";
 
 interface MintSectionProps {
   mint: [string, Record<string, string>][];

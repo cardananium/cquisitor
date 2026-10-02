@@ -5,8 +5,9 @@ import * as Collapsible from "@radix-ui/react-collapsible";
 import { CopyButton } from "./CopyButton";
 import { CollapsibleDataItem } from "./CollapsibleDataItem";
 import { SlotWithTooltip } from "./SlotWithTooltip";
+import { NATIVE_SCRIPT_DRAW_DEPTH, nativeScriptElidedNote, TIMELOCK_EXPIRY_TITLE, TIMELOCK_START_TITLE } from "../utils";
 import { DecompileButton, DEUPLC_ENABLED } from "./DeUplcButton";
-import type { AuxiliaryData, NativeScript } from "../types";
+import type { AuxiliaryData, NativeScript } from "@cardananium/cquisitor-lib";
 
 interface AuxiliaryDataSectionProps {
   auxData: AuxiliaryData;
@@ -18,6 +19,14 @@ const AUX_DATA_ACCENT = "#ec4899"; // pink
 // Recursive component to display native script structure
 function NativeScriptDisplay({ script, depth = 0 }: { script: NativeScript; depth?: number }) {
   const indent = depth * 12;
+
+  if (depth >= NATIVE_SCRIPT_DRAW_DEPTH) {
+    return (
+      <div className="tcv-native-script-item tcv-ns-elided" style={{ marginLeft: indent }}>
+        {nativeScriptElidedNote(script)}
+      </div>
+    );
+  }
   
   if ("ScriptPubkey" in script) {
     return (
@@ -67,7 +76,7 @@ function NativeScriptDisplay({ script, depth = 0 }: { script: NativeScript; dept
       <div className="tcv-native-script-group" style={{ marginLeft: indent }}>
         <div className="tcv-ns-header">
           <span className="tcv-ns-icon">🔢</span>
-          <span className="tcv-ns-type">{script.ScriptNOfK.n} of {script.ScriptNOfK.native_scripts.length}</span>
+          <span className="tcv-ns-type">{String(script.ScriptNOfK.n)} of {script.ScriptNOfK.native_scripts.length}</span>
         </div>
         <div className="tcv-ns-children">
           {script.ScriptNOfK.native_scripts.map((child, i) => (
@@ -82,7 +91,7 @@ function NativeScriptDisplay({ script, depth = 0 }: { script: NativeScript; dept
     return (
       <div className="tcv-native-script-item" style={{ marginLeft: indent }}>
         <span className="tcv-ns-icon">⏰</span>
-        <span className="tcv-ns-type">Valid after</span>
+        <span className="tcv-ns-type" title={TIMELOCK_START_TITLE}>Valid from</span>
         <span className="tcv-ns-slot">slot <SlotWithTooltip slot={script.TimelockStart.slot} /></span>
       </div>
     );
@@ -92,7 +101,7 @@ function NativeScriptDisplay({ script, depth = 0 }: { script: NativeScript; dept
     return (
       <div className="tcv-native-script-item" style={{ marginLeft: indent }}>
         <span className="tcv-ns-icon">⏱️</span>
-        <span className="tcv-ns-type">Valid before</span>
+        <span className="tcv-ns-type" title={TIMELOCK_EXPIRY_TITLE}>Valid before</span>
         <span className="tcv-ns-slot">slot <SlotWithTooltip slot={script.TimelockExpiry.slot} /></span>
       </div>
     );
@@ -172,7 +181,9 @@ export function AuxiliaryDataSection({ auxData }: AuxiliaryDataSectionProps) {
           </Collapsible.Trigger>
           <Collapsible.Content className="tcv-aux-content">
             <div className="tcv-plutus-scripts-list">
-              {auxData.plutus_scripts!.map((script, i) => (
+              {auxData.plutus_scripts!.map((decoded, i) => {
+                const script = decoded.bytes;
+                return (
                 <CollapsibleDataItem
                   key={i}
                   label={`Script #${i} (${script.length / 2} bytes)`}
@@ -186,7 +197,8 @@ export function AuxiliaryDataSection({ auxData }: AuxiliaryDataSectionProps) {
                     ) : undefined
                   }
                 />
-              ))}
+                );
+              })}
             </div>
           </Collapsible.Content>
         </Collapsible.Root>
