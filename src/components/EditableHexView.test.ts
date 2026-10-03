@@ -216,3 +216,38 @@ describe("editsAsPlainText", () => {
     expect(editsAsPlainText(WEBKIT_FOCUSED_MARKUP_MAX_RUNS, true, true)).toBe(false);
   });
 });
+
+describe("buildHexMarkup annotation spans", () => {
+  test("an annotation is a region of its own carrying its classes, coloured by CSS", () => {
+    const doc = parse(markup({ annotationSpans: [{ offset: 12, length: 6, className: "cq-ann cq-ann-error cq-ann-at-0" }] }).html);
+    const region = doc.children.find(c => c.attrs.class?.includes("cq-ann-at-0"))!;
+    expect(region.attrs.class).toBe("hex-annotation-highlight cq-ann cq-ann-error cq-ann-at-0");
+    expect(region.attrs.style).toBe("border-radius:2px");
+    expect(region.attrs["data-pos"]).toBe("24");
+    expect(region.attrs["data-len"]).toBe("12");
+    expect(doc.text).toBe(PERSON_HEX);
+  });
+
+  test("two adjacent annotations stay two regions; the later one wins an overlap", () => {
+    const doc = parse(markup({
+      annotationSpans: [
+        { offset: 0, length: 4, className: "cq-ann cq-ann-at-0" },
+        { offset: 2, length: 4, className: "cq-ann cq-ann-at-1" },
+      ],
+    }).html);
+    const first = doc.children.find(c => c.attrs.class?.includes("cq-ann-at-0"))!;
+    const second = doc.children.find(c => c.attrs.class?.includes("cq-ann-at-1"))!;
+    expect([first.attrs["data-pos"], first.attrs["data-len"]]).toEqual(["0", "4"]);
+    expect([second.attrs["data-pos"], second.attrs["data-len"]]).toEqual(["4", "8"]);
+  });
+
+  test("under an error region an annotation keeps its classes, so its card still finds it", () => {
+    const doc = parse(markup({
+      extraErrorSpans: [{ offset: 12, length: 4, message: "bad" }],
+      annotationSpans: [{ offset: 12, length: 4, className: "cq-ann cq-ann-at-2" }],
+    }).html);
+    const region = doc.children.find(c => c.attrs.class?.includes("cq-ann-at-2"))!;
+    expect(region.attrs.class).toBe("hex-error-highlight cq-ann cq-ann-at-2");
+    expect(region.attrs.title).toBe("bad");
+  });
+});

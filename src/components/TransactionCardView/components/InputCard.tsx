@@ -12,6 +12,7 @@ import { detectDexOutput, formatDexRole, dexThemeKey, type DexInputDetection } f
 import { useUtxoInfo } from "../UtxoInfoContext";
 import { useDecodedAddressVersion } from "@/lib/useDecodedAddress";
 import "@/utils/protocols/dex/adapters";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 interface InputCardProps {
   input: TransactionInput;
@@ -169,6 +170,7 @@ export function InputCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
+  const annMark = useTxPathMark(path);
   const txUrl = network ? getTransactionLink(network, input.transaction_id) : undefined;
   
   // Scroll into view when focused
@@ -193,7 +195,7 @@ export function InputCard({
   // If we still don't have UTxO info (loading / not found), show the compact view
   if (!resolvedUtxo) {
     return (
-      <div ref={cardRef} className={`tcv-item-card tcv-input tcv-input-compact ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>
+      <div ref={cardRef} {...annMark.attrs} className={`tcv-item-card tcv-input tcv-input-compact ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}>
         <div className="tcv-input-compact-row">
           <span className="tcv-item-index">#{index}</span>
           <div className="tcv-utxo-ref">
@@ -240,7 +242,7 @@ export function InputCard({
   } : null;
 
   return (
-    <div ref={cardRef} className={`tcv-input-wrapper ${isSpent ? 'tcv-input-spent' : ''} ${isFocused ? 'is-focused' : ''}`}>
+    <div ref={cardRef} {...annMark.attrs} className={`tcv-input-wrapper ${isSpent ? 'tcv-input-spent' : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}>
       {/* UTxO Reference header */}
       <div className={`tcv-input-utxo-header ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''}`}>
         <span className="tcv-item-index">#{index}</span>

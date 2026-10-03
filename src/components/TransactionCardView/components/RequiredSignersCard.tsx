@@ -5,6 +5,7 @@ import { DiagnosticBadge } from "./DiagnosticBadge";
 import { CopyButton } from "./CopyButton";
 import { getPathDiagnostics } from "../utils";
 import type { ValidationDiagnostic } from "@cardananium/cquisitor-lib";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 interface RequiredSignersCardProps {
   signers: string[];
@@ -31,6 +32,7 @@ function SignerCard({
   const signerPath = `${path}.${index}`;
   const signerDiagnostics = getPathDiagnostics(signerPath, diagnosticsMap);
   const isFocused = focusedPath?.includes(signerPath) ?? false;
+  const annMark = useTxPathMark(signerPath);
   const hasError = signerDiagnostics.some(d => d.severity === 'error');
   const hasWarning = signerDiagnostics.some(d => d.severity === 'warning');
   
@@ -46,7 +48,7 @@ function SignerCard({
   return (
     <div 
       ref={cardRef}
-      className={`tcv-signer-card ${hasError ? 'has-error' : ''} ${hasWarning ? 'has-warning' : ''} ${isFocused ? 'is-focused' : ''}`}
+      {...annMark.attrs} className={`tcv-signer-card ${hasError ? 'has-error' : ''} ${hasWarning ? 'has-warning' : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}
     >
       <div className="tcv-signer-header">
         <span className="tcv-signer-index">#{index}</span>

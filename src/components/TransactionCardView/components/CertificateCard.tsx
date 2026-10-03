@@ -5,6 +5,7 @@ import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { getPathDiagnostics, formatAda } from "../utils";
 import type { Certificate, ValidationDiagnostic, CredType, DRep, Anchor, PoolParams, Relay } from "@cardananium/cquisitor-lib";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 interface CertificateCardProps {
   cert: Certificate;
@@ -543,6 +544,7 @@ export function CertificateCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
+  const annMark = useTxPathMark(path);
   const { type, icon, colorClass } = getCertificateInfo(cert);
   
   // Scroll into view when focused
@@ -555,7 +557,7 @@ export function CertificateCard({
   }, [isFocused]);
   
   return (
-    <div ref={cardRef} className={`tcv-item-card tcv-certificate ${colorClass} ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>
+    <div ref={cardRef} {...annMark.attrs} className={`tcv-item-card tcv-certificate ${colorClass} ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}>
       <div className="tcv-item-header">
         <span className="tcv-item-index">#{index}</span>
         <span className="tcv-cert-type-badge">

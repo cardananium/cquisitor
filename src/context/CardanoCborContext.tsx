@@ -7,6 +7,7 @@ import {
   type NetworkType,
   type PlutusDataSchema,
 } from "@cardananium/cquisitor-lib";
+import { annotationStore } from "@/utils/annotations/store";
 
 interface CardanoCborState {
   input: string;
@@ -124,6 +125,12 @@ export function CardanoCborProvider({ children }: { children: ReactNode }) {
         if (parsed.type && !params.get("type")) setSelectedType(parsed.type);
         if (parsed.psv && !params.get("psv")) setPlutusScriptVersion(parsed.psv);
         if (parsed.pds && !params.get("pds")) setPlutusDataSchema(parsed.pds);
+        annotationStore.apply(
+          "cardano-cbor",
+          parsed.annotations,
+          parsed.annotationFocus,
+          params.get("cbor") ?? parsed.cbor ?? null,
+        );
       })
       .catch(() => {});
     return () => {

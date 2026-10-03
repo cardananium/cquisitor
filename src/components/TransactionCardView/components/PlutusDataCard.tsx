@@ -7,6 +7,7 @@ import { DiagnosticBadge } from "./DiagnosticBadge";
 import { HashWithTooltip } from "./HashWithTooltip";
 import { getPathDiagnostics } from "../utils";
 import type { ValidationDiagnostic } from "@cardananium/cquisitor-lib";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 const DATUM_ACCENT = "#6366f1"; // indigo
 
@@ -37,6 +38,7 @@ export function PlutusDataCard({
   const datumPath = `${path}.${index}`;
   const diagnostics = getPathDiagnostics(datumPath, diagnosticsMap);
   const isFocused = focusedPath?.includes(datumPath) ?? false;
+  const annMark = useTxPathMark(datumPath);
   const hasErrors = diagnostics.some(d => d.severity === 'error');
   
   // Scroll into view when focused
@@ -58,7 +60,7 @@ export function PlutusDataCard({
   }
   
   return (
-    <div ref={cardRef} className={`${isFocused ? 'tcv-cdi-is-focused' : ''}`}>
+    <div ref={cardRef} {...annMark.attrs} className={`${isFocused ? 'tcv-cdi-is-focused' : ''} ${annMark.className}`}>
       <Collapsible.Root 
         className={`tcv-cdi ${hasErrors ? 'tcv-cdi-has-error' : ''}`} 
         style={{ '--cdi-accent': DATUM_ACCENT } as React.CSSProperties}

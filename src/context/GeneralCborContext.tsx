@@ -9,6 +9,7 @@ import {
   type CborPosition,
   type CborValue,
 } from "@cardananium/cquisitor-lib";
+import { annotationStore } from "@/utils/annotations/store";
 
 interface GeneralCborState {
   input: string;
@@ -81,6 +82,12 @@ export function GeneralCborProvider({ children }: { children: ReactNode }) {
       .then((parsed) => {
         if (cancelled) return;
         if (parsed.cbor && !params.get("cbor")) setInput(parsed.cbor);
+        annotationStore.apply(
+          "general-cbor",
+          parsed.annotations,
+          parsed.annotationFocus,
+          params.get("cbor") ?? parsed.cbor ?? null,
+        );
       })
       .catch(() => {});
     return () => {

@@ -9,7 +9,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { parseHash, parseCddlShare, type ParsedCddlShare } from "@cardananium/cquisitor-lib";
+import {
+  parseHash,
+  parseCddlShare,
+  type Annotation,
+  type CquisitorTarget,
+  type ParsedCddlShare,
+} from "@cardananium/cquisitor-lib";
+import { annotationStore } from "@/utils/annotations/store";
 // Only the boot document is imported statically. This provider is on every page;
 // the preset table is ~15 KB and unused elsewhere — see DEFAULT_HYDRATION_DEPS.
 
@@ -116,6 +123,21 @@ export interface CddlHydrationSink {
   setHydratingPreset: (value: string | null) => void;
   setHydrating: (value: boolean) => void;
   setHydrationError: (value: string) => void;
+  /**
+   * The link's annotations, once the document is written. `inputKey` is what
+   * `annotationInputKey` gives for that document, or `null` when user edits kept
+   * part of it from being written.
+   */
+  setAnnotations?: (
+    annotations: Annotation<CquisitorTarget>[],
+    focus: number,
+    inputKey: string | null,
+  ) => void;
+}
+
+/** Key of a document for annotation dismissal: changes whenever the schema or the CBOR does. */
+export function annotationInputKey(cddl: string, cbor: string): string {
+  return `${cddl}\u0000${cbor}`;
 }
 
 /** Loaded preset schema and picker label. */
@@ -165,6 +187,11 @@ export async function hydrateCddlFromHash(
   let linkRule = params.get("rule") ?? "";
   let keptEdits = false;
   let reported = false;
+  // The document as this run leaves it, for the annotations' dismissal key.
+  let docCddl = params.get("cddl") ?? "";
+  let docCbor = params.get("cbor") ?? "";
+  let annotations: Annotation<CquisitorTarget>[] = [];
+  let annotationFocus = 0;
 
   const write = (field: CddlField, apply: () => void) => {
     if (sink.edited(field)) keptEdits = true;
@@ -185,13 +212,21 @@ export async function hydrateCddlFromHash(
       reported = true;
     }
     const { cddl, cbor, rule } = parsed;
+    annotations = parsed.annotations;
+    annotationFocus = parsed.annotationFocus;
     if (!linkRule && rule !== undefined) linkRule = rule;
     // A plain query param wins over the same field inside the payload, and is already on screen.
     if (!params.get("cddl") && cddl !== undefined) {
-      write("cddl", () => sink.setCddl(cddl));
+      write("cddl", () => {
+        sink.setCddl(cddl);
+        docCddl = cddl;
+      });
     }
     if (!params.get("cbor") && cbor !== undefined) {
-      write("cbor", () => sink.setCborInput(cbor));
+      write("cbor", () => {
+        sink.setCborInput(cbor);
+        docCbor = cbor;
+      });
     }
     if (!params.get("rule") && rule !== undefined) {
       write("rule", () => sink.setSelectedRule(rule));
@@ -209,6 +244,7 @@ export async function hydrateCddlFromHash(
       if (sink.cancelled()) return;
       write("cddl", () => {
         sink.setCddl(loaded.text);
+        docCddl = loaded.text;
         sink.setAppAuthoredCddl(loaded.text);
         sink.setPresetSource({ id, label: loaded.label });
         // A preset with no named rule must not fall through to the era schema's first rule (`block`).
@@ -225,6 +261,13 @@ export async function hydrateCddlFromHash(
   }
 
   if (keptEdits && !reported) sink.setHydrationError(KEPT_EDITS_MESSAGE);
+  if (rich) {
+    sink.setAnnotations?.(
+      annotations,
+      annotationFocus,
+      keptEdits ? null : annotationInputKey(docCddl, docCbor),
+    );
+  }
   sink.setHydrating(false);
 }
 
@@ -278,6 +321,8 @@ export function CddlValidatorProvider({ children }: { children: ReactNode }) {
       setHydratingPreset,
       setHydrating,
       setHydrationError,
+      setAnnotations: (annotations, focus, inputKey) =>
+        annotationStore.apply("cddl-validator", annotations, focus, inputKey),
     });
     return () => {
       cancelled = true;

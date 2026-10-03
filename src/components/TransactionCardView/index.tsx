@@ -43,6 +43,7 @@ import type {
   ValidationDiagnostic,
 } from "@cardananium/cquisitor-lib";
 import type { TransactionCardViewProps } from "./types";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 // Re-export types for external usage
 export type { ValidationDiagnostic, CardanoNetwork, TransactionCardViewProps };
@@ -216,6 +217,7 @@ function TopLevelSection({
     if (!focusedPath || !path) return false;
     return focusedPath.includes(path);
   }, [focusedPath, path]);
+  const annMark = useTxPathMark(path);
 
   // Scroll into view when focused
   useEffect(() => {
@@ -227,7 +229,7 @@ function TopLevelSection({
   }, [isFocused]);
 
   return (
-    <div ref={sectionRef} className={`tcv-top-level-section tcv-tls-${colorScheme} ${hasDiagnostics ? 'tcv-tls-has-error' : ''} ${isFocused ? 'tcv-tls-is-focused' : ''}`}>
+    <div ref={sectionRef} {...annMark.attrs} className={`tcv-top-level-section tcv-tls-${colorScheme} ${hasDiagnostics ? 'tcv-tls-has-error' : ''} ${isFocused ? 'tcv-tls-is-focused' : ''} ${annMark.className}`}>
       <button 
         className="tcv-tls-header"
         onClick={() => setIsExpanded(!isExpanded)}

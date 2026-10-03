@@ -7,6 +7,7 @@ import { HashWithTooltip } from "./HashWithTooltip";
 import { SlotWithTooltip } from "./SlotWithTooltip";
 import { getPathDiagnostics } from "../utils";
 import type { TransactionBody, ValidationDiagnostic } from "@cardananium/cquisitor-lib";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 interface TransactionDetailsSectionProps {
   body: TransactionBody;
@@ -42,6 +43,7 @@ function DetailField({
 }: DetailFieldProps) {
   const fieldRef = useRef<HTMLDivElement>(null);
   const isFocused = focusedPath?.includes(path) ?? false;
+  const annMark = useTxPathMark(path);
 
   // Scroll into view when focused. Hooks must run unconditionally on every
   // render, so the ref + effect live ABOVE the `value == null` early return —
@@ -69,7 +71,7 @@ function DetailField({
       return (
         <div 
           ref={fieldRef}
-          className={`tcv-detail-field ${hasError ? 'has-error' : ''} ${hasWarning ? 'has-warning' : ''} ${isFocused ? 'is-focused' : ''}`}
+          {...annMark.attrs} className={`tcv-detail-field ${hasError ? 'has-error' : ''} ${hasWarning ? 'has-warning' : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}
         >
           <div className="tcv-detail-label">
             {label}
@@ -102,7 +104,7 @@ function DetailField({
   return (
     <div 
       ref={fieldRef}
-      className={`tcv-detail-field ${hasError ? 'has-error' : ''} ${hasWarning ? 'has-warning' : ''} ${isFocused ? 'is-focused' : ''}`}
+      {...annMark.attrs} className={`tcv-detail-field ${hasError ? 'has-error' : ''} ${hasWarning ? 'has-warning' : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}
     >
       <div className="tcv-detail-label">
         {label}

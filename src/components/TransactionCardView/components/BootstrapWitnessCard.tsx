@@ -6,6 +6,7 @@ import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { getPathDiagnostics } from "../utils";
 import type { BootstrapWitness, ValidationDiagnostic } from "@cardananium/cquisitor-lib";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 interface BootstrapWitnessCardProps {
   witness: BootstrapWitness;
@@ -29,6 +30,7 @@ export function BootstrapWitnessCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
+  const annMark = useTxPathMark(path);
   
   // Scroll into view when focused
   useEffect(() => {
@@ -43,7 +45,7 @@ export function BootstrapWitnessCard({
   const attributesHex = bytesToHex(witness.attributes);
   
   return (
-    <div ref={cardRef} className={`tcv-item-card tcv-bootstrap ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>
+    <div ref={cardRef} {...annMark.attrs} className={`tcv-item-card tcv-bootstrap ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}>
       <div className="tcv-item-header">
         <span className="tcv-item-index">#{index}</span>
         <span className="tcv-bootstrap-badge">Byron</span>

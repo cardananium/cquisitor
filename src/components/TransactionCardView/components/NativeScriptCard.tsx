@@ -13,6 +13,7 @@ import {
   TIMELOCK_START_TITLE,
 } from "../utils";
 import type { NativeScript, ValidationDiagnostic } from "@cardananium/cquisitor-lib";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 interface NativeScriptCardProps {
   script: NativeScript;
@@ -158,6 +159,7 @@ export function NativeScriptCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
+  const annMark = useTxPathMark(path);
   const { type, icon, description } = getScriptType(script);
   
   // Scroll into view when focused
@@ -170,7 +172,7 @@ export function NativeScriptCard({
   }, [isFocused]);
   
   return (
-    <div ref={cardRef} className={`tcv-item-card tcv-native-script ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>
+    <div ref={cardRef} {...annMark.attrs} className={`tcv-item-card tcv-native-script ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}>
       <div className="tcv-item-header tcv-ns-header">
         <span className="tcv-item-index">#{index}</span>
         <span className="tcv-ns-type-badge">

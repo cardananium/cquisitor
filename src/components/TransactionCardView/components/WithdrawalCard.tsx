@@ -11,6 +11,7 @@ import {
   type CardanoNetwork,
 } from "@cardananium/cquisitor-lib";
 import { detectDexWithdrawal, dexThemeKey } from "@/utils/protocols/dex";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 interface WithdrawalCardProps {
   address: string;
@@ -34,6 +35,7 @@ export function WithdrawalCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
+  const annMark = useTxPathMark(path);
   
   // Scroll into view when focused
   useEffect(() => {
@@ -59,7 +61,7 @@ export function WithdrawalCard({
   }, [address, network, addressVersion]);
 
   return (
-    <div ref={cardRef} className={`tcv-item-card tcv-withdrawal ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>
+    <div ref={cardRef} {...annMark.attrs} className={`tcv-item-card tcv-withdrawal ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}>
       <div className="tcv-item-header">
         <span className="tcv-item-index">#{index}</span>
         <span className={`tcv-cred-type ${isScript ? 'script' : 'key'}`}>

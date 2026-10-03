@@ -56,6 +56,8 @@ export interface CborTreeViewProps {
   selectedDiagnostic?: number | null;
   /** Badge click: select that diagnostic, or `null` to clear. */
   onSelectDiagnostic?: (index: number | null) => void;
+  /** Extra row classes keyed by `spanAttr` of the row's header or container extent (annotations). */
+  annotationRows?: ReadonlyMap<string, string>;
 }
 
 interface ContextMenuState {
@@ -100,6 +102,17 @@ export function hoverPositionOf(node: RowNode): CborPosition | null {
   if (isMissing(node)) return null;
   const structPosition = "struct_position_info" in node ? node.struct_position_info : undefined;
   return structPosition ?? node.position_info ?? null;
+}
+
+/** Annotation classes of a row: by header, else by container extent. */
+export function annotationClassOf(node: RowNode, rows: ReadonlyMap<string, string>): string | undefined {
+  if (isMissing(node)) return undefined;
+  const header = node.position_info;
+  if (!header) return undefined;
+  const own = rows.get(spanAttr(header));
+  if (own) return own;
+  const extent = "struct_position_info" in node ? node.struct_position_info : undefined;
+  return extent ? rows.get(spanAttr(extent)) : undefined;
 }
 
 /** Diagnostics on this row: keyed by header and, for a container, by extent. Returns the map's own list unless both spans have entries, which are joined. */
@@ -638,6 +651,8 @@ interface TreeRowProps {
   diagnostics?: readonly TreeDiagnostic[];
   /** Selected diagnostic on this row, or `null`. */
   selectedOwn: number | null;
+  /** Annotation classes for the row, if it carries any. */
+  annotationClass?: string;
   onToggle: (row: Row) => void;
   onContextMenu: (e: React.MouseEvent, node: AnyNode, path: string) => void;
   onHover: (position: CborPosition | null) => void;
@@ -652,6 +667,7 @@ const TreeRow = memo(function TreeRow({
   scrollOnPin,
   diagnostics,
   selectedOwn,
+  annotationClass,
   onToggle,
   onContextMenu,
   onHover,
@@ -756,7 +772,7 @@ const TreeRow = memo(function TreeRow({
       ref={nodeRef}
     >
       <div
-        className={`cbor-tree-row ${keyType ? `cbor-tree-row-${keyType}` : ""} ${isPinned ? "cbor-tree-row-pinned" : ""} ${isHighlighted ? "cbor-tree-row-highlighted" : ""}${diagnostics ? " cbor-tree-row-mismatch" : ""}${selectedDiagnostic ? " cbor-tree-row-mismatch-selected" : ""}`}
+        className={`cbor-tree-row ${keyType ? `cbor-tree-row-${keyType}` : ""} ${isPinned ? "cbor-tree-row-pinned" : ""} ${isHighlighted ? "cbor-tree-row-highlighted" : ""}${diagnostics ? " cbor-tree-row-mismatch" : ""}${selectedDiagnostic ? " cbor-tree-row-mismatch-selected" : ""}${annotationClass ? ` ${annotationClass}` : ""}`}
         data-span={rowSpanAttr(node)}
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseEnter}
@@ -935,6 +951,7 @@ export default function CborTreeView({
   rowDiagnostics,
   selectedDiagnostic,
   onSelectDiagnostic,
+  annotationRows,
 }: CborTreeViewProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
@@ -1118,6 +1135,7 @@ export default function CborTreeView({
             scrollOnPin={scrollOnHighlight}
             diagnostics={diagnostics}
             selectedOwn={selectedOwn}
+            annotationClass={annotationRows ? annotationClassOf(row.node, annotationRows) : undefined}
             onToggle={toggleRow}
             onContextMenu={handleContextMenu}
             onHover={onHoverPosition}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ResizablePanels from "@/components/ResizablePanels";
 import JsonViewer from "@/components/JsonViewer";
 import TypeSelectionModal from "@/components/TypeSelectionModal";
@@ -19,6 +19,13 @@ import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
+import AnnotationLayer from "@/components/annotations/AnnotationLayer";
+import {
+  useAnnotationInputGuard,
+  useReportStatuses,
+  useTabAnnotations,
+} from "@/components/annotations/useAnnotations";
+import { notShownHere } from "@/utils/annotations/marks";
 import { CheckCircleIcon, ExternalLinkIcon } from "@/components/Icons";
 import {
   buildTxStudioUrl,
@@ -54,6 +61,16 @@ export default function CardanoCborContent() {
     setIsLoading,
     clearAll,
   } = useCardanoCbor();
+
+  // This tab has no addressable structure: a link's annotations are listed, not shown.
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const annotationState = useTabAnnotations("cardano-cbor");
+  useAnnotationInputGuard("cardano-cbor", input);
+  const annotationStatuses = useMemo(
+    () => annotationState?.annotations.map(() => notShownHere()) ?? null,
+    [annotationState?.annotations],
+  );
+  useReportStatuses("cardano-cbor", annotationStatuses);
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const [showTypeModal, setShowTypeModal] = useState(false);
@@ -437,7 +454,7 @@ export default function CardanoCborContent() {
 
   return (
     <>
-      <div className="cardano-cbor-layout">
+      <div className="cardano-cbor-layout" ref={layoutRef}>
         <ResizablePanels
           leftPanel={leftPanel}
           rightPanel={rightPanel}
@@ -445,6 +462,7 @@ export default function CardanoCborContent() {
           minLeftWidth={25}
           maxLeftWidth={75}
         />
+        <AnnotationLayer tab="cardano-cbor" containerRef={layoutRef} />
       </div>
       
       <TypeSelectionModal

@@ -14,6 +14,7 @@ import {
   type ValidationDiagnostic,
   type CardanoNetwork,
 } from "@cardananium/cquisitor-lib";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 interface VotingProcedureCardProps {
   voterVotes: VoterVotes;
@@ -185,6 +186,7 @@ export function VotingProcedureCard({
   const [showAllVotes, setShowAllVotes] = useState(false);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
+  const annMark = useTxPathMark(path);
   const { type, icon, colorClass } = getVoterInfo(voterVotes.voter);
   
   // Scroll into view when focused
@@ -201,7 +203,7 @@ export function VotingProcedureCard({
   const hasMore = votes.length > 3;
   
   return (
-    <div ref={cardRef} className={`tcv-item-card tcv-voting-procedure ${colorClass} ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>
+    <div ref={cardRef} {...annMark.attrs} className={`tcv-item-card tcv-voting-procedure ${colorClass} ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}>
       <div className="tcv-item-header">
         <span className="tcv-item-index">#{index}</span>
         <span className="tcv-voter-type-badge">

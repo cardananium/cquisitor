@@ -19,6 +19,7 @@ import {
   type TransactionData,
   type ValidationResult,
 } from "@cardananium/cquisitor-lib";
+import { annotationStore } from "@/utils/annotations/store";
 
 // Blockfrost project_ids are strictly tied to a single network, so they are
 // stored per-network. Koios tokens are valid across networks per koios.rest's
@@ -254,6 +255,12 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
         }
         if (parsed.ctxIncompatible) setCtxIncompatibleWarning(true);
         if (parsed.futureVersion) setFutureVersionWarning(true);
+        annotationStore.apply(
+          "transaction-validator",
+          parsed.annotations,
+          parsed.annotationFocus,
+          params.get("cbor") ?? parsed.cbor ?? null,
+        );
       })
       .catch(() => {});
     return () => {

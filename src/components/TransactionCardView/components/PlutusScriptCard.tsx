@@ -8,6 +8,7 @@ import { HashWithTooltip } from "./HashWithTooltip";
 import { DecompileButton, DEUPLC_ENABLED } from "./DeUplcButton";
 import { getPathDiagnostics } from "../utils";
 import type { ValidationDiagnostic, PlutusScriptInfo } from "@cardananium/cquisitor-lib";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 const SCRIPT_ACCENT = "#8b5cf6"; // purple
 
@@ -38,6 +39,7 @@ export function PlutusScriptCard({
   const scriptPath = `${path}.${index}`;
   const diagnostics = getPathDiagnostics(scriptPath, diagnosticsMap);
   const isFocused = focusedPath?.includes(scriptPath) ?? false;
+  const annMark = useTxPathMark(scriptPath);
   const hasErrors = diagnostics.some(d => d.severity === 'error');
   
   // Scroll into view when focused
@@ -59,7 +61,7 @@ export function PlutusScriptCard({
   }
   
   return (
-    <div ref={cardRef} className={`${isFocused ? 'tcv-cdi-is-focused' : ''}`}>
+    <div ref={cardRef} {...annMark.attrs} className={`${isFocused ? 'tcv-cdi-is-focused' : ''} ${annMark.className}`}>
       <Collapsible.Root 
         className={`tcv-cdi ${hasErrors ? 'tcv-cdi-has-error' : ''}`} 
         style={{ '--cdi-accent': SCRIPT_ACCENT } as React.CSSProperties}

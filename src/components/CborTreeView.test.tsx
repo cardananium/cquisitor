@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CborArray, CborMap, CborPosition, CborValue } from "@cardananium/cquisitor-lib";
-import CborTreeView, { ownDiagnosticsOf, spanAttr } from "./CborTreeView";
+import CborTreeView, { annotationClassOf, ownDiagnosticsOf, spanAttr } from "./CborTreeView";
 import type { TreeDiagnostic, TreeDiagnosticRows } from "./treeDiagnostics";
 
 const pos = (offset: number, length: number): CborPosition => ({ offset, length });
@@ -228,5 +228,23 @@ describe("ownDiagnosticsOf", () => {
     const rows = rowsOf([[header, byHeader]]);
     expect(ownDiagnosticsOf({ missing: "value" }, rows)).toBeUndefined();
     expect(ownDiagnosticsOf({ type: "Null" } as unknown as CborValue, rows)).toBeUndefined();
+  });
+});
+
+describe("annotation rows", () => {
+  test("a row takes the classes keyed by its header or its container extent", () => {
+    expect(annotationClassOf(DOC, new Map([[spanAttr(DOC.position_info!), "cq-ann"]]))).toBe("cq-ann");
+    expect(annotationClassOf(DOC, new Map([[spanAttr(DOC.struct_position_info!), "cq-ann-x"]]))).toBe("cq-ann-x");
+    expect(annotationClassOf(LEAF_A, new Map([[spanAttr(DOC.position_info!), "cq-ann"]]))).toBeUndefined();
+    expect(annotationClassOf({ missing: "key" }, new Map([["0:1", "cq-ann"]]))).toBeUndefined();
+  });
+
+  test("an annotated row deep in the tree is rendered open and marked", () => {
+    const html = markup({
+      openPositions: [LEAF_B.position_info!],
+      annotationRows: new Map([[spanAttr(LEAF_B.position_info!), "cq-ann cq-ann-warning cq-ann-at-0"]]),
+    });
+    expect(html).toContain(`data-span="${spanAttr(LEAF_B.position_info!)}"`);
+    expect(html).toMatch(/class="cbor-tree-row [^"]*cq-ann cq-ann-warning cq-ann-at-0"/);
   });
 });

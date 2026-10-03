@@ -7,6 +7,7 @@ import { DeUplcButton, DEUPLC_ENABLED } from "./DeUplcButton";
 import { getPathDiagnostics } from "../utils";
 import { formatDexRole, dexThemeKey, type DexRedeemerNote } from "@/utils/protocols/dex";
 import type { Redeemer, ValidationDiagnostic, DeUplcResolved } from "@cardananium/cquisitor-lib";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 interface RedeemerCardProps {
   redeemer: Redeemer;
@@ -52,6 +53,7 @@ export function RedeemerCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
+  const annMark = useTxPathMark(path);
   
   // Scroll into view when focused
   useEffect(() => {
@@ -66,7 +68,7 @@ export function RedeemerCard({
   const stepsUsage = BigInt(redeemer.ex_units.steps);
   
   return (
-    <div ref={cardRef} className={`tcv-item-card tcv-redeemer ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>
+    <div ref={cardRef} {...annMark.attrs} className={`tcv-item-card tcv-redeemer ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}>
       <div className="tcv-item-header">
         <span className="tcv-redeemer-tag">{redeemer.tag}</span>
         <span className="tcv-redeemer-index">[{redeemer.index}]</span>

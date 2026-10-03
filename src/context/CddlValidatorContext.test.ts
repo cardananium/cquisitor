@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  annotationInputKey,
   hydrateCddlFromHash,
   readInitialCddlState,
   KEPT_EDITS_MESSAGE,
@@ -126,7 +127,7 @@ function harness(deps: Partial<CddlHydrationDeps> = {}) {
   };
   const run = (hash: string) =>
     hydrateCddlFromHash(hash, sink, {
-      parseShare: async () => ({}),
+      parseShare: async () => ({ annotations: [], annotationFocus: 0 }),
       loadPreset: async () => preset("transaction = int"),
       ...deps,
     });
@@ -182,7 +183,7 @@ describe("hydrateCddlFromHash", () => {
 
   test("a rule inside the payload outranks the preset's own", async () => {
     const h = harness({
-      parseShare: async () => ({ preset: "conway", rule: "block" }),
+      parseShare: async () => ({ preset: "conway", rule: "block", annotations: [], annotationFocus: 0 }),
     });
     await h.run("#cddl-validator?v=1&e=b&d=abc");
     expect(h.wrote.rule).toBe("block");
@@ -220,7 +221,7 @@ describe("hydrateCddlFromHash", () => {
     const h = harness({ parseShare: () => new Promise<ParsedCddlShare>(r => { release = r; }) });
     const done = h.run("#cddl-validator?v=1&e=b&d=abc");
     h.edited.cbor = true;
-    release({ cddl: "a = int", cbor: "01", rule: "a" });
+    release({ cddl: "a = int", cbor: "01", rule: "a", annotations: [], annotationFocus: 0 });
     await done;
     expect(h.wrote.cddl).toBe("a = int");
     expect(h.wrote.rule).toBe("a");
@@ -256,5 +257,53 @@ describe("hydrateCddlFromHash", () => {
     await h.run("#cddl-validator");
     await h.run("#cddl-validator?cddl=a%20%3D%20int&rule=a");
     expect(h.wrote).toEqual({ hydratingPreset: [] });
+  });
+});
+
+describe("hydrateCddlFromHash annotations", () => {
+  const ANNOTATIONS = [{ target: { kind: "cddl_rule" as const, name: "transaction" }, hint: "root" }];
+
+  function run(hash: string, deps: Partial<CddlHydrationDeps>, edited: Partial<Record<CddlField, boolean>> = {}) {
+    const got: Array<{ count: number; focus: number; key: string | null }> = [];
+    const done = hydrateCddlFromHash(hash, {
+      edited: (f) => !!edited[f],
+      cancelled: () => false,
+      setCddl: () => {},
+      setCborInput: () => {},
+      setSelectedRule: () => {},
+      setAppAuthoredCddl: () => {},
+      setPresetSource: () => {},
+      setHydratingPreset: () => {},
+      setHydrating: () => {},
+      setHydrationError: () => {},
+      setAnnotations: (annotations, focus, key) => got.push({ count: annotations.length, focus, key }),
+    }, {
+      parseShare: async () => ({ annotations: [], annotationFocus: 0 }),
+      loadPreset: async () => ({ text: "preset text", label: "Conway", rootRule: "transaction" }),
+      ...deps,
+    });
+    return { got, done };
+  }
+
+  test("handed over keyed by the document the link wrote, preset text included", async () => {
+    const { got, done } = run("#cddl-validator?v=1&e=b&d=abc", {
+      parseShare: async () => ({ preset: "conway", cbor: "a0", annotations: ANNOTATIONS, annotationFocus: 0 }),
+    });
+    await done;
+    expect(got).toEqual([{ count: 1, focus: 0, key: annotationInputKey("preset text", "a0") }]);
+  });
+
+  test("a document the user already changed gets no dismissal key", async () => {
+    const { got, done } = run("#cddl-validator?v=1&e=b&d=abc", {
+      parseShare: async () => ({ cddl: "a = int", cbor: "01", annotations: ANNOTATIONS, annotationFocus: 0 }),
+    }, { cbor: true });
+    await done;
+    expect(got).toEqual([{ count: 1, focus: 0, key: null }]);
+  });
+
+  test("a link without a payload carries none and reports none", async () => {
+    const { got, done } = run("#cddl-validator?preset=conway", {});
+    await done;
+    expect(got).toEqual([]);
   });
 });

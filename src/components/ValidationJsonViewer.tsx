@@ -15,6 +15,7 @@ import { ErrorFormatter } from "./ErrorDataFormatters";
 import { getTransactionLink, getAddressLink, type CardanoNetwork } from "@cardananium/cquisitor-lib";
 import { JsonTreeView, dotPathScheme, type RenderRowArgs } from "@/components/jsonTree";
 import { prepareViewData } from "@/utils/prepareViewData";
+import { annotationClassName, type AnnotationMark } from "@/utils/annotations/marks";
 
 // Diagnostic item structure (same as in TransactionValidatorContent)
 export interface ValidationDiagnostic {
@@ -33,7 +34,11 @@ interface ValidationJsonViewerProps {
   diagnostics?: ValidationDiagnostic[];
   expanded?: number;
   focusedPath?: string[] | null;
+  /** Annotation marks by path; marked rows are kept open. */
+  annotationMarks?: ReadonlyMap<string, AnnotationMark>;
 }
+
+const NO_ANNOTATION_MARKS: ReadonlyMap<string, AnnotationMark> = new Map();
 
 function buildDiagnosticsMap(diagnostics: ValidationDiagnostic[]): Map<string, ValidationDiagnostic[]> {
   const map = new Map<string, ValidationDiagnostic[]>();
@@ -284,11 +289,13 @@ export default function ValidationJsonViewer({
   diagnostics = [],
   expanded = 3,
   focusedPath,
+  annotationMarks = NO_ANNOTATION_MARKS,
 }: ValidationJsonViewerProps) {
   const preparedData = useMemo(() => prepareViewData(data), [data]);
   const diagnosticsMap = useMemo(() => buildDiagnosticsMap(diagnostics), [diagnostics]);
 
   const highlightedPaths = useMemo(() => focusedPath ?? [], [focusedPath]);
+  const annotationPaths = useMemo(() => [...annotationMarks.keys()], [annotationMarks]);
 
   const shouldDefaultExpand = useMemo(
     () =>
@@ -320,9 +327,11 @@ export default function ValidationJsonViewer({
       else cls.push("vjv-expandable");
       if (hasError) cls.push("vjv-error");
       else if (hasWarning) cls.push("vjv-warning");
+      const mark = annotationClassName(annotationMarks.get(path));
+      if (mark) cls.push(mark);
       return cls.join(" ");
     },
-    [diagnosticsMap],
+    [diagnosticsMap, annotationMarks],
   );
 
   const getNodeBlockClassName = useMemo(
@@ -378,6 +387,8 @@ export default function ValidationJsonViewer({
         expanded={expanded}
         pathScheme={dotPathScheme}
         highlightedPaths={highlightedPaths}
+        openPaths={annotationPaths}
+        rowPathAttribute="data-tx-path"
         renderRow={renderRow}
         shouldDefaultExpand={shouldDefaultExpand}
         onRowClick={handleRowClick}

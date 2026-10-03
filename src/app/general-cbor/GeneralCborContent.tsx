@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import ResizablePanels from "@/components/ResizablePanels";
 import EditableHexView from "@/components/EditableHexView";
@@ -20,6 +20,13 @@ import HintBanner from "@/components/HintBanner";
 import HelpTooltip from "@/components/HelpTooltip";
 import EmptyStatePlaceholder from "@/components/EmptyStatePlaceholder";
 import ShareButton from "@/components/ShareButton";
+import AnnotationLayer from "@/components/annotations/AnnotationLayer";
+import {
+  useAnnotationInputGuard,
+  useReportStatuses,
+  useTabAnnotations,
+} from "@/components/annotations/useAnnotations";
+import { cborMarks, resolveCborTarget } from "@/utils/annotations/resolveCbor";
 
 export default function GeneralCborContent() {
   const {
@@ -126,6 +133,28 @@ export default function GeneralCborContent() {
     clearAll();
   };
 
+  // ---------- share-link annotations ----------
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const annotationState = useTabAnnotations("general-cbor");
+  useAnnotationInputGuard("general-cbor", input);
+  const decodePending = input.trim() !== "" && hexValue === "" && !error;
+  const annotationResolutions = useMemo(
+    () =>
+      (annotationState?.annotations ?? []).map((a) =>
+        resolveCborTarget(a, { root: decodedJson, byteLength: hexValue.length / 2, pending: decodePending }),
+      ),
+    [annotationState?.annotations, decodedJson, hexValue, decodePending],
+  );
+  const annotationStatuses = useMemo(
+    () => (annotationState ? annotationResolutions.map((r) => r.status) : null),
+    [annotationState, annotationResolutions],
+  );
+  useReportStatuses("general-cbor", annotationStatuses);
+  const annotationMarks = useMemo(
+    () => cborMarks(annotationResolutions, annotationState?.annotations ?? [], annotationState?.focus ?? 0),
+    [annotationResolutions, annotationState?.annotations, annotationState?.focus],
+  );
+
   const handleHoverPath = useCallback((path: string | null) => {
     setHoverPath(path);
   }, [setHoverPath]);
@@ -210,6 +239,7 @@ export default function GeneralCborContent() {
         errorLocation={errorLocation}
         onHoverPath={handleHoverPath}
         onShowInTree={handleShowInTree}
+        annotationSpans={annotationMarks.hexSpans}
       />
     </div>
   );
@@ -230,6 +260,8 @@ export default function GeneralCborContent() {
             onHighlightAndScroll={handleHighlightAndScroll}
             highlightedTreePosition={highlightedTreePosition}
             onClearHighlight={handleClearTreeHighlight}
+            openPositions={annotationMarks.treeOpen}
+            annotationRows={annotationMarks.treeRows}
           />
         ) : error ? (
           // Header badge truncates; show the full error here when there is no tree.
@@ -249,7 +281,7 @@ export default function GeneralCborContent() {
   );
 
   return (
-    <div className="general-cbor-layout">
+    <div className="general-cbor-layout" ref={layoutRef}>
       <ResizablePanels
         leftPanel={leftPanel}
         rightPanel={rightPanel}
@@ -257,6 +289,7 @@ export default function GeneralCborContent() {
         minLeftWidth={25}
         maxLeftWidth={75}
       />
+      <AnnotationLayer tab="general-cbor" containerRef={layoutRef} />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { getPathDiagnostics, computeVkeyHash } from "../utils";
 import type { VkeyWitness, ValidationDiagnostic } from "@cardananium/cquisitor-lib";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 interface VKeyCardProps {
   vkey: VkeyWitness;
@@ -24,6 +25,7 @@ export function VKeyCard({
 }: VKeyCardProps) {
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
+  const annMark = useTxPathMark(path);
   
   // Compute vkey_hash from vkey if not present
   const vkeyHash = useMemo(() => {
@@ -35,7 +37,7 @@ export function VKeyCard({
   }, [vkey.vkey, vkey.vkey_hash]);
   
   return (
-    <div className={`tcv-item-card tcv-vkey ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>
+    <div {...annMark.attrs} className={`tcv-item-card tcv-vkey ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}>
       <div className="tcv-item-header">
         <span className="tcv-item-index">#{index}</span>
         <DiagnosticBadge diagnostics={diagnostics} />

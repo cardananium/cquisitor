@@ -27,6 +27,7 @@ import { detectDexOutput, formatDexRole, dexThemeKey } from "@/utils/protocols/d
 import { useDecodedAddressVersion } from "@/lib/useDecodedAddress";
 import "@/utils/protocols/dex/adapters";
 import type { PD as SundaePD } from "@/utils/protocols/sundae/plutusData";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 /**
  * Extended script info that works with both lib and Koios types
@@ -169,6 +170,7 @@ export function OutputCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
+  const annMark = useTxPathMark(path);
 
   // For a real on-chain output, resolve its own ref ("txHash#index") and flag
   // it when already spent. Skipped when wrapped as an input card (the InputCard
@@ -270,7 +272,7 @@ export function OutputCard({
   return (
     <div 
       ref={cardRef}
-      className={`tcv-item-card tcv-output ${isInputCard ? 'tcv-output-as-input' : ''} ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}
+      {...annMark.attrs} className={`tcv-item-card tcv-output ${isInputCard ? 'tcv-output-as-input' : ''} ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}
     >
       {/* Hide header when used as input card (InputCard provides its own header) */}
       {!isInputCard && (

@@ -34,7 +34,16 @@ import RefusalBanner from "./RefusalBanner";
 import TypeSelectionModal from "@/components/TypeSelectionModal";
 import SchemaErrorLine from "./SchemaErrorLine";
 import VerdictChip from "./VerdictChip";
-import { useCddlValidator } from "@/context/CddlValidatorContext";
+import { annotationInputKey, useCddlValidator } from "@/context/CddlValidatorContext";
+import AnnotationLayer from "@/components/annotations/AnnotationLayer";
+import {
+  useAnnotationInputGuard,
+  useReportStatuses,
+  useTabAnnotations,
+} from "@/components/annotations/useAnnotations";
+import { annotationAnchorClass } from "@/utils/annotations/marks";
+import type { CquisitorAnnotation } from "@/utils/annotations/store";
+import { cddlMarks, resolveCddlTarget } from "./annotationTargets";
 import {
   CARDANO_PRESETS,
   confirmReplaceMessage,
@@ -90,6 +99,9 @@ import {
 } from "./hooks";
 
 const NO_ROOT_CANDIDATES: string[] = [];
+const NO_ANNOTATIONS: readonly CquisitorAnnotation[] = [];
+/** Frames to wait for an annotated row to render before giving up on scrolling to it. */
+const ANNOTATION_REVEAL_FRAMES = 40;
 
 /** Spinner in a panel header while that panel's inputs are still settling. */
 function PendingSpinner({ label }: { label: string }) {
@@ -529,6 +541,65 @@ export default function CddlValidatorContent() {
     [diagnostics, cborCddlMap, rootHeader],
   );
 
+  // ---------- share-link annotations ----------
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const annotationState = useTabAnnotations("cddl-validator");
+  useAnnotationInputGuard("cddl-validator", annotationInputKey(cddl, cborInput));
+  const annotations = annotationState?.annotations ?? NO_ANNOTATIONS;
+  const annotationFocus = annotationState?.focus ?? 0;
+  const cborPending = cborInput !== hexDebounced || cborDecodePending;
+  const annotationResolutions = useMemo(
+    () => annotations.map((a) => resolveCddlTarget(a, {
+      cddl,
+      outline: schema.outline,
+      outlineSource: schema.outlineSource,
+      hydrating,
+      bridge: cborCddlMap,
+      cbor: { root: decoded, byteLength: cleanHex.length / 2, pending: cborPending },
+    })),
+    [annotations, cddl, schema.outline, schema.outlineSource, hydrating, cborCddlMap, decoded, cleanHex, cborPending],
+  );
+  const annotationStatuses = useMemo(
+    () => (annotationState ? annotationResolutions.map((r) => r.status) : null),
+    [annotationState, annotationResolutions],
+  );
+  useReportStatuses("cddl-validator", annotationStatuses);
+  const annotationMarks = useMemo(
+    () => cddlMarks(annotationResolutions, annotations, annotationFocus),
+    [annotationResolutions, annotations, annotationFocus],
+  );
+  // Schema targets scroll the editor (its overlay mirrors the textarea and must not be scrolled on its own);
+  // byte targets bring a panel that shows them forward and scroll every panel that has the row.
+  const revealAnnotation = useCallback((index: number) => {
+    const r = annotationResolutions[index];
+    if (!r) return true;
+    if (r.panel === "cddl" && r.cddlFocus) {
+      activatePanel("cddl");
+      const range = r.cddlFocus;
+      requestAnimationFrame(() => editorRef.current?.scrollTo(range));
+      return true;
+    }
+    const shownByBytes = (visible.has("hex") && r.hex) || (visible.has("tree") && r.tree) || (visible.has("decoded") && r.decoded);
+    if (!shownByBytes) activatePanel(r.hex ? "hex" : r.tree ? "tree" : "decoded");
+    if (r.cddl) requestAnimationFrame(() => editorRef.current?.scrollTo(r.cddl!));
+    let frames = 0;
+    const attempt = () => {
+      const root = layoutRef.current;
+      const found = root
+        ? Array.from(root.querySelectorAll(`.${annotationAnchorClass(index)}`)).filter(
+            (el) => !el.closest(".cddl-editor-overlay") && el.getClientRects().length > 0,
+          )
+        : [];
+      if (found.length > 0) {
+        for (const el of found) el.scrollIntoView({ block: "center", inline: "nearest" });
+        return;
+      }
+      if (++frames < ANNOTATION_REVEAL_FRAMES) requestAnimationFrame(attempt);
+    };
+    requestAnimationFrame(attempt);
+    return true;
+  }, [annotationResolutions, activatePanel, visible]);
+
   // ---------- editor marks (priority-ranked) ----------
   const pinnedNode = pinned?.node ?? null;
   const editorMarks = useMemo(
@@ -546,6 +617,10 @@ export default function CddlValidatorContent() {
     }),
     [schema, diagnostics, selectedErrorIndex, referenceRanges,
      pinned, pinnedNode, pinnedSource, cddl, pinTargets],
+  );
+  const editorMarksWithAnnotations = useMemo(
+    () => (annotationMarks.editor.length > 0 ? [...editorMarks, ...annotationMarks.editor] : editorMarks),
+    [editorMarks, annotationMarks.editor],
   );
 
   // Pin projection matches hover of the same row.
@@ -593,6 +668,15 @@ export default function CddlValidatorContent() {
   const decodedVisited = useMemo(
     () => visitedDecodedPaths(pinned, pinTargets.has("decoded")),
     [pinned, pinTargets],
+  );
+  // Annotated rows stay open alongside the pin's visited ones.
+  const treeOpenPositions = useMemo(
+    () => (annotationMarks.treeOpen.length > 0 ? [...treeVisited, ...annotationMarks.treeOpen] : treeVisited),
+    [treeVisited, annotationMarks.treeOpen],
+  );
+  const decodedOpenPaths = useMemo(
+    () => (annotationMarks.decodedOpen.length > 0 ? [...decodedVisited, ...annotationMarks.decodedOpen] : decodedVisited),
+    [decodedVisited, annotationMarks.decodedOpen],
   );
 
   // Reveal the current instance in the named panels. Skip a panel the row
@@ -990,7 +1074,7 @@ export default function CddlValidatorContent() {
         ref={editorRef}
         value={cddl}
         onChange={handleCddlChange}
-        marks={editorMarks}
+        marks={editorMarksWithAnnotations}
         onSymbolClick={handleSymbolClick}
         onLinkClick={handleLinkClick}
         onPinAtOffset={requestPinFromCddlOffset}
@@ -1081,6 +1165,7 @@ export default function CddlValidatorContent() {
         pinnedOtherSpans={hexPinnedOtherSpans}
         onShowInTree={handleShowInTree}
         onContextMenuPin={requestPinFromCborOffset}
+        annotationSpans={annotationMarks.hexSpans}
       />
     </>
   );
@@ -1104,7 +1189,8 @@ export default function CddlValidatorContent() {
           pinnedPath={decodedPinnedPath}
           pinnedOtherPaths={decodedPinnedOthers}
           pinnedRole={pinned?.node.entry.entry_role ?? null}
-          openPaths={decodedVisited}
+          openPaths={decodedOpenPaths}
+          annotationRows={annotationMarks.decodedRows}
           revealSeq={pinRevealSeq}
           onPinPath={requestPinFromDecodedPath}
           scrollOnHighlight={scrollDecodedToPin}
@@ -1129,7 +1215,8 @@ export default function CddlValidatorContent() {
       onClearHighlight={handleClearTreeHighlight}
       pinnedPosition={treePinned}
       pinnedOtherSpans={treePinnedOthers}
-      openPositions={treeVisited}
+      openPositions={treeOpenPositions}
+      annotationRows={annotationMarks.treeRows}
       revealSeq={pinRevealSeq}
       scrollOnHighlight={scrollTreeToPin}
       onPinPosition={requestPinFromTreePosition}
@@ -1153,8 +1240,9 @@ export default function CddlValidatorContent() {
   };
 
   return (
-    <div className="cddl-validator-layout">
+    <div className="cddl-validator-layout" ref={layoutRef}>
       <DockWorkspace ref={workspaceRef} panels={panelSpecs} onVisibleChange={handleVisibleChange} />
+      <AnnotationLayer tab="cddl-validator" containerRef={layoutRef} onReveal={revealAnnotation} />
       {drawerShown && (
         <MismatchDrawer
           verdict={verdict}

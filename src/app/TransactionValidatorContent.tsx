@@ -66,6 +66,21 @@ import {
 import TransactionCardView from "@/components/TransactionCardView";
 import ViewModeSelectionModal, { type ViewMode } from "@/components/ViewModeSelectionModal";
 import { limitAwareErrorMessage } from "@/utils/implementationLimit";
+import AnnotationLayer from "@/components/annotations/AnnotationLayer";
+import { TxPathMarksProvider } from "@/components/annotations/TxPathMarks";
+import {
+  useAnnotationInputGuard,
+  useReportStatuses,
+  useTabAnnotations,
+} from "@/components/annotations/useAnnotations";
+import { annotationClassName, type AnnotationMark } from "@/utils/annotations/marks";
+import type { CquisitorAnnotation } from "@/utils/annotations/store";
+import {
+  closestTxPathElement,
+  resolveValidatorAnnotations,
+  txViewPath,
+  validatorMarks,
+} from "@/utils/annotations/resolveValidator";
 
 // Storage keys for view mode preference
 const VIEW_MODE_STORAGE_KEY = "cquisitor_tx_validator_view_mode";
@@ -386,12 +401,38 @@ function AddWitnessPanel({ txHex, missingKeyHash, onWitnessAdded }: AddWitnessPa
   );
 }
 
-function DiagnosticsList({ items, onLocationClick, txHex, onWitnessAdded }: {
+const NO_MARKS: ReadonlyMap<number, AnnotationMark> = new Map();
+const NO_ANNOTATIONS: readonly CquisitorAnnotation[] = [];
+
+function DiagnosticsList({ items, onLocationClick, txHex, onWitnessAdded, annotationMarks = NO_MARKS, focusedItem = null, focusSeq = 0 }: {
   items: DiagnosticItem[];
   onLocationClick?: (locations: string[]) => void;
   txHex?: string | null;
   onWitnessAdded?: (newHex: string) => void;
+  /** Annotation marks by item index. */
+  annotationMarks?: ReadonlyMap<number, AnnotationMark>;
+  /** Item the focused annotation names: opened on every new focus request. */
+  focusedItem?: number | null;
+  focusSeq?: number;
 }) {
+  // Items with details can be expanded - expand all by default
+  const defaultExpanded = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.details || item.hint || item.errorData || (item.locations && item.locations.length > 0))
+    .map(({ index }) => `diag-${index}`);
+  const [openItems, setOpenItems] = useState<string[]>(defaultExpanded);
+  const [openFor, setOpenFor] = useState(items);
+  if (openFor !== items) {
+    setOpenFor(items);
+    setOpenItems(defaultExpanded);
+  }
+  const [openedForSeq, setOpenedForSeq] = useState(0);
+  if (focusedItem !== null && focusSeq !== openedForSeq) {
+    setOpenedForSeq(focusSeq);
+    const value = `diag-${focusedItem}`;
+    if (!openItems.includes(value)) setOpenItems([...openItems, value]);
+  }
+
   if (items.length === 0) {
     return (
       <div className="diagnostics-container">
@@ -403,18 +444,12 @@ function DiagnosticsList({ items, onLocationClick, txHex, onWitnessAdded }: {
     );
   }
 
-  // Items with details can be expanded - expand all by default
-  const expandableItems = items
-    .map((item, index) => ({ item, index }))
-    .filter(({ item }) => item.details || item.hint || item.errorData || (item.locations && item.locations.length > 0));
-  
-  const defaultExpanded = expandableItems.map(({ index }) => `diag-${index}`);
-
   return (
     <div className="diagnostics-container">
       <Accordion.Root 
         type="multiple" 
-        defaultValue={defaultExpanded}
+        value={openItems}
+        onValueChange={setOpenItems}
         className="diagnostics-accordion"
       >
         {items.map((item, index) => {
@@ -430,7 +465,7 @@ function DiagnosticsList({ items, onLocationClick, txHex, onWitnessAdded }: {
             <Accordion.Item 
               key={index} 
               value={`diag-${index}`}
-              className={`diagnostic-accordion-item diagnostic-${item.severity}`}
+              className={`diagnostic-accordion-item diagnostic-${item.severity} ${annotationClassName(annotationMarks.get(index))}`}
               disabled={!hasExpandableContent}
             >
               <Accordion.Header className="diagnostic-accordion-header">
@@ -697,9 +732,12 @@ function ScriptContextSection({
 function PlutusScriptResults({
   results,
   deUplcLinks,
+  annotationMarks = NO_MARKS,
 }: {
   results: EvalRedeemerResult[];
   deUplcLinks?: DeUplcLinkMaps | null;
+  /** Annotation marks by row index. */
+  annotationMarks?: ReadonlyMap<number, AnnotationMark>;
 }) {
   if (results.length === 0) {
     return (
@@ -729,7 +767,7 @@ function PlutusScriptResults({
           <Accordion.Item 
             key={index} 
             value={`item-${index}`}
-            className={`plutus-accordion-item ${result.success ? 'success' : 'error'}`}
+            className={`plutus-accordion-item ${result.success ? 'success' : 'error'} ${annotationClassName(annotationMarks.get(index))}`}
           >
             <Accordion.Header className="plutus-accordion-header">
               <Accordion.Trigger className="plutus-accordion-trigger">
@@ -1353,7 +1391,9 @@ export default function TransactionValidatorContent() {
     [setTxInput, setResult, fetchedContext, network, beginValidationRun]
   );
 
-  // Build diagnostics list from validation result (excluding redeemer results)
+  // Build diagnostics list from validation result (excluding redeemer results).
+  // Memoised on the result so the list keeps its open items across renders.
+  const diagnostics = useMemo(() => {
   const diagnostics: DiagnosticItem[] = [];
   if (result) {
     // Phase 1 errors first
@@ -1376,6 +1416,49 @@ export default function TransactionValidatorContent() {
       diagnostics.push(formatPhase2Warning(warn, result.eval_redeemer_results));
     });
   }
+  return diagnostics;
+  }, [result]);
+
+  // ---------- share-link annotations ----------
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const annotationState = useTabAnnotations("transaction-validator");
+  useAnnotationInputGuard("transaction-validator", txInput);
+  const annotations = annotationState?.annotations ?? NO_ANNOTATIONS;
+  const annotationFocus = annotationState?.focus ?? 0;
+  const annotationResolutions = useMemo(
+    () => resolveValidatorAnnotations(annotations, {
+      decoded: decodedTx?.transaction ? decodedTx : null,
+      decoding: !!txInput.trim() && !decodedTx && !decodeError,
+      result,
+      validating: isLoading,
+    }),
+    [annotations, decodedTx, txInput, decodeError, result, isLoading],
+  );
+  const annotationStatuses = useMemo(
+    () => (annotationState ? annotationResolutions.map((r) => r.status) : null),
+    [annotationState, annotationResolutions],
+  );
+  useReportStatuses("transaction-validator", annotationStatuses);
+  const annotationMarks = useMemo(
+    () => validatorMarks(annotationResolutions, annotations, annotationFocus),
+    [annotationResolutions, annotations, annotationFocus],
+  );
+  const focusedResolution = annotationState ? annotationResolutions[annotationFocus] : undefined;
+  const focusedDiagnostic =
+    focusedResolution?.kind === "diagnostic" ? focusedResolution.diagnosticIndex : null;
+  // Diagnostics and Plutus rows live on inner tabs; bring the one holding the target forward.
+  const revealAnnotation = useCallback((index: number) => {
+    const r = annotationResolutions[index];
+    if (r?.kind === "diagnostic") setActiveTab("validation");
+    else if (r?.kind === "redeemer") setActiveTab("plutus");
+    return false;
+  }, [annotationResolutions, setActiveTab]);
+  // A path with no card or row of its own is shown on the closest enclosing one.
+  const findAnnotationAnchor = useCallback((index: number, container: HTMLElement) => {
+    const target = annotations[index]?.target;
+    if (target?.kind !== "tx_path") return null;
+    return closestTxPathElement(container.querySelectorAll("[data-tx-path]"), txViewPath(target.path));
+  }, [annotations]);
 
   // Count errors and warnings for tab badges
   const errorCount = diagnostics.filter(d => d.severity === "error").length;
@@ -1810,6 +1893,9 @@ export default function TransactionValidatorContent() {
                   onLocationClick={handleLocationClick}
                   txHex={txCborHex}
                   onWitnessAdded={handleWitnessAdded}
+                  annotationMarks={annotationMarks.diagnostics}
+                  focusedItem={focusedDiagnostic}
+                  focusSeq={annotationState?.focusSeq ?? 0}
                 />
               </RenderErrorBoundary>
               {result.errors.length === 0 && result.phase2_errors.length === 0 && txCborHex && (
@@ -1834,7 +1920,11 @@ export default function TransactionValidatorContent() {
         <Tabs.Content value="plutus" className="validator-tab-content">
           {result ? (
             <RenderErrorBoundary what="the Plutus script results" variant="panel" resetKeys={[result]}>
-              <PlutusScriptResults results={result.eval_redeemer_results} deUplcLinks={deUplcLinks} />
+              <PlutusScriptResults
+                results={result.eval_redeemer_results}
+                deUplcLinks={deUplcLinks}
+                annotationMarks={annotationMarks.redeemers}
+              />
             </RenderErrorBoundary>
           ) : (
             <div className="empty-state">
@@ -1900,6 +1990,7 @@ export default function TransactionValidatorContent() {
           variant="panel"
           resetKeys={[decodedTx, result, viewMode]}
         >
+          <TxPathMarksProvider marks={annotationMarks.txPaths}>
           {viewMode === 'cards' ? (
             <TransactionCardView
               data={decodedTx}
@@ -1929,8 +2020,10 @@ export default function TransactionValidatorContent() {
               network={network}
               diagnostics={jsonViewerDiagnostics}
               focusedPath={focusedPath}
+              annotationMarks={annotationMarks.txPaths}
             />
           )}
+          </TxPathMarksProvider>
         </RenderErrorBoundary>
       ) : decodeError ? (
         <div className="empty-state">
@@ -1949,7 +2042,7 @@ export default function TransactionValidatorContent() {
 
   return (
     <DecompositionModalProvider>
-      <div className="validator-layout-new">
+      <div className="validator-layout-new" ref={layoutRef}>
         <ResizablePanels
           leftPanel={leftPanel}
           rightPanel={rightPanel}
@@ -1966,6 +2059,13 @@ export default function TransactionValidatorContent() {
           provider={provider}
           network={network}
           apiKey={apiKey}
+        />
+
+        <AnnotationLayer
+          tab="transaction-validator"
+          containerRef={layoutRef}
+          onReveal={revealAnnotation}
+          findAnchor={findAnnotationAnchor}
         />
 
         {/* View mode selection modal - shown on first decode */}

@@ -14,6 +14,7 @@ import {
   type CardanoNetwork,
   type UnitInterval,
 } from "@cardananium/cquisitor-lib";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 interface VotingProposalCardProps {
   proposal: VotingProposal;
@@ -423,6 +424,7 @@ export function VotingProposalCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const diagnostics = getPathDiagnostics(path, diagnosticsMap);
   const isFocused = focusedPath?.includes(path) ?? false;
+  const annMark = useTxPathMark(path);
   const { type, icon, colorClass } = getGovernanceActionInfo(proposal.governance_action);
   
   // Scroll into view when focused
@@ -435,7 +437,7 @@ export function VotingProposalCard({
   }, [isFocused]);
   
   return (
-    <div ref={cardRef} className={`tcv-item-card tcv-voting-proposal ${colorClass} ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''}`}>
+    <div ref={cardRef} {...annMark.attrs} className={`tcv-item-card tcv-voting-proposal ${colorClass} ${diagnostics.length > 0 ? (diagnostics.some(d => d.severity === 'error') ? 'has-error' : 'has-warning') : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}>
       <div className="tcv-item-header">
         <span className="tcv-item-index">#{index}</span>
         <span className="tcv-action-type-badge">

@@ -78,6 +78,8 @@ export interface DecodedJsonTreeProps {
   diagnosticRevealSeq?: number;
   /** Whether that scroll applies to this tree; independent of the pin scroll. */
   scrollOnDiagnostic?: boolean;
+  /** Extra row classes by path (annotations). The host keeps those rows open through `openPaths`. */
+  annotationRows?: ReadonlyMap<string, string>;
 }
 
 /** A run of single-child levels this long is shown as one row. */
@@ -236,6 +238,7 @@ export default function DecodedJsonTree({
   onRevealBytes,
   diagnosticRevealSeq,
   scrollOnDiagnostic = false,
+  annotationRows,
 }: DecodedJsonTreeProps) {
   const highlightedPaths = useMemo(
     () => (pinnedPath ? [pinnedPath] : []),
@@ -280,12 +283,14 @@ export default function DecodedJsonTree({
   const getRowClassName = useCallback(
     (ctx: RenderRowArgs) => {
       const leaf = ctx.isComplex ? "" : "cq-json-leaf";
+      const annotation = annotationRows?.get(ctx.path) ?? "";
       const own = rowDiagnostics?.get(ctx.path);
-      if (!own) return leaf;
-      const mismatch = selectedIn(own, selectedDiagnostic) ? "cq-json-mismatch cq-json-mismatch-selected" : "cq-json-mismatch";
-      return leaf ? `${leaf} ${mismatch}` : mismatch;
+      const mismatch = !own
+        ? ""
+        : selectedIn(own, selectedDiagnostic) ? "cq-json-mismatch cq-json-mismatch-selected" : "cq-json-mismatch";
+      return [leaf, mismatch, annotation].filter(Boolean).join(" ");
     },
-    [rowDiagnostics, selectedDiagnostic],
+    [rowDiagnostics, selectedDiagnostic, annotationRows],
   );
 
   // Caption sits after the row element so path lookup never hits it.

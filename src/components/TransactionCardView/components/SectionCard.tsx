@@ -6,6 +6,7 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { getPathDiagnostics, getDescendantDiagnosticCounts } from "../utils";
 import type { SectionCardProps } from "../types";
+import { useTxPathMark } from "@/components/annotations/TxPathMarks";
 
 export function SectionCard({ 
   title, 
@@ -25,6 +26,7 @@ export function SectionCard({
   const hasChildIssues = descendantCounts.errors > 0 || descendantCounts.warnings > 0;
   // Only highlight if this exact path is focused, NOT if a child is focused
   const isFocused = focusedPath?.includes(path ?? '') ?? false;
+  const annMark = useTxPathMark(path);
   
   // Scroll into view when focused
   useEffect(() => {
@@ -40,7 +42,7 @@ export function SectionCard({
       type="single"
       collapsible
       defaultValue={defaultExpanded ? "content" : undefined}
-      className={`tcv-section-card tcv-${colorScheme} ${hasChildIssues ? 'has-issues' : ''} ${isFocused ? 'is-focused' : ''}`}
+      {...annMark.attrs} className={`tcv-section-card tcv-${colorScheme} ${hasChildIssues ? 'has-issues' : ''} ${isFocused ? 'is-focused' : ''} ${annMark.className}`}
       ref={sectionRef}
     >
       <Accordion.Item value="content" className="tcv-accordion-item">

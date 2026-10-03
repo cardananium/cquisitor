@@ -15,6 +15,8 @@ import {
   type CddlShareInput,
 } from "@cardananium/cquisitor-lib";
 import { getBuildLinkOpts } from "@/utils/shareLink/buildLinkOpts";
+import { useTabAnnotations } from "@/components/annotations/useAnnotations";
+import type { AnnotationTab } from "@/utils/annotations/store";
 
 const URL_WARN_THRESHOLD = 4096;
 
@@ -35,6 +37,13 @@ interface ShareDialogProps {
 
 type ModeKind = "compressed" | "readable" | "minimal";
 
+const TAB_OF: Record<ShareDialogTarget["kind"], AnnotationTab> = {
+  validator: "transaction-validator",
+  "cardano-cbor": "cardano-cbor",
+  "general-cbor": "general-cbor",
+  cddl: "cddl-validator",
+};
+
 function formatByteCount(n: number): string {
   if (n < 1024) return `${n} chars`;
   return `${(n / 1024).toFixed(1)} KB`;
@@ -49,6 +58,17 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
     hasCtx || target.kind === "cddl" ? "compressed" : "minimal"
   );
   const [includeCtx, setIncludeCtx] = useState<boolean>(() => hasCtx);
+  // Annotations the page opened with travel on by default; they need a rich link.
+  const annotationState = useTabAnnotations(TAB_OF[target.kind]);
+  const annotationCount = annotationState?.annotations.length ?? 0;
+  const [includeAnnotations, setIncludeAnnotations] = useState(true);
+  const carried = useMemo(
+    () =>
+      includeAnnotations && annotationState
+        ? { annotations: [...annotationState.annotations], annotationFocus: annotationState.focus }
+        : {},
+    [includeAnnotations, annotationState],
+  );
   const [urlState, setUrlState] = useState<
     | { status: "encoding" }
     | { status: "ok"; url: string }
@@ -70,13 +90,13 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
     const run = async (): Promise<string> => {
       switch (target.kind) {
         case "validator":
-          return encodeValidatorLink(opts, target.input, shareMode, includeCtx);
+          return encodeValidatorLink(opts, { ...target.input, ...carried }, shareMode, includeCtx);
         case "cardano-cbor":
-          return encodeCardanoCborLink(opts, target.input, shareMode);
+          return encodeCardanoCborLink(opts, { ...target.input, ...carried }, shareMode);
         case "general-cbor":
-          return encodeGeneralCborLink(opts, target.input, shareMode);
+          return encodeGeneralCborLink(opts, { ...target.input, ...carried }, shareMode);
         case "cddl":
-          return encodeCddlLink(opts, target.input, shareMode);
+          return encodeCddlLink(opts, { ...target.input, ...carried }, shareMode);
       }
     };
 
@@ -99,7 +119,7 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
     return () => {
       cancelled = true;
     };
-  }, [target, shareMode, includeCtx]);
+  }, [target, shareMode, includeCtx, carried]);
 
   const url = urlState.status === "ok" ? urlState.url : "";
   const encoding = urlState.status === "encoding";
@@ -225,6 +245,27 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
                     <div className="share-dialog-option-hint">
                       Saves UTxOs, protocol params, accounts, DReps, pools, gov actions. The
                       opened link can validate without hitting Koios.
+                    </div>
+                  </div>
+                </label>
+              </div>
+            )}
+
+            {annotationCount > 0 && (
+              <div className="share-dialog-section">
+                <label className="share-dialog-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={includeAnnotations}
+                    onChange={(e) => setIncludeAnnotations(e.target.checked)}
+                  />
+                  <div>
+                    <div className="share-dialog-option-title">
+                      Include annotations ({annotationCount})
+                    </div>
+                    <div className="share-dialog-option-hint">
+                      The highlights and hints this page opened with. A link that carries them is
+                      always compressed or uncompressed, never minimal.
                     </div>
                   </div>
                 </label>

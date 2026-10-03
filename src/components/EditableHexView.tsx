@@ -135,6 +135,13 @@ export interface ExtraErrorSpan {
   message?: string;
 }
 
+/** A byte range carrying its own classes (colour comes from CSS). */
+export interface AnnotatedSpan {
+  offset: number;
+  length: number;
+  className: string;
+}
+
 export interface EditableHexViewProps {
   value: string;
   onChange: (value: string) => void;
@@ -154,6 +161,8 @@ export interface EditableHexViewProps {
   pinnedSpans?: ExtraErrorSpan[];
   /** Other pin instances, painted over markup like hover so stepping does not rebuild. */
   pinnedOtherSpans?: ExtraErrorSpan[];
+  /** Annotated byte ranges, each painted with its own classes; a later span wins an overlap. */
+  annotationSpans?: ReadonlyArray<AnnotatedSpan>;
   onHoverPath?: (path: string | null) => void;
   /** Byte offset of the run under the pointer (that node's header), or `null`. A run stays one node even inside a multi-node region. */
   onHoverByte?: (byteOffset: number | null) => void;
@@ -392,6 +401,7 @@ export interface HexMarkupInput {
   extraErrorSpans?: ExtraErrorSpan[];
   linkedSpans?: ExtraErrorSpan[];
   pinnedSpans?: ExtraErrorSpan[];
+  annotationSpans?: ReadonlyArray<AnnotatedSpan>;
 }
 
 export interface HexMarkup {
@@ -429,6 +439,9 @@ interface CharPaint {
   linkedTone?: "linked" | "pinned";
   errorMessage?: string;
   linkedMessage?: string;
+  /** Annotation span covering the character: its classes and a per-span id. */
+  annotationClass?: string;
+  annotationId?: number;
 }
 
 /** Highlighted-region id: `0` outside every region, equal for two characters of one region. */
@@ -436,7 +449,8 @@ function regionKey(paint: CharPaint | undefined): number {
   if (!paint) return 0;
   return (paint.isError ? 1 : 0)
     | (paint.isFocus ? 2 : 0)
-    | (paint.isLinked ? (paint.linkedTone === "pinned" ? 8 : 4) : 0);
+    | (paint.isLinked ? (paint.linkedTone === "pinned" ? 8 : 4) : 0)
+    | ((paint.annotationId ?? 0) << 4);
 }
 
 function hasOddity(paint: CharPaint | undefined): boolean {
@@ -455,10 +469,10 @@ function sameRun(a: CharPaint | undefined, b: CharPaint | undefined): boolean {
  * Regions wrap several nodes so the outline is continuous; inner runs stay per-node so `data-pos` names the node under the pointer.
  */
 export function buildHexMarkup(input: HexMarkupInput): HexMarkup {
-  const { hexValue, cborData, focusPosition, errorLocation, extraErrorSpans, linkedSpans, pinnedSpans } = input;
+  const { hexValue, cborData, focusPosition, errorLocation, extraErrorSpans, linkedSpans, pinnedSpans, annotationSpans } = input;
   const places = new Map<number, NodePlace>();
   if (!hexValue) return { html: "", places };
-  if (!cborData && !errorLocation && !(extraErrorSpans && extraErrorSpans.length > 0) && !(linkedSpans && linkedSpans.length > 0) && !(pinnedSpans && pinnedSpans.length > 0)) {
+  if (!cborData && !errorLocation && !(extraErrorSpans && extraErrorSpans.length > 0) && !(linkedSpans && linkedSpans.length > 0) && !(pinnedSpans && pinnedSpans.length > 0) && !(annotationSpans && annotationSpans.length > 0)) {
     return { html: "", places };
   }
 
@@ -525,6 +539,17 @@ export function buildHexMarkup(input: HexMarkupInput): HexMarkup {
   if (linkedSpans) applyLinkedSpans(linkedSpans, "linked");
   if (pinnedSpans) applyLinkedSpans(pinnedSpans, "pinned");
 
+  // Annotations: each span is its own region (its id splits runs), later spans win.
+  if (annotationSpans) {
+    annotationSpans.forEach((span, index) => {
+      const startChar = span.offset * 2;
+      const endChar = Math.min(startChar + Math.max(1, span.length) * 2, hexValue.length);
+      for (let i = startChar; i < endChar; i++) {
+        paints.set(i, { ...(paints.get(i) ?? unclaimed()), annotationClass: span.className, annotationId: index + 1 });
+      }
+    });
+  }
+
   // Hover is painted over finished markup, so it never rebuilds it.
 
   // Apply focus
@@ -585,17 +610,23 @@ export function buildHexMarkup(input: HexMarkupInput): HexMarkup {
     } else if (region.isFocus) {
       className = "hex-focus-highlight";
       backgroundColor = FOCUS_COLOR;
-    } else {
+    } else if (region.isLinked) {
       className = region.linkedTone === "pinned" ? "hex-pinned-highlight" : "hex-linked-highlight";
       backgroundColor = region.linkedTone === "pinned" ? PINNED_COLOR : LINKED_COLOR;
+    } else {
+      className = "hex-annotation-highlight";
+      backgroundColor = "";
     }
+    // An annotation keeps its classes under a stronger region, so the hint card still finds it.
+    if (region.annotationClass) className += ` ${region.annotationClass}`;
     const titleText = region.isError
       ? region.errorMessage ?? "CBOR parse error"
       : region.isLinked
       ? region.linkedMessage ?? region.label ?? ""
       : region.label;
     const isFocusStart = region.isFocus && focusPosition && i === focusPosition.offset * 2;
-    html += `<span class="${className}" style="background-color:${backgroundColor};border-radius:2px" title="${escapeAttr(titleText)}" data-pos="${i}" data-len="${end - i}"${isFocusStart ? ' data-focus-target="true"' : ""}>`;
+    const background = backgroundColor ? `background-color:${backgroundColor};` : "";
+    html += `<span class="${className}" style="${background}border-radius:2px" title="${escapeAttr(titleText)}" data-pos="${i}" data-len="${end - i}"${isFocusStart ? ' data-focus-target="true"' : ""}>`;
     let k = i;
     while (k < end) {
       const inner = paints.get(k)!;
@@ -781,6 +812,7 @@ export default function EditableHexView({
   linkedSpans,
   pinnedSpans,
   pinnedOtherSpans,
+  annotationSpans,
   onHoverPath,
   onHoverByte,
   onKeyDown,
@@ -935,7 +967,8 @@ export default function EditableHexView({
   const hasExtraSpans = !!(extraErrorSpans && extraErrorSpans.length > 0) && inputMatchesHex;
   const hasLinkedSpans = !!(linkedSpans && linkedSpans.length > 0) && inputMatchesHex;
   const hasPinnedSpans = !!(pinnedSpans && pinnedSpans.length > 0) && inputMatchesHex;
-  const showHighlighted = (cborData || hasErrorHighlight || hasExtraSpans || hasLinkedSpans || hasPinnedSpans) && inputMatchesHex;
+  const hasAnnotationSpans = !!(annotationSpans && annotationSpans.length > 0) && inputMatchesHex;
+  const showHighlighted = (cborData || hasErrorHighlight || hasExtraSpans || hasLinkedSpans || hasPinnedSpans || hasAnnotationSpans) && inputMatchesHex;
   
   // Track last rendered state to detect transitions
   const lastRenderedRef = useRef<{ showHighlighted: boolean; hexValue: string }>({ 
@@ -946,11 +979,11 @@ export default function EditableHexView({
   // Markup: rebuilt when its inputs change, never for a hover.
   const buildHighlightedHTML = useCallback((): string => {
     const markup = buildHexMarkup({
-      hexValue, cborData, focusPosition, errorLocation, extraErrorSpans, linkedSpans, pinnedSpans,
+      hexValue, cborData, focusPosition, errorLocation, extraErrorSpans, linkedSpans, pinnedSpans, annotationSpans,
     });
     positionPathsRef.current = markup.places;
     return markup.html;
-  }, [cborData, hexValue, focusPosition, errorLocation, extraErrorSpans, linkedSpans, pinnedSpans]);
+  }, [cborData, hexValue, focusPosition, errorLocation, extraErrorSpans, linkedSpans, pinnedSpans, annotationSpans]);
 
   const hoverOccluders = useMemo<HexOccluder[]>(
     () => hoverOccludersFor({ pinnedSpans, errorLocation, extraErrorSpans, focusPosition }),

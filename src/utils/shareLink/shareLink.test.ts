@@ -27,6 +27,8 @@ import { getBuildLinkOpts } from "./buildLinkOpts";
 installCquisitorLib();
 
 const OPTS: BuildLinkOpts = { origin: "https://example.test", basePath: "/cquisitor" };
+/** What every parser reports for a link without annotations. */
+const NO_ANNOTATIONS = { annotations: [], annotationFocus: 0 };
 
 const SAMPLE_CBOR = "a3646e616d6565416c69636563616765181e686e69636b6e616d6563416c69";
 const SAMPLE_CDDL = `; CDDL schema — edit me.
@@ -120,14 +122,14 @@ describe("encodeCddlLink / parseCddlShare", () => {
     expect(url).not.toContain("nickname");
 
     const parsed = await parseCddlShare(params);
-    expect(parsed).toEqual({ cddl: SAMPLE_CDDL, cbor: SAMPLE_CBOR, rule: "Person" });
+    expect(parsed).toEqual({ cddl: SAMPLE_CDDL, cbor: SAMPLE_CBOR, rule: "Person", ...NO_ANNOTATIONS });
   });
 
   test("uncompressed round trip", async () => {
     const url = await encodeCddlLink(OPTS, input, { kind: "readable" });
     expect(paramsOf(url).get("e")).toBe("j");
     const parsed = await parseCddlShare(paramsOf(url));
-    expect(parsed).toEqual({ cddl: SAMPLE_CDDL, cbor: SAMPLE_CBOR, rule: "Person" });
+    expect(parsed).toEqual({ cddl: SAMPLE_CDDL, cbor: SAMPLE_CBOR, rule: "Person", ...NO_ANNOTATIONS });
   });
 
   test("minimal round trip uses plain params only", async () => {
@@ -140,7 +142,7 @@ describe("encodeCddlLink / parseCddlShare", () => {
     expect(params.get("cbor")).toBe(SAMPLE_CBOR);
 
     const parsed = await parseCddlShare(params);
-    expect(parsed).toEqual({ cddl: SAMPLE_CDDL, cbor: SAMPLE_CBOR, rule: "Person" });
+    expect(parsed).toEqual({ cddl: SAMPLE_CDDL, cbor: SAMPLE_CBOR, rule: "Person", ...NO_ANNOTATIONS });
   });
 
   test("an empty schema and empty CBOR survive as empty", async () => {
@@ -181,6 +183,7 @@ describe("encodeCddlLink / parseCddlShare", () => {
     expect(params.get("preset")).toBe("conway");
     expect(params.get("cddl")).toBeNull();
     expect(await parseCddlShare(params)).toEqual({
+      ...NO_ANNOTATIONS,
       preset: "conway",
       rule: "transaction",
       cbor: SAMPLE_CBOR,
@@ -338,7 +341,7 @@ describe("validator share context", () => {
     expect(params.get("cbor")).toBe(SAMPLE_CBOR);
 
     const parsed = await parseValidatorShare(params);
-    expect(parsed).toEqual({ cbor: SAMPLE_CBOR, net: "mainnet" });
+    expect(parsed).toEqual({ cbor: SAMPLE_CBOR, net: "mainnet", ...NO_ANNOTATIONS });
   });
 
   test("declining to include the context downgrades the link", async () => {
@@ -372,6 +375,7 @@ describe("cardano-cbor and general-cbor round trips", () => {
     );
     expect(tabOf(url)).toBe("cardano-cbor");
     expect(await parseCardanoCborShare(paramsOf(url))).toEqual({
+      ...NO_ANNOTATIONS,
       cbor: SAMPLE_CBOR,
       net: "preview",
       type: "Transaction",
@@ -404,6 +408,6 @@ describe("cardano-cbor and general-cbor round trips", () => {
     const url = await encodeGeneralCborLink(OPTS, { cbor: SAMPLE_CBOR }, { kind: "compressed" });
     expect(tabOf(url)).toBe("general-cbor");
     expect(paramsOf(url).get("e")).toBe("b");
-    expect(await parseGeneralCborShare(paramsOf(url))).toEqual({ cbor: SAMPLE_CBOR });
+    expect(await parseGeneralCborShare(paramsOf(url))).toEqual({ cbor: SAMPLE_CBOR, ...NO_ANNOTATIONS });
   });
 });
