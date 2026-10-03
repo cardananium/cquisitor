@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import { TabId, VISIBLE_TABS, getTabFromHash } from "./TabNavigation";
 import CompactLayout from "./CompactLayout";
@@ -8,6 +8,7 @@ import Image from "next/image";
 import logo32 from "../../public/logo-32.png";
 import GitHubStarButton from "./GitHubStarButton";
 import SiteFooter from "./SiteFooter";
+import { linkHashOf, opensNewLink } from "@/utils/shareLink/linkNavigation";
 
 // Subscribe to hash changes using useSyncExternalStore
 function subscribeToHash(callback: () => void) {
@@ -170,6 +171,17 @@ export default function UnifiedContent() {
     window.history.pushState(null, "", `#${tab}`);
     // Dispatch event to trigger useSyncExternalStore update
     window.dispatchEvent(new HashChangeEvent("hashchange"));
+  }, []);
+
+  // The tabs read a link once, when they mount, and a link opened later in this browser tab only
+  // changes the hash: reload to apply it exactly as opening it fresh would.
+  useEffect(() => {
+    const appliedLink = linkHashOf(window.location.hash);
+    const onHashChange = () => {
+      if (opensNewLink(appliedLink, window.location.hash)) window.location.reload();
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
   // Prevent hydration mismatch - server returns SSR marker

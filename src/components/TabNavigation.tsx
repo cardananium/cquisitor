@@ -96,13 +96,9 @@ interface TabNavigationProps {
 }
 
 export default function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
+  // The parent records the tab in the URL hash (one history entry per switch).
   const handleTabChange = (value: string) => {
-    const tab = value as TabId;
-    
-    // Update URL hash without triggering page reload
-    window.history.pushState(null, "", `#${tab}`);
-    
-    onTabChange(tab);
+    onTabChange(value as TabId);
   };
 
   return (
