@@ -80,6 +80,8 @@ export interface DecodedJsonTreeProps {
   scrollOnDiagnostic?: boolean;
   /** Extra row classes by path (annotations). The host keeps those rows open through `openPaths`. */
   annotationRows?: ReadonlyMap<string, string>;
+  /** Dim every row but the annotated ones and the rows under them. */
+  spotlight?: boolean;
 }
 
 /** A run of single-child levels this long is shown as one row. */
@@ -239,10 +241,15 @@ export default function DecodedJsonTree({
   diagnosticRevealSeq,
   scrollOnDiagnostic = false,
   annotationRows,
+  spotlight = false,
 }: DecodedJsonTreeProps) {
   const highlightedPaths = useMemo(
     () => (pinnedPath ? [pinnedPath] : []),
     [pinnedPath],
+  );
+  const spotlightPaths = useMemo(
+    () => (spotlight && annotationRows && annotationRows.size > 0 ? new Set(annotationRows.keys()) : null),
+    [spotlight, annotationRows],
   );
 
   // Selected diagnostic's row path, or none. Kept open like a pin, but not highlighted; scroll is via `diagnosticRevealSeq`.
@@ -421,6 +428,7 @@ export default function DecodedJsonTree({
         highlightedRowClassName="cq-json-pinned"
         getRowClassName={getRowClassName}
         nodeBlockClassName="cq-json-block"
+        spotlightPaths={spotlightPaths}
       />
     </div>
   );

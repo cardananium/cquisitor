@@ -8,8 +8,10 @@ import {
   type AnnotationTab,
   type TabAnnotations,
 } from "@/utils/annotations/store";
+import { spotlightStore, type SpotlightStore } from "@/utils/annotations/spotlight";
 
 const serverSnapshot = (): TabAnnotations | null => null;
+const spotlightServerSnapshot = () => true;
 
 /** The tab's annotations, re-rendering on every change to them. */
 export function useTabAnnotations(
@@ -17,6 +19,11 @@ export function useTabAnnotations(
   store: AnnotationStore = annotationStore,
 ): TabAnnotations | null {
   return useSyncExternalStore(store.subscribe, () => store.get(tab), serverSnapshot);
+}
+
+/** Whether views dim what is not annotated (the navigator's toggle). */
+export function useSpotlightEnabled(store: SpotlightStore = spotlightStore): boolean {
+  return useSyncExternalStore(store.subscribe, store.enabled, spotlightServerSnapshot);
 }
 
 /** Report how far each target resolved on this tab. */

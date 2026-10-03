@@ -14639,6 +14639,96 @@ a.tcv-hash-truncate:hover {
   box-shadow: inset 0 -2px 0 rgba(var(--cq-ann-rgb), 0.95);
 }
 
+/* Spotlight: in a view that shows a target, everything else recedes. Units are
+   classed in code: `cq-dim` fades a unit; where units come in thousands a veil
+   does instead, since in WebKit every element with opacity is a layer of its
+   own. The card view is weighed here, from its marks. */
+:root { --cq-dim-opacity: 0.35; }
+:root.dark { --cq-dim-opacity: 0.42; }
+
+.cq-dim {
+  opacity: var(--cq-dim-opacity);
+  transition: opacity 0.15s ease;
+}
+
+/* The unit under the pointer reads in full, as does any part another panel's
+   hover links to. */
+.cq-dim:hover,
+.cq-dim:has(.hex-hover-highlight, .cbor-tree-row-hover, .cq-json-hover) {
+  opacity: 1;
+}
+
+/* Hex runs: the same look over the view's white, without a layer per run. The
+   tint is an inline style, so the veil goes over it as an inset shadow; zero
+   specificity lets the hover and pin paints win. */
+:where(.cq-dim-run) {
+  color: rgb(45 55 72 / var(--cq-dim-opacity));
+  box-shadow: inset 0 0 0 1em rgb(255 255 255 / calc(1 - var(--cq-dim-opacity)));
+  transition: color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:where(.cq-dim-run:hover) {
+  color: inherit;
+  box-shadow: none;
+}
+
+/* Schema text: a mirror of the editor overlay, painted over it with transparent
+   text, veils the stretches outside the targets in the editor's own colour. The
+   line under the pointer lifts its veil. */
+.cddl-editor-wrap { --cq-dim-veil: 248 250 252; }
+.cddl-editor-wrap:focus-within { --cq-dim-veil: 255 255 255; }
+
+.cddl-editor-veil {
+  color: transparent;
+}
+
+.cq-dim-veil {
+  background-color: rgb(var(--cq-dim-veil) / calc(1 - var(--cq-dim-opacity)));
+  transition: background-color 0.15s ease;
+}
+
+.cq-dim-lit .cq-dim-veil {
+  background-color: transparent;
+}
+
+/* Card view: a unit (card, section, field, header) dims unless it shows a target
+   (`cq-ann`) or part of one (`cq-ann-in`), holds one (`cq-ann-holder`, or a unit
+   inside it does), or sits inside a target. A holder with nothing marked inside
+   it shows a target that has no card of its own, so it stays bright whole. Only
+   the outermost dimmed unit takes the opacity. */
+.tcv-wrapper[data-cq-dim]:has(.cq-ann, .cq-ann-in, .cq-ann-holder) .cq-dim-unit:not(
+    .cq-ann, .cq-ann-in, .cq-ann-holder,
+    :has(.cq-ann, .cq-ann-in, .cq-ann-holder),
+    :is(.cq-ann, .cq-ann-in) *,
+    .cq-ann-holder:not(:has(.cq-ann, .cq-ann-in, .cq-ann-holder)) *,
+    .cq-dim-unit:not(.cq-ann, .cq-ann-in, .cq-ann-holder, :has(.cq-ann, .cq-ann-in, .cq-ann-holder)) *
+  ) {
+  opacity: var(--cq-dim-opacity);
+}
+
+.tcv-wrapper[data-cq-dim]:has(.cq-ann, .cq-ann-in, .cq-ann-holder) .cq-dim-unit:not(
+    .cq-ann, .cq-ann-in, .cq-ann-holder,
+    :has(.cq-ann, .cq-ann-in, .cq-ann-holder),
+    :is(.cq-ann, .cq-ann-in) *,
+    .cq-ann-holder:not(:has(.cq-ann, .cq-ann-in, .cq-ann-holder)) *,
+    .cq-dim-unit:not(.cq-ann, .cq-ann-in, .cq-ann-holder, :has(.cq-ann, .cq-ann-in, .cq-ann-holder)) *
+  ):hover {
+  opacity: 1;
+}
+
+.tcv-wrapper[data-cq-dim] .cq-dim-unit {
+  transition: opacity 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cq-dim,
+  .cq-dim-run,
+  .cq-dim-veil,
+  .tcv-wrapper[data-cq-dim] .cq-dim-unit {
+    transition: none;
+  }
+}
+
 .cq-ann-layer {
   z-index: 950;
   width: 340px;
@@ -14768,10 +14858,27 @@ a.tcv-hash-truncate:hover {
   cursor: default;
 }
 
+.cq-ann-nav-dim {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 2px;
+}
+
 .cq-ann-nav-btn:not(:disabled):hover,
 .cq-ann-nav-list:hover,
 .cq-ann-nav-dismiss:hover {
   background: #f1f5f9;
+}
+
+.cq-ann-nav-dim[aria-pressed="true"] {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.cq-ann-nav-dim[aria-pressed="true"]:hover {
+  background: #dbeafe;
 }
 
 .cq-ann-nav-count {
@@ -14853,6 +14960,12 @@ a.tcv-hash-truncate:hover {
 :root.dark .cq-ann-card-status { background: #0f172a; color: #cbd5e1; }
 :root.dark .cq-ann-nav { border-top-color: #334155; }
 :root.dark .cq-ann-nav-btn { background: #0f172a; border-color: #334155; color: #e2e8f0; }
+:root.dark .cq-ann-nav-dim[aria-pressed="true"] { background: #1e3a8a; border-color: #3b82f6; color: #bfdbfe; }
+:root.dark .cq-ann-nav-count,
+:root.dark .cq-ann-nav-list,
+:root.dark .cq-ann-nav-dismiss { color: #cbd5e1; }
+:root.dark .cq-ann-nav-list:hover,
+:root.dark .cq-ann-nav-dismiss:hover { background: #0f172a; }
 :root.dark .cq-ann-list-item { color: #e2e8f0; }
 :root.dark .cq-ann-list-item:hover,
 :root.dark .cq-ann-list-item.current { background: #0f172a; }

@@ -43,7 +43,7 @@ import type {
   ValidationDiagnostic,
 } from "@cardananium/cquisitor-lib";
 import type { TransactionCardViewProps } from "./types";
-import { useTxPathMark } from "@/components/annotations/TxPathMarks";
+import { UNIT_CLASS, useTxPathMark, useTxPathSpotlight } from "@/components/annotations/TxPathMarks";
 
 // Re-export types for external usage
 export type { ValidationDiagnostic, CardanoNetwork, TransactionCardViewProps };
@@ -231,7 +231,7 @@ function TopLevelSection({
   return (
     <div ref={sectionRef} {...annMark.attrs} className={`tcv-top-level-section tcv-tls-${colorScheme} ${hasDiagnostics ? 'tcv-tls-has-error' : ''} ${isFocused ? 'tcv-tls-is-focused' : ''} ${annMark.className}`}>
       <button 
-        className="tcv-tls-header"
+        className={`tcv-tls-header ${annMark.partClassName}`}
         onClick={() => setIsExpanded(!isExpanded)}
         aria-expanded={isExpanded}
       >
@@ -301,6 +301,9 @@ export default function TransactionCardView({
   apiKey,
 }: TransactionCardViewProps): React.ReactElement {
   const diagnosticsMap = useMemo(() => buildDiagnosticsMap(diagnostics), [diagnostics]);
+  // Spotlight: the scope the card-view dimming rule reads, and the unit class for parts that are not cards.
+  const spotlight = useTxPathSpotlight();
+  const unitClass = spotlight ? UNIT_CLASS : "";
 
   // Both per-tx contexts match resolved input addresses against a protocol
   // registry, reading the decode out of the store rather than making one here.
@@ -491,10 +494,10 @@ export default function TransactionCardView({
     <PoolInfoProvider provider={provider} apiKey={apiKey} network={network}>
     <UtxoInfoProvider provider={provider} apiKey={apiKey} network={network} refs={inputRefs}>
     <DatumInfoProvider provider={provider} apiKey={apiKey} network={network}>
-    <div className="tcv-wrapper">
+    <div className="tcv-wrapper" data-cq-dim={spotlight ? "" : undefined}>
       <div className="tcv-container">
         {/* Transaction Summary */}
-        <div className="tcv-summary">
+        <div className={`tcv-summary ${unitClass}`}>
           <div className="tcv-summary-hash">
             {data.transaction_hash ? (
               <>
@@ -651,7 +654,7 @@ export default function TransactionCardView({
               </div>
               {body.collateral_return && (
                 <div className="tcv-collateral-return">
-                  <span className="tcv-subsection-label">Collateral Return</span>
+                  <span className={`tcv-subsection-label ${unitClass}`}>Collateral Return</span>
                   <OutputCard 
                     output={body.collateral_return} 
                     index={0} 
@@ -663,7 +666,7 @@ export default function TransactionCardView({
                 </div>
               )}
               {body.total_collateral && (
-                <div className="tcv-total-collateral">
+                <div className={`tcv-total-collateral ${unitClass}`}>
                   <span className="tcv-item-label">Total Collateral:</span>
                   <span className="tcv-ada-amount">₳ {formatAda(body.total_collateral)}</span>
                 </div>

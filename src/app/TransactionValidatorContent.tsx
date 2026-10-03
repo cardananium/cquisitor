@@ -71,9 +71,11 @@ import { TxPathMarksProvider } from "@/components/annotations/TxPathMarks";
 import {
   useAnnotationInputGuard,
   useReportStatuses,
+  useSpotlightEnabled,
   useTabAnnotations,
 } from "@/components/annotations/useAnnotations";
-import { annotationClassName, type AnnotationMark } from "@/utils/annotations/marks";
+import type { AnnotationMark } from "@/utils/annotations/marks";
+import { markOrDimClass, spotlightActive } from "@/utils/annotations/spotlight";
 import type { CquisitorAnnotation } from "@/utils/annotations/store";
 import {
   closestTxPathElement,
@@ -404,13 +406,15 @@ function AddWitnessPanel({ txHex, missingKeyHash, onWitnessAdded }: AddWitnessPa
 const NO_MARKS: ReadonlyMap<number, AnnotationMark> = new Map();
 const NO_ANNOTATIONS: readonly CquisitorAnnotation[] = [];
 
-function DiagnosticsList({ items, onLocationClick, txHex, onWitnessAdded, annotationMarks = NO_MARKS, focusedItem = null, focusSeq = 0 }: {
+function DiagnosticsList({ items, onLocationClick, txHex, onWitnessAdded, annotationMarks = NO_MARKS, spotlight = false, focusedItem = null, focusSeq = 0 }: {
   items: DiagnosticItem[];
   onLocationClick?: (locations: string[]) => void;
   txHex?: string | null;
   onWitnessAdded?: (newHex: string) => void;
   /** Annotation marks by item index. */
   annotationMarks?: ReadonlyMap<number, AnnotationMark>;
+  /** Dim every item without a mark. */
+  spotlight?: boolean;
   /** Item the focused annotation names: opened on every new focus request. */
   focusedItem?: number | null;
   focusSeq?: number;
@@ -465,7 +469,7 @@ function DiagnosticsList({ items, onLocationClick, txHex, onWitnessAdded, annota
             <Accordion.Item 
               key={index} 
               value={`diag-${index}`}
-              className={`diagnostic-accordion-item diagnostic-${item.severity} ${annotationClassName(annotationMarks.get(index))}`}
+              className={`diagnostic-accordion-item diagnostic-${item.severity} ${markOrDimClass(annotationMarks.get(index), spotlight)}`}
               disabled={!hasExpandableContent}
             >
               <Accordion.Header className="diagnostic-accordion-header">
@@ -733,11 +737,14 @@ function PlutusScriptResults({
   results,
   deUplcLinks,
   annotationMarks = NO_MARKS,
+  spotlight = false,
 }: {
   results: EvalRedeemerResult[];
   deUplcLinks?: DeUplcLinkMaps | null;
   /** Annotation marks by row index. */
   annotationMarks?: ReadonlyMap<number, AnnotationMark>;
+  /** Dim every row without a mark. */
+  spotlight?: boolean;
 }) {
   if (results.length === 0) {
     return (
@@ -767,7 +774,7 @@ function PlutusScriptResults({
           <Accordion.Item 
             key={index} 
             value={`item-${index}`}
-            className={`plutus-accordion-item ${result.success ? 'success' : 'error'} ${annotationClassName(annotationMarks.get(index))}`}
+            className={`plutus-accordion-item ${result.success ? 'success' : 'error'} ${markOrDimClass(annotationMarks.get(index), spotlight)}`}
           >
             <Accordion.Header className="plutus-accordion-header">
               <Accordion.Trigger className="plutus-accordion-trigger">
@@ -1443,6 +1450,11 @@ export default function TransactionValidatorContent() {
     () => validatorMarks(annotationResolutions, annotations, annotationFocus),
     [annotationResolutions, annotations, annotationFocus],
   );
+  // Spotlight, per view: only a view that shows a resolved target dims the rest of itself.
+  const dimEnabled = useSpotlightEnabled();
+  const spotlightTx = spotlightActive(dimEnabled, annotationMarks.txPaths.size);
+  const spotlightDiagnostics = spotlightActive(dimEnabled, annotationMarks.diagnostics.size);
+  const spotlightRedeemers = spotlightActive(dimEnabled, annotationMarks.redeemers.size);
   const focusedResolution = annotationState ? annotationResolutions[annotationFocus] : undefined;
   const focusedDiagnostic =
     focusedResolution?.kind === "diagnostic" ? focusedResolution.diagnosticIndex : null;
@@ -1894,6 +1906,7 @@ export default function TransactionValidatorContent() {
                   txHex={txCborHex}
                   onWitnessAdded={handleWitnessAdded}
                   annotationMarks={annotationMarks.diagnostics}
+                  spotlight={spotlightDiagnostics}
                   focusedItem={focusedDiagnostic}
                   focusSeq={annotationState?.focusSeq ?? 0}
                 />
@@ -1924,6 +1937,7 @@ export default function TransactionValidatorContent() {
                 results={result.eval_redeemer_results}
                 deUplcLinks={deUplcLinks}
                 annotationMarks={annotationMarks.redeemers}
+                spotlight={spotlightRedeemers}
               />
             </RenderErrorBoundary>
           ) : (
@@ -1990,7 +2004,7 @@ export default function TransactionValidatorContent() {
           variant="panel"
           resetKeys={[decodedTx, result, viewMode]}
         >
-          <TxPathMarksProvider marks={annotationMarks.txPaths}>
+          <TxPathMarksProvider marks={annotationMarks.txPaths} spotlight={spotlightTx}>
           {viewMode === 'cards' ? (
             <TransactionCardView
               data={decodedTx}
@@ -2021,6 +2035,7 @@ export default function TransactionValidatorContent() {
               diagnostics={jsonViewerDiagnostics}
               focusedPath={focusedPath}
               annotationMarks={annotationMarks.txPaths}
+              spotlight={spotlightTx}
             />
           )}
           </TxPathMarksProvider>

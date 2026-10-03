@@ -248,3 +248,51 @@ describe("annotation rows", () => {
     expect(html).toMatch(/class="cbor-tree-row [^"]*cq-ann cq-ann-warning cq-ann-at-0"/);
   });
 });
+
+describe("spotlight", () => {
+  /** Each rendered row's header span, and whether its block is dimmed. */
+  const dimmedBySpan = (html: string) =>
+    Object.fromEntries(
+      Array.from(html.matchAll(/<div class="cbor-tree-node([^"]*)"[^>]*><div class="cbor-tree-row[^"]*"[^>]*data-span="([^" ]+)/g))
+        .map((m) => [m[2], /\bcq-dim\b/.test(m[1])]),
+    );
+  const rowsOf = (position: CborPosition) => new Map([[spanAttr(position), "cq-ann cq-ann-at-0"]]);
+  const FIRST_MAP_HEADER = pos(1, 1);
+
+  test("an annotated container keeps itself and everything under it; its ancestors and siblings dim", () => {
+    const html = markup({
+      openPositions: [LEAF_A.position_info!],
+      annotationRows: rowsOf(FIRST_MAP_HEADER),
+      spotlight: true,
+    });
+    expect(dimmedBySpan(html)).toEqual({
+      "0:1": true, // the root array holds the target
+      "1:1": false, // the target
+      "2:1": false, // its key
+      "3:1": false, // its value
+      "4:1": false, // and the leaf under that
+      "5:1": true, // the sibling map and its rows
+      "6:1": true,
+      "7:1": true,
+    });
+  });
+
+  test("an annotated leaf keeps only itself", () => {
+    const html = markup({
+      openPositions: [LEAF_A.position_info!],
+      annotationRows: rowsOf(LEAF_A.position_info!),
+      spotlight: true,
+    });
+    const dimmed = dimmedBySpan(html);
+    expect(dimmed["4:1"]).toBe(false);
+    expect(Object.entries(dimmed).filter(([, d]) => !d).map(([span]) => span)).toEqual(["4:1"]);
+  });
+
+  test("nothing dims without the spotlight, or while the annotated row is not rendered", () => {
+    const off = markup({ openPositions: [LEAF_A.position_info!], annotationRows: rowsOf(FIRST_MAP_HEADER) });
+    expect(off).not.toContain("cq-dim");
+    const hidden = markup({ annotationRows: rowsOf(LEAF_B.position_info!), spotlight: true });
+    expect(spans(hidden)).not.toContain(spanAttr(LEAF_B.position_info!));
+    expect(hidden).not.toContain("cq-dim");
+  });
+});

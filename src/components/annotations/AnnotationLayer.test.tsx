@@ -30,7 +30,9 @@ function card(over: Partial<AnnotationCardProps> = {}) {
       docked={false}
       offscreen={false}
       listOpen={false}
+      dim={true}
       onToggleList={noop}
+      onToggleDim={noop}
       onStep={noop}
       onFocus={noop}
       onDismiss={noop}
@@ -81,6 +83,21 @@ describe("AnnotationCard", () => {
 
   test("a scrolled-away target offers to scroll back", () => {
     expect(card({ offscreen: true })).toContain("Scroll to the target");
+  });
+
+  test("the navigator toggles dimming the rest, pressed while it is on", () => {
+    const on = card();
+    expect(on).toMatch(/<button[^>]*class="cq-ann-nav-btn cq-ann-nav-dim"[^>]*aria-pressed="true"[^>]*aria-label="Dim the rest"/);
+    expect(on).toContain('title="Dim the rest: on"');
+    const off = card({ dim: false });
+    expect(off).toMatch(/aria-pressed="false"[^>]*aria-label="Dim the rest"/);
+    expect(off).toContain('title="Dim the rest: off"');
+  });
+
+  test("the toggle is there with a single annotation too", () => {
+    const single = card({ state: { ...STATE, annotations: STATE.annotations.slice(0, 1), statuses: STATE.statuses.slice(0, 1) } });
+    expect(single).toContain("cq-ann-nav-dim");
+    expect(single).not.toContain("cq-ann-nav-list");
   });
 });
 

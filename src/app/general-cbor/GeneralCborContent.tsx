@@ -24,9 +24,11 @@ import AnnotationLayer from "@/components/annotations/AnnotationLayer";
 import {
   useAnnotationInputGuard,
   useReportStatuses,
+  useSpotlightEnabled,
   useTabAnnotations,
 } from "@/components/annotations/useAnnotations";
 import { cborMarks, resolveCborTarget } from "@/utils/annotations/resolveCbor";
+import { spotlightActive } from "@/utils/annotations/spotlight";
 
 export default function GeneralCborContent() {
   const {
@@ -154,6 +156,10 @@ export default function GeneralCborContent() {
     () => cborMarks(annotationResolutions, annotationState?.annotations ?? [], annotationState?.focus ?? 0),
     [annotationResolutions, annotationState?.annotations, annotationState?.focus],
   );
+  // Spotlight, per view: only a view that shows a resolved target dims the rest of itself.
+  const dimEnabled = useSpotlightEnabled();
+  const spotlightHex = spotlightActive(dimEnabled, annotationMarks.hexSpans.length);
+  const spotlightTree = spotlightActive(dimEnabled, annotationMarks.treeRows.size);
 
   const handleHoverPath = useCallback((path: string | null) => {
     setHoverPath(path);
@@ -240,6 +246,7 @@ export default function GeneralCborContent() {
         onHoverPath={handleHoverPath}
         onShowInTree={handleShowInTree}
         annotationSpans={annotationMarks.hexSpans}
+        spotlight={spotlightHex}
       />
     </div>
   );
@@ -262,6 +269,7 @@ export default function GeneralCborContent() {
             onClearHighlight={handleClearTreeHighlight}
             openPositions={annotationMarks.treeOpen}
             annotationRows={annotationMarks.treeRows}
+            spotlight={spotlightTree}
           />
         ) : error ? (
           // Header badge truncates; show the full error here when there is no tree.

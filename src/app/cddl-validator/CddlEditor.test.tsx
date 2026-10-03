@@ -199,6 +199,38 @@ describe("the hover mark in the overlay", () => {
   });
 });
 
+describe("the spotlight veil", () => {
+  const value = "Person = {\n  name: tstr,\n  age: uint .le 18,\n}\n\nOther = int\n";
+  const age: [number, number] = [value.indexOf("age"), value.indexOf("18") + 2];
+  const markup = (spotlight: ReadonlyArray<readonly [number, number]> | null) =>
+    renderToStaticMarkup(<CddlEditor value={value} onChange={() => {}} spotlight={spotlight} />);
+  const pres = (html: string) => Array.from(html.matchAll(/<pre class="([^"]*)"[^>]*>([^]*?)<\/pre>/g)).map((m) => ({ cls: m[1], body: m[2] }));
+  const text = (html: string) => html.replace(/<[^>]+>/g, "");
+  /** Text of each veiled stretch, in order. */
+  const veiled = (body: string) => Array.from(body.matchAll(/<span class="cq-dim-veil">([^<]*)<\/span>/g)).map((m) => m[1]);
+
+  test("a mirror over the overlay veils everything outside the range, a stretch per line", () => {
+    const [overlay, veil] = pres(markup([age]));
+    expect(overlay.cls).toBe("cddl-editor-overlay");
+    expect(veil.cls).toBe("cddl-editor-overlay cddl-editor-veil");
+    expect(veiled(veil.body)).toEqual(["Person = {\n", "  name: tstr,\n", "  ", ",\n", "}\n", "\n", "Other = int\n"]);
+    expect(text(veil.body)).toBe(value);
+  });
+
+  test("the range itself is never veiled, and the overlay paints as without a spotlight", () => {
+    const [overlay, veil] = pres(markup([age]));
+    expect(veiled(veil.body).join("")).not.toContain("age");
+    expect(overlay.body).toBe(pres(markup(null))[0].body);
+    expect(overlay.body).not.toContain("cq-dim");
+  });
+
+  test("no ranges, no veil", () => {
+    expect(pres(markup(null)).length).toBe(1);
+    expect(pres(markup([])).length).toBe(1);
+    expect(markup(null)).not.toContain("cq-dim");
+  });
+});
+
 describe("charAtPointer", () => {
   // `name: tstr,` from x=100 in 8px cells: `t` of tstr is offset 6 at [148, 156).
   const line = "name: tstr, age";

@@ -3,7 +3,7 @@
 // Hint card for a tab's annotations: anchored next to the focused target while
 // it is on screen, docked to the top of the tab when the target is unresolved
 // or scrolled away. Carries the navigator (n / total, previous, next, the full
-// list, dismiss all). Esc dismisses outside text fields.
+// list, dimming the rest on or off, dismiss all). Esc dismisses outside text fields.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
@@ -16,7 +16,8 @@ import {
   type TabAnnotations,
 } from "@/utils/annotations/store";
 import { annotationAnchorClass, describeTarget, severityOf } from "@/utils/annotations/marks";
-import { useTabAnnotations } from "./useAnnotations";
+import { spotlightStore, type SpotlightStore } from "@/utils/annotations/spotlight";
+import { useSpotlightEnabled, useTabAnnotations } from "./useAnnotations";
 import { boxIsEmpty, intersectBoxes, placeCard, type Box, type CardPlacement } from "./cardPlacement";
 
 const SEVERITY_LABEL = { error: "Error", warning: "Warning", info: "Info" } as const;
@@ -42,7 +43,10 @@ export interface AnnotationCardProps {
   /** The target is resolved but scrolled out of view. */
   offscreen: boolean;
   listOpen: boolean;
+  /** Views dim everything but their targets. */
+  dim: boolean;
   onToggleList: () => void;
+  onToggleDim: () => void;
   onStep: (delta: number) => void;
   onFocus: (index: number) => void;
   onDismiss: () => void;
@@ -53,13 +57,25 @@ function annotationTitle(annotation: CquisitorAnnotation): string {
   return annotation.label ?? describeTarget(annotation.target);
 }
 
+/** Contrast glyph: a circle, half filled. */
+function DimIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden focusable="false">
+      <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** Card contents. Stateless so it renders the same on the server in tests. */
 export function AnnotationCard({
   state,
   docked,
   offscreen,
   listOpen,
+  dim,
   onToggleList,
+  onToggleDim,
   onStep,
   onFocus,
   onDismiss,
@@ -140,6 +156,16 @@ export function AnnotationCard({
           </button>
         )}
         <span className="cq-flex-grow" />
+        <button
+          type="button"
+          className="cq-ann-nav-btn cq-ann-nav-dim"
+          onClick={onToggleDim}
+          aria-pressed={dim}
+          aria-label="Dim the rest"
+          title={dim ? "Dim the rest: on" : "Dim the rest: off"}
+        >
+          <DimIcon />
+        </button>
         <button type="button" className="cq-ann-nav-dismiss" onClick={onDismiss}>
           Dismiss all
         </button>
@@ -239,6 +265,7 @@ export interface AnnotationLayerProps {
   /** Element for `index` when no element carries its anchor class. */
   findAnchor?: (index: number, container: HTMLElement) => Element | null;
   store?: AnnotationStore;
+  spotlight?: SpotlightStore;
 }
 
 interface Layout {
@@ -268,8 +295,10 @@ export default function AnnotationLayer({
   onReveal,
   findAnchor,
   store = annotationStore,
+  spotlight = spotlightStore,
 }: AnnotationLayerProps) {
   const state = useTabAnnotations(tab, store);
+  const dim = useSpotlightEnabled(spotlight);
   const cardRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState<Layout>(HIDDEN_LAYOUT);
   const [listOpen, setListOpen] = useState(false);
@@ -363,6 +392,7 @@ export default function AnnotationLayer({
   const step = useCallback((delta: number) => store.step(tab, delta), [store, tab]);
   const focusIndex = useCallback((index: number) => store.focus(tab, index), [store, tab]);
   const toggleList = useCallback(() => setListOpen((v) => !v), []);
+  const toggleDim = useCallback(() => spotlight.setEnabled(!spotlight.enabled()), [spotlight]);
 
   // Esc dismisses, unless it is meant for a text field or something else already took it.
   useEffect(() => {
@@ -396,7 +426,9 @@ export default function AnnotationLayer({
         docked={layout.placement.mode === "docked"}
         offscreen={layout.offscreen}
         listOpen={listOpen}
+        dim={dim}
         onToggleList={toggleList}
+        onToggleDim={toggleDim}
         onStep={step}
         onFocus={focusIndex}
         onDismiss={dismiss}

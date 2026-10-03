@@ -9,6 +9,7 @@ import {
   WEBKIT_FOCUSED_MARKUP_MAX_RUNS,
   type HexMarkupInput,
 } from "./EditableHexView";
+import { DIM_CLASS as DIM, DIM_RUN_CLASS as DIM_RUN } from "@/utils/annotations/spotlight";
 
 describe("spliceText", () => {
   test("replaces the selected run and puts the caret after what was inserted", () => {
@@ -249,5 +250,67 @@ describe("buildHexMarkup annotation spans", () => {
     const region = doc.children.find(c => c.attrs.class?.includes("cq-ann-at-2"))!;
     expect(region.attrs.class).toBe("hex-error-highlight cq-ann cq-ann-at-2");
     expect(region.attrs.title).toBe("bad");
+  });
+});
+
+describe("buildHexMarkup spotlight", () => {
+  const AGE_KEY = { offset: 12, length: 4, className: "cq-ann cq-ann-at-0" };
+  /** A run dims through `cq-dim-run`, a region through `cq-dim`. */
+  const dims = (el: Rendered) => /\bcq-dim(-run)?\b/.test(el.attrs.class ?? "");
+  const classesOf = (el: Rendered) => (el.attrs.class ?? "").split(" ").filter(Boolean);
+
+  test("runs outside every annotation dim; the annotated region stays bright", () => {
+    const doc = parse(markup({ annotationSpans: [AGE_KEY], spotlight: true }).html);
+    expect(doc.text).toBe(PERSON_HEX);
+    const region = doc.children.find(c => c.attrs.class?.includes("cq-ann-at-0"))!;
+    expect(dims(region)).toBe(false);
+    expect(runsOf(doc).filter(r => r !== region).map(posOf)).toEqual([0, 2, 12, 32, 36, 54]);
+    for (const run of runsOf(doc)) expect(dims(run)).toBe(run !== region);
+    for (const run of runsOf(doc).filter(r => r !== region)) expect(classesOf(run)).toContain(DIM_RUN);
+    expect(region.children.some(dims)).toBe(false);
+  });
+
+  test("a run the annotation only partly covers is cut at its edge: the covered part bright, the rest dim", () => {
+    // Bytes 1..2 sit inside the "name" key's run (characters 2..12).
+    const doc = parse(markup({ annotationSpans: [{ offset: 1, length: 2, className: "cq-ann cq-ann-at-0" }], spotlight: true }).html);
+    const region = doc.children.find(c => c.attrs.class?.includes("cq-ann-at-0"))!;
+    expect([posOf(region), region.text]).toEqual([2, "646e"]);
+    const rest = runsOf(doc).find(r => posOf(r) === 6)!;
+    expect([rest.text, dims(rest)]).toEqual(["616d65", true]);
+  });
+
+  test("another region outside the annotations dims as a whole, never its runs again", () => {
+    const doc = parse(markup({
+      annotationSpans: [AGE_KEY],
+      pinnedSpans: [{ offset: 18, length: 13, message: "pinned" }],
+      spotlight: true,
+    }).html);
+    const pinned = doc.children.find(c => c.attrs.class?.startsWith("hex-pinned-highlight"))!;
+    expect(pinned.attrs.class).toBe(`hex-pinned-highlight ${DIM}`);
+    expect(pinned.children.length).toBeGreaterThan(0);
+    expect(pinned.children.some(dims)).toBe(false);
+  });
+
+  test("an annotation under a stronger region keeps that region bright", () => {
+    const doc = parse(markup({
+      annotationSpans: [AGE_KEY],
+      extraErrorSpans: [{ offset: 12, length: 4, message: "bad" }],
+      spotlight: true,
+    }).html);
+    const region = doc.children.find(c => c.attrs.class?.includes("cq-ann-at-0"))!;
+    expect(region.attrs.class).toBe("hex-error-highlight cq-ann cq-ann-at-0");
+  });
+
+  test("bytes no node claims become dimmed runs, so every top-level element is still a run", () => {
+    const doc = parse(markup({ cborData: null, annotationSpans: [AGE_KEY], spotlight: true }).html);
+    expect(doc.text).toBe(PERSON_HEX);
+    expect(doc.children.map(c => [posOf(c), dims(c)])).toEqual([[0, true], [24, false], [32, true]]);
+  });
+
+  test("nothing dims without the spotlight or without an annotation", () => {
+    expect(markup({ annotationSpans: [AGE_KEY] }).html).not.toContain(DIM);
+    expect(markup({ spotlight: true }).html).not.toContain(DIM);
+    expect(markup({ annotationSpans: [], spotlight: true }).html).not.toContain(DIM);
+    expect(DIM_RUN.startsWith(DIM)).toBe(true);
   });
 });

@@ -46,7 +46,7 @@ export function SectionCard({
       ref={sectionRef}
     >
       <Accordion.Item value="content" className="tcv-accordion-item">
-        <Accordion.Header className="tcv-accordion-header">
+        <Accordion.Header className={`tcv-accordion-header ${annMark.partClassName}`}>
           <Accordion.Trigger className="tcv-section-header">
             <span className="tcv-section-icon">{icon}</span>
             {hasChildIssues && (

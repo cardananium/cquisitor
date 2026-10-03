@@ -36,6 +36,8 @@ interface ValidationJsonViewerProps {
   focusedPath?: string[] | null;
   /** Annotation marks by path; marked rows are kept open. */
   annotationMarks?: ReadonlyMap<string, AnnotationMark>;
+  /** Dim every row but the marked ones and the rows under them. */
+  spotlight?: boolean;
 }
 
 const NO_ANNOTATION_MARKS: ReadonlyMap<string, AnnotationMark> = new Map();
@@ -290,12 +292,17 @@ export default function ValidationJsonViewer({
   expanded = 3,
   focusedPath,
   annotationMarks = NO_ANNOTATION_MARKS,
+  spotlight = false,
 }: ValidationJsonViewerProps) {
   const preparedData = useMemo(() => prepareViewData(data), [data]);
   const diagnosticsMap = useMemo(() => buildDiagnosticsMap(diagnostics), [diagnostics]);
 
   const highlightedPaths = useMemo(() => focusedPath ?? [], [focusedPath]);
   const annotationPaths = useMemo(() => [...annotationMarks.keys()], [annotationMarks]);
+  const spotlightPaths = useMemo(
+    () => (spotlight && annotationMarks.size > 0 ? new Set(annotationMarks.keys()) : null),
+    [spotlight, annotationMarks],
+  );
 
   const shouldDefaultExpand = useMemo(
     () =>
@@ -401,6 +408,7 @@ export default function ValidationJsonViewer({
         indentPx={18}
         getRowClassName={getRowClassName}
         getNodeBlockClassName={getNodeBlockClassName}
+        spotlightPaths={spotlightPaths}
         renderClosingRow={({ kind }) => (
           <div className="vjv-row">
             <span className="vjv-bracket">{kind === "array" ? "]" : "}"}</span>

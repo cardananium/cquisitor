@@ -210,3 +210,26 @@ describe("a pinned construct's instances", () => {
     expect(html).toContain('class="cq-json-row" data-path="$.a[2].n"');
   });
 });
+
+describe("JsonTreeView spotlight", () => {
+  /** Each block's row text, prefixed `~` when the block is dimmed. */
+  const blocks = (html: string) =>
+    Array.from(html.matchAll(/<div class="cq-json-block( cq-dim)?"[^>]*><div class="cq-json-row[^"]*"[^>]*>(?:<span>)?([^<]*)/g))
+      .map((m) => `${m[1] ? "~" : ""}${m[2]}`);
+  const DATA = { a: { x: 1, y: [2] }, b: 3 };
+
+  test("a container target and everything under it, its closing bracket included, stay; the rest dims", () => {
+    const html = markup(DATA, { spotlightPaths: new Set(["$.a"]) });
+    expect(blocks(html)).toEqual(["~null{3}", "a{2}", "x:1", "y{1}", "0:2", "]", "}", "~b:3", "~}"]);
+  });
+
+  test("a leaf target stays alone; ancestors dim like any other row", () => {
+    const html = markup(DATA, { spotlightPaths: new Set(['$.a.y[0]']) });
+    expect(blocks(html)).toEqual(["~null{3}", "~a{2}", "~x:1", "~y{1}", "0:2", "~]", "~}", "~b:3", "~}"]);
+  });
+
+  test("no dimming without paths, or when none of them has a row", () => {
+    expect(markup(DATA, { spotlightPaths: null })).not.toContain("cq-dim");
+    expect(markup(DATA, { spotlightPaths: new Set(["$.missing"]) })).not.toContain("cq-dim");
+  });
+});
