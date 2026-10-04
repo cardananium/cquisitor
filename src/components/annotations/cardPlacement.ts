@@ -78,3 +78,52 @@ export function placeCard(
     left,
   };
 }
+
+/** How far the reader dragged the card from where it is placed. */
+export interface CardOffset {
+  x: number;
+  y: number;
+}
+
+export const NO_OFFSET: CardOffset = { x: 0, y: 0 };
+
+/** A drag offset and the placement it was made against (see `dragKey`). */
+export interface CardDrag {
+  key: string;
+  offset: CardOffset;
+}
+
+/**
+ * Identity of the placement a drag applies to: a new focus request (previous,
+ * next, the list) or docking or undocking the card starts again from no offset.
+ */
+export function dragKey(focusSeq: number, mode: CardPlacement["mode"]): string {
+  return `${focusSeq}:${mode === "docked" ? "docked" : "anchored"}`;
+}
+
+/** The drag offset that applies under `key`. */
+export function offsetFor(drag: CardDrag | null, key: string): CardOffset {
+  return drag && drag.key === key ? drag.offset : NO_OFFSET;
+}
+
+/**
+ * `offset` cut so the card moved by it stays inside the viewport. The card may
+ * always stay where `placement` put it, even within the margin.
+ */
+export function clampOffset(
+  placement: { top: number; left: number },
+  offset: CardOffset,
+  card: { width: number; height: number },
+  viewport: { width: number; height: number },
+): CardOffset {
+  const left = placement.left + offset.x;
+  const top = placement.top + offset.y;
+  const minLeft = Math.min(MARGIN, placement.left);
+  const maxLeft = Math.max(viewport.width - card.width - MARGIN, placement.left);
+  const minTop = Math.min(MARGIN, placement.top);
+  const maxTop = Math.max(viewport.height - card.height - MARGIN, placement.top);
+  return {
+    x: clamp(left, minLeft, maxLeft) - placement.left,
+    y: clamp(top, minTop, maxTop) - placement.top,
+  };
+}

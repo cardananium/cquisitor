@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { pageOpenedFromLink } from "@/utils/shareLink/linkNavigation";
 
 interface HintBannerProps {
   storageKey: string;
@@ -11,6 +12,8 @@ export default function HintBanner({ storageKey, children }: HintBannerProps) {
   // Use lazy initializer to read from localStorage on client side
   const [isVisible, setIsVisible] = useState(() => {
     if (typeof window === "undefined") return false;
+    // Not on a page opened from a link: the hint waits for a plain visit.
+    if (pageOpenedFromLink()) return false;
     return !localStorage.getItem(storageKey);
   });
 

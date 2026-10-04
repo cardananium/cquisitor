@@ -1,11 +1,10 @@
 "use client";
 
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { tokenizeCddl, type SyntaxToken } from "./cddlSyntax";
+import { tokenizeCddl } from "./cddlSyntax";
 import {
   layerMark,
   needsPhantomNewline,
-  normaliseBrightRanges,
   normaliseMarks,
   overlayLines,
   sameSegments,
@@ -154,11 +153,6 @@ export interface CddlEditorProps {
    *  to colour rule references differently from prelude types and unknown
    *  identifiers. */
   ruleNames?: ReadonlyArray<string>;
-  /**
-   * Spotlight: `[start, end)` ranges kept bright while the rest of the text is
-   * dimmed; the line under the pointer shows in full. Off when `null` or empty.
-   */
-  spotlight?: ReadonlyArray<readonly [number, number]> | null;
 }
 
 /** The advance of one cell of the textarea's monospace font, in CSS pixels. */
@@ -267,20 +261,6 @@ function markTitleAt(overlay: HTMLElement, x: number, y: number): string | null 
   return null;
 }
 
-/** The line under viewport `y`, or `null`, in an overlay whose element children are its lines, in order. */
-function overlayLineAt(overlay: HTMLElement, y: number): Element | null {
-  const lines = overlay.children;
-  let lo = 0;
-  let hi = lines.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (lines[mid].getBoundingClientRect().bottom <= y) lo = mid + 1;
-    else hi = mid;
-  }
-  if (lo >= lines.length) return null;
-  return lines[lo].getBoundingClientRect().top <= y ? lines[lo] : null;
-}
-
 /** The animation frame a pointer-move sequence has pending, if any. */
 export interface FrameSlot {
   current: number | null;
@@ -302,13 +282,6 @@ export function pointerMove(
     readTip(x, y);
   });
 }
-
-/**
- * Class of the veil line under the pointer, which lifts its veil. Set on the line
- * element directly: a pointer move then restyles one line, renders nothing and
- * leaves layout alone. Veil lines never set a class of their own, so it is kept.
- */
-const LIT_LINE_CLASS = "cq-dim-lit";
 
 /** One overlay source line. Compared by painted content, not object identity — segments are rebuilt every keystroke. */
 const OverlayLine = React.memo(
@@ -356,34 +329,13 @@ function renderLine(segments: ReadonlyArray<OverlaySegment>): React.ReactNode {
   return out;
 }
 
-/** Class of a dimmed stretch in the veil: a background the colour of the editor over the text below. */
-const VEIL_CLASS = "cq-dim-veil";
-const NO_SYNTAX: ReadonlyArray<SyntaxToken> = [];
-const NO_MARKS: ReadonlyArray<NormalisedMark> = [];
-
-/** One line of the veil: transparent text, the dimmed stretches veiled. */
-function VeilLine({ segments }: { segments: ReadonlyArray<OverlaySegment> }) {
-  return (
-    <span>
-      {segments.map((seg) =>
-        seg.dim ? (
-          <span key={seg.start} className={VEIL_CLASS}>{seg.text}</span>
-        ) : (
-          <React.Fragment key={seg.start}>{seg.text}</React.Fragment>
-        ),
-      )}
-    </span>
-  );
-}
-
 /**
  * Textarea with an absolutely-positioned `pre` overlay underneath. The
  * overlay paints both the syntax-highlighted source AND the mark
  * backgrounds (errors, mismatches, references, linked). The textarea on
  * top has transparent text so only its caret + selection are visible —
  * everything the user sees as "the code" comes from the overlay. Scroll
- * is mirrored so the colour stays glued to the bytes. Under a spotlight a
- * second mirror between the two veils the text outside the bright ranges.
+ * is mirrored so the colour stays glued to the bytes.
  */
 function CddlEditorInner(
   {
@@ -398,27 +350,17 @@ function CddlEditorInner(
     canPinAt,
     onCaretMove,
     ruleNames,
-    spotlight,
   }: CddlEditorProps,
   ref: React.Ref<CddlEditorHandle>,
 ) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const overlayRef = useRef<HTMLPreElement>(null);
-  const veilRef = useRef<HTMLPreElement>(null);
   // Restore selection after an edit that bypassed the browser undo pipeline.
   const pendingSelection = useRef<[number, number] | null>(null);
   const [markTip, setMarkTip] = useState<{ x: number; y: number; text: string } | null>(null);
   const tipFrame = useRef<number | null>(null);
   // Set by Escape, consumed by the next Tab so focus can leave.
   const tabLeaves = useRef(false);
-  // Spotlight: the veil line under the pointer, its veil lifted.
-  const litLine = useRef<Element | null>(null);
-  const lightLine = useCallback((line: Element | null) => {
-    if (litLine.current === line) return;
-    litLine.current?.classList.remove(LIT_LINE_CLASS);
-    line?.classList.add(LIT_LINE_CLASS);
-    litLine.current = line;
-  }, []);
 
   useImperativeHandle(ref, () => {
     // Wrap-aware scroll: newline*lineHeight drifts; measureOffsetTop uses a mirror.
@@ -427,7 +369,6 @@ function CddlEditorInner(
       const target = Math.max(0, top - ta.clientHeight / 3);
       ta.scrollTop = target;
       if (overlayRef.current) overlayRef.current.scrollTop = target;
-      if (veilRef.current) veilRef.current.scrollTop = target;
     };
     return {
       reveal([start, end]) {
@@ -443,18 +384,14 @@ function CddlEditorInner(
       scrollToTop() {
         if (taRef.current) taRef.current.scrollTop = 0;
         if (overlayRef.current) overlayRef.current.scrollTop = 0;
-        if (veilRef.current) veilRef.current.scrollTop = 0;
       },
     };
   }, []);
 
   const syncScroll = useCallback(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    for (const mirror of [overlayRef.current, veilRef.current]) {
-      if (!mirror) continue;
-      mirror.scrollTop = ta.scrollTop;
-      mirror.scrollLeft = ta.scrollLeft;
+    if (taRef.current && overlayRef.current) {
+      overlayRef.current.scrollTop = taRef.current.scrollTop;
+      overlayRef.current.scrollLeft = taRef.current.scrollLeft;
     }
   }, []);
 
@@ -526,35 +463,6 @@ function CddlEditorInner(
     ),
     [layered, value],
   );
-
-  // Spotlight veil: the text again, transparent, in a mirror painted over the
-  // overlay, with the stretches outside the bright ranges under a veil the
-  // colour of the editor. Rebuilt only when the text or the ranges change.
-  const bright = useMemo(
-    () => normaliseBrightRanges(spotlight, value.length),
-    [spotlight, value.length],
-  );
-  const veil = useMemo(
-    () =>
-      bright === null ? null : (
-        <pre ref={veilRef} className="cddl-editor-overlay cddl-editor-veil" aria-hidden>
-          {overlayLines(value, NO_SYNTAX, NO_MARKS, bright).map((line) => (
-            <VeilLine key={line.start} segments={line.segments} />
-          ))}
-          {needsPhantomNewline(value) ? "\n" : null}
-        </pre>
-      ),
-    [bright, value],
-  );
-  // The veil follows the overlay's scrollbar gutter and scroll position. A rebuilt
-  // veil lights no line until the pointer moves again.
-  useLayoutEffect(() => {
-    lightLine(null);
-    const veilEl = veilRef.current;
-    if (!veil || !veilEl) return;
-    veilEl.style.paddingRight = overlayRef.current?.style.paddingRight ?? "";
-    syncScroll();
-  }, [veil, value, syncScroll, lightLine]);
 
   // Cmd/Ctrl = jump to definition. Alt = pin matching CBOR (not on every caret move).
   const handleClick = (e: React.MouseEvent<HTMLTextAreaElement>) => {
@@ -635,7 +543,6 @@ function CddlEditorInner(
   // Tooltip via mark rects on the next frame; hover offset on the event — see `pointerMove`.
   const handleMouseMove = (e: React.MouseEvent<HTMLTextAreaElement>) => {
     const ta = e.currentTarget;
-    if (veilRef.current) lightLine(overlayLineAt(veilRef.current, e.clientY));
     pointerMove(
       tipFrame,
       e.clientX,
@@ -661,13 +568,11 @@ function CddlEditorInner(
     }
     onHoverOffset?.(null);
     setMarkTip(null);
-    lightLine(null);
   };
 
   return (
     <div className="cddl-editor-wrap">
       {overlay}
-      {veil}
       <textarea
         ref={taRef}
         className="cddl-editor"

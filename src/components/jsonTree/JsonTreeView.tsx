@@ -10,7 +10,6 @@ import { depthBelowMap, flattenTree, rowKeys, type FlatFold, type FlatRow } from
 import { jsonAdapter } from "./jsonAdapter";
 import { libPathScheme, type PathScheme } from "./paths";
 import { type MapEntry, plainMapEntries } from "./mapEntries";
-import { DIM_CLASS, litRows } from "@/utils/annotations/spotlight";
 
 export type JsonNodeKind = "primitive" | "array" | "object";
 
@@ -142,12 +141,6 @@ export interface JsonTreeViewProps {
   getNodeBlockClassName?: (ctx: RenderRowArgs) => string;
   /** Pixels of indent per level. Default 22. */
   indentPx?: number;
-
-  /**
-   * Spotlight: these paths' rows, the rows under them and their closing rows stay as they are;
-   * every other row's block is dimmed. Nothing dims while none of them has a row.
-   */
-  spotlightPaths?: ReadonlySet<string> | null;
 
   /**
    * When true, do not render the synthetic root row or its closing
@@ -304,7 +297,6 @@ export default function JsonTreeView({
   getNodeBlockClassName,
   indentPx = 22,
   skipRoot = false,
-  spotlightPaths = null,
 }: JsonTreeViewProps) {
   const adapter = useMemo(() => jsonAdapter(pathScheme, mapEntries), [pathScheme, mapEntries]);
   const depthBelow = useMemo(() => depthBelowMap(data, adapter), [data, adapter]);
@@ -382,13 +374,6 @@ export default function JsonTreeView({
 
   const showMore = useCallback(() => setLimit((n) => n + rowBudget), [rowBudget]);
 
-  // Spotlight: rows outside every listed path's subtree, `null` when nothing dims.
-  const dimmedRows = useMemo(() => {
-    if (!spotlightPaths || spotlightPaths.size === 0) return null;
-    const lit = litRows(flat.rows, (row) => spotlightPaths.has(row.path));
-    return lit.includes(true) ? lit.map((on) => !on) : null;
-  }, [spotlightPaths, flat]);
-
   // Closing rows share the node path; duplicate wire-order keys share a path too.
   const keys = rowKeys(flat.rows.map((row) => (row.kind === "closing" ? `${row.path}\u0000close` : row.path)));
   const rows = flat.rows.map((row, i) => {
@@ -418,7 +403,7 @@ export default function JsonTreeView({
     ]
       .filter(Boolean)
       .join(" ");
-    const blockClass = [nodeBlockClassName, getNodeBlockClassName?.(ctx) ?? "", dimmedRows?.[i] ? DIM_CLASS : ""]
+    const blockClass = [nodeBlockClassName, getNodeBlockClassName?.(ctx) ?? ""]
       .filter(Boolean)
       .join(" ");
     return (

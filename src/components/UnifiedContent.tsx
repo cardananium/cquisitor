@@ -8,7 +8,7 @@ import Image from "next/image";
 import logo32 from "../../public/logo-32.png";
 import GitHubStarButton from "./GitHubStarButton";
 import SiteFooter from "./SiteFooter";
-import { linkHashOf, opensNewLink } from "@/utils/shareLink/linkNavigation";
+import { linkHashOf, opensNewLink, pageOpenedFromLink } from "@/utils/shareLink/linkNavigation";
 
 // Subscribe to hash changes using useSyncExternalStore
 function subscribeToHash(callback: () => void) {
@@ -177,6 +177,7 @@ export default function UnifiedContent() {
   // changes the hash: reload to apply it exactly as opening it fresh would.
   useEffect(() => {
     const appliedLink = linkHashOf(window.location.hash);
+    pageOpenedFromLink();
     const onHashChange = () => {
       if (opensNewLink(appliedLink, window.location.hash)) window.location.reload();
     };

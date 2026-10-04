@@ -1,9 +1,7 @@
-// CDDL editor highlight overlay: split source into runs of one syntax class and one winning mark,
-// and, for the spotlight veil, into runs inside or outside the ranges kept bright.
+// CDDL editor highlight overlay: split source into runs of one syntax class and one winning mark.
 // The editor paints a `pre` under a transparent textarea; this module is a pure function of its inputs.
 
 import type { SyntaxToken } from "./cddlSyntax";
-import { overlapsAny } from "@/utils/annotations/spotlight";
 
 /** One overlay highlight. Higher `priority` wins on overlap. */
 export interface OverlayMark {
@@ -30,12 +28,7 @@ export interface OverlaySegment {
   text: string;
   syntaxClassName: string | null;
   mark: NormalisedMark | null;
-  /** Spotlight: the run lies outside every range kept bright. */
-  dim: boolean;
 }
-
-/** `[start, end)` ranges kept bright while the rest of the text is dimmed; `null` when nothing dims. */
-export type BrightRanges = ReadonlyArray<readonly [number, number]> | null;
 
 /**
  * Clamp mark ranges to `[0, valueLength]`, drop empties, and widen a zero-width mark to one character.
@@ -64,30 +57,15 @@ export function normaliseMarks(
 }
 
 /**
- * Bright ranges clamped to `[0, valueLength]` the way marks are: empties dropped, a zero-width range widened to one character.
- * `null` and an empty list both mean nothing dims.
- */
-export function normaliseBrightRanges(
-  ranges: ReadonlyArray<readonly [number, number]> | null | undefined,
-  valueLength: number,
-): BrightRanges {
-  if (!ranges || ranges.length === 0) return null;
-  const marks = normaliseMarks(ranges.map((range) => ({ range: [range[0], range[1]], className: "" })), valueLength);
-  return marks.length > 0 ? marks.map((m) => [m.start, m.end] as const) : null;
-}
-
-/**
  * Cut `value` at every syntax-run and mark boundary so each segment has one syntax class and one winning mark.
  * Segments tile `[0, value.length)` in order; `syntax` is walked with a cursor (ascending, non-overlapping).
- * With `bright` (normalised), segments are also cut at its edges and those outside it are `dim`.
  */
 export function overlaySegments(
   value: string,
   syntax: ReadonlyArray<SyntaxToken>,
   marks: ReadonlyArray<NormalisedMark>,
-  bright: BrightRanges = null,
 ): OverlaySegment[] {
-  return segmentAt(value, syntax, marks, bright, cutPoints(value, syntax, marks, bright, false));
+  return segmentAt(value, syntax, marks, cutPoints(value, syntax, marks, false));
 }
 
 /** Offsets the segmentation has to break at. */
@@ -95,7 +73,6 @@ function cutPoints(
   value: string,
   syntax: ReadonlyArray<SyntaxToken>,
   marks: ReadonlyArray<NormalisedMark>,
-  bright: BrightRanges,
   atLineStarts: boolean,
 ): number[] {
   const cuts = new Set<number>([0, value.length]);
@@ -106,10 +83,6 @@ function cutPoints(
   for (const m of marks) {
     if (m.start > 0 && m.start < value.length) cuts.add(m.start);
     if (m.end > 0 && m.end < value.length) cuts.add(m.end);
-  }
-  for (const [start, end] of bright ?? []) {
-    if (start > 0 && start < value.length) cuts.add(start);
-    if (end > 0 && end < value.length) cuts.add(end);
   }
   if (atLineStarts) {
     for (let nl = value.indexOf("\n"); nl !== -1; nl = value.indexOf("\n", nl + 1)) {
@@ -123,7 +96,6 @@ function segmentAt(
   value: string,
   syntax: ReadonlyArray<SyntaxToken>,
   marks: ReadonlyArray<NormalisedMark>,
-  bright: BrightRanges,
   points: ReadonlyArray<number>,
 ): OverlaySegment[] {
   const out: OverlaySegment[] = [];
@@ -144,9 +116,7 @@ function segmentAt(
       }
     }
 
-    // Cut at every bright edge, so a segment is wholly inside a bright range or clear of all of them.
-    const dim = bright !== null && !overlapsAny(start, end, bright);
-    out.push({ start, end, text: value.slice(start, end), syntaxClassName, mark, dim });
+    out.push({ start, end, text: value.slice(start, end), syntaxClassName, mark });
   }
   return out;
 }
@@ -166,9 +136,8 @@ export function overlayLines(
   value: string,
   syntax: ReadonlyArray<SyntaxToken>,
   marks: ReadonlyArray<NormalisedMark>,
-  bright: BrightRanges = null,
 ): OverlayLine[] {
-  const segments = segmentAt(value, syntax, marks, bright, cutPoints(value, syntax, marks, bright, true));
+  const segments = segmentAt(value, syntax, marks, cutPoints(value, syntax, marks, true));
   const out: OverlayLine[] = [];
   let current: OverlaySegment[] = [];
   let start = 0;
@@ -198,7 +167,6 @@ function cutSegment(
     text: segment.text.slice(start - segment.start, end - segment.start),
     syntaxClassName: segment.syntaxClassName,
     mark,
-    dim: segment.dim,
   };
 }
 
@@ -247,7 +215,7 @@ export function layerMark(
 }
 
 /**
- * Whether two segment lists would paint identically (text, syntax class, dimming, winning mark class and message).
+ * Whether two segment lists would paint identically (text, syntax class, winning mark class and message).
  * Marks are rebuilt on every keystroke, so object identity would report every marked line as changed.
  */
 export function sameSegments(
@@ -259,7 +227,7 @@ export function sameSegments(
   for (let i = 0; i < a.length; i++) {
     const x = a[i];
     const y = b[i];
-    if (x.text !== y.text || x.syntaxClassName !== y.syntaxClassName || x.dim !== y.dim) return false;
+    if (x.text !== y.text || x.syntaxClassName !== y.syntaxClassName) return false;
     const mx = x.mark;
     const my = y.mark;
     if (mx === my) continue;

@@ -39,11 +39,9 @@ import AnnotationLayer from "@/components/annotations/AnnotationLayer";
 import {
   useAnnotationInputGuard,
   useReportStatuses,
-  useSpotlightEnabled,
   useTabAnnotations,
 } from "@/components/annotations/useAnnotations";
 import { annotationAnchorClass } from "@/utils/annotations/marks";
-import { spotlightActive } from "@/utils/annotations/spotlight";
 import type { CquisitorAnnotation } from "@/utils/annotations/store";
 import { cddlMarks, resolveCddlTarget } from "./annotationTargets";
 import {
@@ -570,15 +568,6 @@ export default function CddlValidatorContent() {
     () => cddlMarks(annotationResolutions, annotations, annotationFocus),
     [annotationResolutions, annotations, annotationFocus],
   );
-  // Spotlight, per panel: only a panel that shows a resolved target dims the rest of itself.
-  const dimEnabled = useSpotlightEnabled();
-  const spotlightHex = spotlightActive(dimEnabled, annotationMarks.hexSpans.length);
-  const spotlightTree = spotlightActive(dimEnabled, annotationMarks.treeRows.size);
-  const spotlightDecoded = spotlightActive(dimEnabled, annotationMarks.decodedRows.size);
-  const editorSpotlight = useMemo(
-    () => (spotlightActive(dimEnabled, annotationMarks.editor.length) ? annotationMarks.editor.map((m) => m.range) : null),
-    [dimEnabled, annotationMarks.editor],
-  );
   // Schema targets scroll the editor (its overlay mirrors the textarea and must not be scrolled on its own);
   // byte targets bring a panel that shows them forward and scroll every panel that has the row.
   const revealAnnotation = useCallback((index: number) => {
@@ -1092,7 +1081,6 @@ export default function CddlValidatorContent() {
         canPinAt={canPinAtCddlOffset}
         onCaretMove={setCaretOffset}
         ruleNames={schema.declaredNames}
-        spotlight={editorSpotlight}
       />
 
       {presetError && (
@@ -1178,7 +1166,6 @@ export default function CddlValidatorContent() {
         onShowInTree={handleShowInTree}
         onContextMenuPin={requestPinFromCborOffset}
         annotationSpans={annotationMarks.hexSpans}
-        spotlight={spotlightHex}
       />
     </>
   );
@@ -1204,7 +1191,6 @@ export default function CddlValidatorContent() {
           pinnedRole={pinned?.node.entry.entry_role ?? null}
           openPaths={decodedOpenPaths}
           annotationRows={annotationMarks.decodedRows}
-          spotlight={spotlightDecoded}
           revealSeq={pinRevealSeq}
           onPinPath={requestPinFromDecodedPath}
           scrollOnHighlight={scrollDecodedToPin}
@@ -1231,7 +1217,6 @@ export default function CddlValidatorContent() {
       pinnedOtherSpans={treePinnedOthers}
       openPositions={treeOpenPositions}
       annotationRows={annotationMarks.treeRows}
-      spotlight={spotlightTree}
       revealSeq={pinRevealSeq}
       scrollOnHighlight={scrollTreeToPin}
       onPinPosition={requestPinFromTreePosition}

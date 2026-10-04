@@ -3,9 +3,21 @@
 // Hint card for a tab's annotations: anchored next to the focused target while
 // it is on screen, docked to the top of the tab when the target is unresolved
 // or scrolled away. Carries the navigator (n / total, previous, next, the full
-// list, dimming the rest on or off, dismiss all). Esc dismisses outside text fields.
+// list, the spotlight on or off). The card's head drags it aside, on top of its
+// placement. ✕ in the head, or Esc outside text fields, closes the annotations.
+// While the spotlight is on, a dark scrim covers the page except for the parts
+// of the focused target that are on screen.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   annotationStore,
@@ -16,9 +28,30 @@ import {
   type TabAnnotations,
 } from "@/utils/annotations/store";
 import { annotationAnchorClass, describeTarget, severityOf } from "@/utils/annotations/marks";
-import { spotlightStore, type SpotlightStore } from "@/utils/annotations/spotlight";
+import {
+  clipToContainers,
+  focusedHoles,
+  sameHoles,
+  scrimVisible,
+  spotlightStore,
+  type ScrimHole,
+  type SpotlightStore,
+  type TargetPart,
+} from "@/utils/annotations/scrim";
 import { useSpotlightEnabled, useTabAnnotations } from "./useAnnotations";
-import { boxIsEmpty, intersectBoxes, placeCard, type Box, type CardPlacement } from "./cardPlacement";
+import AnnotationScrim from "./AnnotationScrim";
+import {
+  boxIsEmpty,
+  clampOffset,
+  dragKey,
+  intersectBoxes,
+  offsetFor,
+  placeCard,
+  type Box,
+  type CardDrag,
+  type CardOffset,
+  type CardPlacement,
+} from "./cardPlacement";
 
 const SEVERITY_LABEL = { error: "Error", warning: "Warning", info: "Info" } as const;
 
@@ -43,26 +76,33 @@ export interface AnnotationCardProps {
   /** The target is resolved but scrolled out of view. */
   offscreen: boolean;
   listOpen: boolean;
-  /** Views dim everything but their targets. */
-  dim: boolean;
+  /** The scrim darkens the page around the focused target. */
+  spotlight: boolean;
   onToggleList: () => void;
-  onToggleDim: () => void;
+  onToggleSpotlight: () => void;
   onStep: (delta: number) => void;
   onFocus: (index: number) => void;
   onDismiss: () => void;
   onReveal: () => void;
+  /** Pointer handlers that drag the card by its head. */
+  dragHandle?: Pick<
+    HTMLAttributes<HTMLDivElement>,
+    "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onLostPointerCapture"
+  >;
+  /** The card is being dragged. */
+  dragging?: boolean;
 }
 
 function annotationTitle(annotation: CquisitorAnnotation): string {
   return annotation.label ?? describeTarget(annotation.target);
 }
 
-/** Contrast glyph: a circle, half filled. */
-function DimIcon() {
+/** Spotlight glyph: a ring around a filled dot. */
+function SpotlightIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden focusable="false">
       <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor" />
+      <circle cx="8" cy="8" r="2.75" fill="currentColor" />
     </svg>
   );
 }
@@ -73,13 +113,15 @@ export function AnnotationCard({
   docked,
   offscreen,
   listOpen,
-  dim,
+  spotlight,
   onToggleList,
-  onToggleDim,
+  onToggleSpotlight,
   onStep,
   onFocus,
   onDismiss,
   onReveal,
+  dragHandle,
+  dragging = false,
 }: AnnotationCardProps) {
   const { annotations, focus, statuses } = state;
   const annotation = annotations[focus];
@@ -89,12 +131,13 @@ export function AnnotationCard({
   const total = annotations.length;
   return (
     <div
-      className={`cq-ann-card cq-ann-card-${severity}${docked ? " cq-ann-card-docked" : ""}`}
+      className={`cq-ann-card cq-ann-card-${severity}${docked ? " cq-ann-card-docked" : ""}${dragging ? " cq-ann-card-dragging" : ""}`}
       role="dialog"
       aria-label="Annotation"
       data-annotation-card=""
     >
-      <div className="cq-ann-card-head">
+      <div className="cq-ann-card-head" title="Drag to move" {...dragHandle}>
+        <span className="cq-ann-grip" aria-hidden />
         <span className={`cq-ann-sev cq-ann-sev-${severity}`}>{SEVERITY_LABEL[severity]}</span>
         <span className="cq-ann-card-title" title={describeTarget(annotation.target)}>
           {annotationTitle(annotation)}
@@ -103,8 +146,8 @@ export function AnnotationCard({
           type="button"
           className="cq-ann-card-close"
           onClick={onDismiss}
-          title="Dismiss all annotations (Esc)"
-          aria-label="Dismiss all annotations"
+          title="Close annotations (Esc)"
+          aria-label="Close annotations (Esc)"
         >
           ✕
         </button>
@@ -158,16 +201,13 @@ export function AnnotationCard({
         <span className="cq-flex-grow" />
         <button
           type="button"
-          className="cq-ann-nav-btn cq-ann-nav-dim"
-          onClick={onToggleDim}
-          aria-pressed={dim}
-          aria-label="Dim the rest"
-          title={dim ? "Dim the rest: on" : "Dim the rest: off"}
+          className="cq-ann-nav-btn cq-ann-nav-spot"
+          onClick={onToggleSpotlight}
+          aria-pressed={spotlight}
+          aria-label="Spotlight"
+          title={spotlight ? "Spotlight: on" : "Spotlight: off"}
         >
-          <DimIcon />
-        </button>
-        <button type="button" className="cq-ann-nav-dismiss" onClick={onDismiss}>
-          Dismiss all
+          <SpotlightIcon />
         </button>
       </div>
       {listOpen && total > 1 && (
@@ -248,6 +288,71 @@ function visibleClip(el: Element, root: Element): Box {
   return clip;
 }
 
+/**
+ * Boxes of `el` and every container around it that clips, innermost first.
+ * Memoised per frame in `cache`, so pieces sharing ancestors walk them once.
+ */
+function clipsFrom(el: Element | null, cache: Map<Element, readonly Box[]>): readonly Box[] {
+  if (!el || el === document.documentElement) return [];
+  const known = cache.get(el);
+  if (known) return known;
+  const outer = clipsFrom(el.parentElement, cache);
+  const clips = isScrollContainer(el) ? [boxOf(el.getBoundingClientRect()), ...outer] : outer;
+  cache.set(el, clips);
+  return clips;
+}
+
+function sameLine(a: Box, b: Box): boolean {
+  return Math.abs(a.top - b.top) < 2 && Math.abs(a.bottom - b.bottom) < 2 && b.left <= a.right + 2 && a.left <= b.right + 2;
+}
+
+/** `b` is the next line of a wrapped text block that `a` covers, about as wide. */
+function nextLine(a: Box, b: Box): boolean {
+  return b.top >= a.top && b.top - a.bottom < 6 && Math.abs(a.left - b.left) <= 12 && Math.abs(a.right - b.right) <= 12;
+}
+
+function contains(outer: Box, inner: Box): boolean {
+  return outer.top <= inner.top && outer.left <= inner.left && outer.bottom >= inner.bottom && outer.right >= inner.right;
+}
+
+/**
+ * The visible pieces of annotation `index`: one per line box of each element
+ * carrying its anchor class (or of `fallback`), each cut to its scroll
+ * containers. Pieces on one line that touch, and the lines of a wrapped block,
+ * are merged; pieces inside another are dropped.
+ */
+function targetParts(index: number, elements: ArrayLike<Element>, fallback: Element | null): TargetPart[] {
+  const cache = new Map<Element, readonly Box[]>();
+  const parts: TargetPart[] = [];
+  const add = (el: Element) => {
+    const clips = clipsFrom(el.parentElement, cache);
+    // Most pieces of a long target are scrolled away: skip them before reading their line boxes.
+    const bounds = boxOf(el.getBoundingClientRect());
+    if (bounds.bottom <= bounds.top && bounds.right <= bounds.left) return;
+    const visible = clipToContainers(bounds, clips);
+    if (!visible) return;
+    const rects = el.getClientRects();
+    for (let i = 0; i < rects.length; i++) {
+      const shown = clipToContainers(boxOf(rects[i]), clips);
+      if (!shown) continue;
+      const last = parts[parts.length - 1];
+      if (last && (sameLine(last.box, shown) || nextLine(last.box, shown))) {
+        last.box = {
+          top: Math.min(last.box.top, shown.top),
+          left: Math.min(last.box.left, shown.left),
+          bottom: Math.max(last.box.bottom, shown.bottom),
+          right: Math.max(last.box.right, shown.right),
+        };
+        continue;
+      }
+      parts.push({ index, box: shown, clips: [] });
+    }
+  };
+  for (let i = 0; i < elements.length; i++) add(elements[i]);
+  if (parts.length === 0 && fallback) add(fallback);
+  return parts.filter((p) => !parts.some((q) => q !== p && contains(q.box, p.box) && !contains(p.box, q.box)));
+}
+
 function isEditable(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
   return el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.tagName === "SELECT";
@@ -268,10 +373,47 @@ export interface AnnotationLayerProps {
   spotlight?: SpotlightStore;
 }
 
+interface Scrim {
+  visible: boolean;
+  /** Kept while hidden, so the scrim fades out around the last holes. */
+  holes: readonly ScrimHole[];
+}
+
+const NO_SCRIM: Scrim = { visible: false, holes: [] };
+
 interface Layout {
   hidden: boolean;
+  /** Where the card is drawn: its placement moved by the drag offset. */
   placement: CardPlacement;
   offscreen: boolean;
+}
+
+/** The placement measured in the last frame, which a drag moves the card from. */
+interface Base {
+  placement: CardPlacement;
+  key: string;
+  card: { width: number; height: number };
+}
+
+interface Gesture {
+  pointerId: number;
+  x: number;
+  y: number;
+  start: CardOffset;
+}
+
+function viewportSize() {
+  return { width: window.innerWidth, height: window.innerHeight };
+}
+
+function moved(placement: CardPlacement, offset: CardOffset): CardPlacement {
+  return offset.x === 0 && offset.y === 0
+    ? placement
+    : { ...placement, top: placement.top + offset.y, left: placement.left + offset.x };
+}
+
+function hideScrim(prev: Scrim): Scrim {
+  return prev.visible ? { visible: false, holes: prev.holes } : prev;
 }
 
 const HIDDEN_LAYOUT: Layout = { hidden: true, placement: { top: 0, left: 0, mode: "docked" }, offscreen: false };
@@ -298,10 +440,15 @@ export default function AnnotationLayer({
   spotlight = spotlightStore,
 }: AnnotationLayerProps) {
   const state = useTabAnnotations(tab, store);
-  const dim = useSpotlightEnabled(spotlight);
+  const spotlightOn = useSpotlightEnabled(spotlight);
+  const [scrim, setScrim] = useState<Scrim>(NO_SCRIM);
   const cardRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState<Layout>(HIDDEN_LAYOUT);
   const [listOpen, setListOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<CardDrag | null>(null);
+  const baseRef = useRef<Base | null>(null);
+  const gestureRef = useRef<Gesture | null>(null);
   const revealRef = useRef(onReveal);
   const findRef = useRef(findAnchor);
   useEffect(() => {
@@ -353,7 +500,9 @@ export default function AnnotationLayer({
   }, [resolved, reveal, focusSeq]);
 
   // Follow the target every frame: it moves with scrolling, re-renders and panel resizes.
+  // The scrim's holes are measured in the same frame, only while the scrim can show.
   const active = state !== null;
+  const measureHoles = active && resolved && spotlightOn;
   useLayoutEffect(() => {
     if (!active) return;
     let raf = 0;
@@ -362,37 +511,98 @@ export default function AnnotationLayer({
       const container = containerRef.current;
       const card = cardRef.current;
       if (!container || !card || !hasBox(container)) {
+        baseRef.current = null;
         setLayout((prev) => (prev.hidden ? prev : HIDDEN_LAYOUT));
+        setScrim(hideScrim);
         return;
       }
       const anchor = resolved ? anchorFor(focus) : null;
-      const target = anchor
-        ? unionBox(anchor, container.querySelectorAll(`.${annotationAnchorClass(focus)}`), container)
-        : null;
+      const marked = anchor ? container.querySelectorAll(`.${annotationAnchorClass(focus)}`) : null;
+      const target = anchor && marked ? unionBox(anchor, marked, container) : null;
+      if (measureHoles && anchor && marked) {
+        const viewport = viewportSize();
+        const holes = focusedHoles(targetParts(focus, marked, anchor), focus, viewport);
+        const visible = scrimVisible({ active, enabled: spotlightOn, resolved, holes });
+        setScrim((prev) =>
+          visible
+            ? prev.visible && sameHoles(prev.holes, holes) ? prev : { visible, holes }
+            : hideScrim(prev),
+        );
+      } else {
+        setScrim(hideScrim);
+      }
       const clip = anchor ? visibleClip(anchor, container) : null;
-      const placement = placeCard(
-        target,
-        clip,
-        boxOf(container.getBoundingClientRect()),
-        { width: card.offsetWidth, height: card.offsetHeight },
-        { width: window.innerWidth, height: window.innerHeight },
-      );
+      const size = { width: card.offsetWidth, height: card.offsetHeight };
+      const viewport = viewportSize();
+      const placement = placeCard(target, clip, boxOf(container.getBoundingClientRect()), size, viewport);
+      const key = dragKey(focusSeq, placement.mode);
+      if (dragRef.current && dragRef.current.key !== key) dragRef.current = null;
+      baseRef.current = { placement, key, card: size };
+      const offset = clampOffset(placement, offsetFor(dragRef.current, key), size, viewport);
       const next: Layout = {
         hidden: false,
-        placement,
+        placement: moved(placement, offset),
         offscreen: resolved && placement.mode === "docked",
       };
       setLayout((prev) => (sameLayout(prev, next) ? prev : next));
     };
     tick();
     return () => cancelAnimationFrame(raf);
-  }, [active, resolved, focus, anchorFor, containerRef]);
+  }, [active, resolved, focus, focusSeq, anchorFor, containerRef, measureHoles, spotlightOn]);
+
+  // Closed annotations forget the drag; the next link starts from the placement.
+  useEffect(() => {
+    if (!active) return;
+    return () => {
+      dragRef.current = null;
+      gestureRef.current = null;
+      setDragging(false);
+    };
+  }, [active]);
+
+  // Dragging the head moves the card by an offset over its placement, so it
+  // keeps following the target; the offset is kept inside the viewport.
+  const onDragStart = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || !e.isPrimary || gestureRef.current) return;
+    if (e.target instanceof Element && e.target.closest("button, a, input, select, textarea")) return;
+    const base = baseRef.current;
+    if (!base) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    gestureRef.current = {
+      pointerId: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      start: offsetFor(dragRef.current, base.key),
+    };
+    setDragging(true);
+  }, []);
+  const onDragMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = gestureRef.current;
+    const base = baseRef.current;
+    if (!gesture || !base || e.pointerId !== gesture.pointerId) return;
+    const offset = clampOffset(
+      base.placement,
+      { x: gesture.start.x + e.clientX - gesture.x, y: gesture.start.y + e.clientY - gesture.y },
+      base.card,
+      viewportSize(),
+    );
+    dragRef.current = { key: base.key, offset };
+    const placement = moved(base.placement, offset);
+    setLayout((prev) => (prev.hidden ? prev : { ...prev, placement }));
+  }, []);
+  const onDragEnd = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (gestureRef.current?.pointerId !== e.pointerId) return;
+    gestureRef.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    setDragging(false);
+  }, []);
 
   const dismiss = useCallback(() => store.dismiss(tab), [store, tab]);
   const step = useCallback((delta: number) => store.step(tab, delta), [store, tab]);
   const focusIndex = useCallback((index: number) => store.focus(tab, index), [store, tab]);
   const toggleList = useCallback(() => setListOpen((v) => !v), []);
-  const toggleDim = useCallback(() => spotlight.setEnabled(!spotlight.enabled()), [spotlight]);
+  const toggleSpotlight = useCallback(() => spotlight.setEnabled(!spotlight.enabled()), [spotlight]);
 
   // Esc dismisses, unless it is meant for a text field or something else already took it.
   useEffect(() => {
@@ -409,32 +619,45 @@ export default function AnnotationLayer({
   }, [active, layout.hidden, dismiss]);
 
   if (!state || typeof document === "undefined") return null;
-  return createPortal(
-    <div
-      ref={cardRef}
-      className="cq-ann-layer"
-      style={{
-        position: "fixed",
-        top: layout.placement.top,
-        left: layout.placement.left,
-        visibility: layout.hidden ? "hidden" : "visible",
-      }}
-      data-placement={layout.placement.mode}
-    >
-      <AnnotationCard
-        state={state}
-        docked={layout.placement.mode === "docked"}
-        offscreen={layout.offscreen}
-        listOpen={listOpen}
-        dim={dim}
-        onToggleList={toggleList}
-        onToggleDim={toggleDim}
-        onStep={step}
-        onFocus={focusIndex}
-        onDismiss={dismiss}
-        onReveal={reveal}
-      />
-    </div>,
-    document.body,
+  return (
+    <>
+      <AnnotationScrim visible={scrim.visible && !layout.hidden} holes={scrim.holes} />
+      {createPortal(
+        <div
+          ref={cardRef}
+          className="cq-ann-layer"
+          style={{
+            position: "fixed",
+            top: layout.placement.top,
+            left: layout.placement.left,
+            visibility: layout.hidden ? "hidden" : "visible",
+          }}
+          data-placement={layout.placement.mode}
+        >
+          <AnnotationCard
+            state={state}
+            docked={layout.placement.mode === "docked"}
+            offscreen={layout.offscreen}
+            listOpen={listOpen}
+            spotlight={spotlightOn}
+            onToggleList={toggleList}
+            onToggleSpotlight={toggleSpotlight}
+            onStep={step}
+            onFocus={focusIndex}
+            onDismiss={dismiss}
+            onReveal={reveal}
+            dragHandle={{
+              onPointerDown: onDragStart,
+              onPointerMove: onDragMove,
+              onPointerUp: onDragEnd,
+              onPointerCancel: onDragEnd,
+              onLostPointerCapture: onDragEnd,
+            }}
+            dragging={dragging}
+          />
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }

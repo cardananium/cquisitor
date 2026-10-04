@@ -27,7 +27,6 @@ import {
   type TreeDiagnosticRows,
 } from "./treeDiagnostics";
 import { boundedJson } from "@/utils/boundedJson";
-import { DIM_CLASS, litRows } from "@/utils/annotations/spotlight";
 
 export interface CborTreeViewProps {
   // CborPartialValue is structurally compatible with CborValue for our traversal
@@ -59,8 +58,6 @@ export interface CborTreeViewProps {
   onSelectDiagnostic?: (index: number | null) => void;
   /** Extra row classes keyed by `spanAttr` of the row's header or container extent (annotations). */
   annotationRows?: ReadonlyMap<string, string>;
-  /** Dim every row but the annotated ones and the rows under them, once one of those is rendered. */
-  spotlight?: boolean;
 }
 
 interface ContextMenuState {
@@ -656,8 +653,6 @@ interface TreeRowProps {
   selectedOwn: number | null;
   /** Annotation classes for the row, if it carries any. */
   annotationClass?: string;
-  /** Spotlight: the row is outside every annotated row's subtree. */
-  dimmed: boolean;
   onToggle: (row: Row) => void;
   onContextMenu: (e: React.MouseEvent, node: AnyNode, path: string) => void;
   onHover: (position: CborPosition | null) => void;
@@ -673,7 +668,6 @@ const TreeRow = memo(function TreeRow({
   diagnostics,
   selectedOwn,
   annotationClass,
-  dimmed,
   onToggle,
   onContextMenu,
   onHover,
@@ -732,7 +726,7 @@ const TreeRow = memo(function TreeRow({
 
   if (isMissing(node)) {
     return (
-      <div className={`cbor-tree-node${dimmed ? ` ${DIM_CLASS}` : ""}`} style={{ paddingLeft: indent }}>
+      <div className="cbor-tree-node" style={{ paddingLeft: indent }}>
         <div className={`cbor-tree-row cbor-tree-row-${row.label?.keyType ?? "plain"}`}>
           <span className="cbor-tree-missing">{node.missing}: missing</span>
         </div>
@@ -773,7 +767,7 @@ const TreeRow = memo(function TreeRow({
 
   return (
     <div
-      className={`cbor-tree-node ${isHighlighted ? "cbor-tree-node-highlighted" : ""}${dimmed ? ` ${DIM_CLASS}` : ""}`}
+      className={`cbor-tree-node ${isHighlighted ? "cbor-tree-node-highlighted" : ""}`}
       style={{ paddingLeft: indent }}
       ref={nodeRef}
     >
@@ -958,7 +952,6 @@ export default function CborTreeView({
   selectedDiagnostic,
   onSelectDiagnostic,
   annotationRows,
-  spotlight = false,
 }: CborTreeViewProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
@@ -1039,12 +1032,6 @@ export default function CborTreeView({
     [data, toggled, highlightEpoch, highlightRoutes, limit, depthBelow],
   );
   const keys = useMemo(() => rowKeys(flat.rows.map((row) => row.path)), [flat]);
-  // Spotlight: rows outside every annotated row's subtree, `null` when nothing dims.
-  const dimmedRows = useMemo(() => {
-    if (!spotlight || !annotationRows || annotationRows.size === 0) return null;
-    const lit = litRows(flat.rows, (row) => annotationClassOf(row.node, annotationRows) !== undefined);
-    return lit.includes(true) ? lit.map((on) => !on) : null;
-  }, [spotlight, annotationRows, flat]);
 
   const toggleRow = useCallback((row: Row) => {
     setToggled((prev) => {
@@ -1149,7 +1136,6 @@ export default function CborTreeView({
             diagnostics={diagnostics}
             selectedOwn={selectedOwn}
             annotationClass={annotationRows ? annotationClassOf(row.node, annotationRows) : undefined}
-            dimmed={dimmedRows?.[i] ?? false}
             onToggle={toggleRow}
             onContextMenu={handleContextMenu}
             onHover={onHoverPosition}

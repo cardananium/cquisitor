@@ -3,7 +3,6 @@ import { tokenizeCddl, type SyntaxToken } from "./cddlSyntax";
 import {
   layerMark,
   needsPhantomNewline,
-  normaliseBrightRanges,
   normaliseMarks,
   overlayLines,
   overlaySegments,
@@ -365,61 +364,5 @@ describe("needsPhantomNewline", () => {
     expect(needsPhantomNewline("Person = int\n")).toBe(false);
     expect(needsPhantomNewline("")).toBe(true);
     expect(needsPhantomNewline("\n\n")).toBe(false);
-  });
-});
-
-describe("spotlight ranges", () => {
-  const RULE: [number, number] = [SCHEMA.indexOf("Person"), SCHEMA.indexOf("}") + 1];
-  const bright = (ranges: Array<[number, number]>) => normaliseBrightRanges(ranges, SCHEMA.length);
-  const dimText = (segments: ReturnType<typeof overlaySegments>) =>
-    segments.filter(s => s.dim).map(s => s.text).join("");
-  const brightText = (segments: ReturnType<typeof overlaySegments>) =>
-    segments.filter(s => !s.dim).map(s => s.text).join("");
-
-  test("normalised like marks: clamped, empties dropped, a zero-width range widened; none means nothing dims", () => {
-    expect(normaliseBrightRanges([[3, 99]], 10)).toEqual([[3, 10]]);
-    expect(normaliseBrightRanges([[4, 4]], 10)).toEqual([[4, 5]]);
-    expect(normaliseBrightRanges([[10, 10], [40, 50]], 10)).toBeNull();
-    expect(normaliseBrightRanges([], 10)).toBeNull();
-    expect(normaliseBrightRanges(null, 10)).toBeNull();
-  });
-
-  test("text outside the ranges is dim, the ranges themselves are not, cut exactly at their edges", () => {
-    const segments = overlaySegments(SCHEMA, tokenizeCddl(SCHEMA), [], bright([RULE]));
-    expect(brightText(segments)).toBe(SCHEMA.slice(RULE[0], RULE[1]));
-    expect(dimText(segments)).toBe(SCHEMA.slice(0, RULE[0]) + SCHEMA.slice(RULE[1]));
-  });
-
-  test("a range cutting through a syntax run splits it; a segment is bright when it meets any range", () => {
-    // "name" alone, inside the rule: the rest of the rule dims.
-    const name: [number, number] = [SCHEMA.indexOf("name"), SCHEMA.indexOf("name") + 4];
-    const tstr: [number, number] = [SCHEMA.indexOf("tstr"), SCHEMA.indexOf("tstr") + 2];
-    const segments = overlaySegments(SCHEMA, tokenizeCddl(SCHEMA), [], bright([name, tstr]));
-    expect(brightText(segments)).toBe("namets");
-    expect(segments.find(s => s.start === tstr[1])).toMatchObject({ text: "tr", dim: true });
-  });
-
-  test("other marks keep painting where the text dims, and win nothing over the dimming", () => {
-    const marks = normaliseMarks([{ range: [0, 11], className: "comment-mark", priority: 99 }], SCHEMA.length);
-    const segments = overlaySegments(SCHEMA, tokenizeCddl(SCHEMA), marks, bright([RULE]));
-    const comment = segments.filter(s => s.end <= 11);
-    expect(comment.every(s => s.dim && s.mark?.className === "comment-mark")).toBe(true);
-  });
-
-  test("without ranges nothing is dim", () => {
-    expect(segmentsFor(SCHEMA).some(s => s.dim)).toBe(false);
-  });
-
-  test("lines carry the dimming, a hover layered on keeps it, and it counts as painting", () => {
-    const lines = overlayLines(SCHEMA, tokenizeCddl(SCHEMA), [], bright([RULE]));
-    expect(lines[0].segments.every(s => s.dim)).toBe(true);
-    expect(lines[1].segments.every(s => !s.dim)).toBe(true);
-    const hover = normaliseMarks([{ range: [2, 6], className: "hover" }], SCHEMA.length)[0];
-    const layered = layerMark(lines, hover);
-    expect(layered[0].segments.every(s => s.dim)).toBe(true);
-    expect(layered[0].segments.map(s => s.text).join("")).toBe(lines[0].segments.map(s => s.text).join(""));
-    const plain = overlayLines(SCHEMA, tokenizeCddl(SCHEMA), []);
-    expect(sameSegments(plain[0].segments, lines[0].segments)).toBe(false);
-    expect(sameSegments(plain[1].segments, lines[1].segments)).toBe(true);
   });
 });

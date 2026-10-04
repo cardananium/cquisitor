@@ -11,7 +11,6 @@ import type {
 import type { PanelMenuAction } from "./panelMenuActions";
 import { domPointAt, domRuns, hoverHexCharRangesAll, runElementsIn, type CharRange, type HexOccluder } from "./hexHover";
 import { boundedJson } from "@/utils/boundedJson";
-import { DIM_CLASS, DIM_RUN_CLASS } from "@/utils/annotations/spotlight";
 
 // Colors for CBOR syntax highlighting
 const CBOR_COLORS = [
@@ -164,8 +163,6 @@ export interface EditableHexViewProps {
   pinnedOtherSpans?: ExtraErrorSpan[];
   /** Annotated byte ranges, each painted with its own classes; a later span wins an overlap. */
   annotationSpans?: ReadonlyArray<AnnotatedSpan>;
-  /** Dim every run outside the annotated byte ranges. */
-  spotlight?: boolean;
   onHoverPath?: (path: string | null) => void;
   /** Byte offset of the run under the pointer (that node's header), or `null`. A run stays one node even inside a multi-node region. */
   onHoverByte?: (byteOffset: number | null) => void;
@@ -405,8 +402,6 @@ export interface HexMarkupInput {
   linkedSpans?: ExtraErrorSpan[];
   pinnedSpans?: ExtraErrorSpan[];
   annotationSpans?: ReadonlyArray<AnnotatedSpan>;
-  /** Dim every run (`cq-dim-run`) and region (`cq-dim`) that no annotation span covers. Off without annotation spans. */
-  spotlight?: boolean;
 }
 
 export interface HexMarkup {
@@ -475,8 +470,6 @@ function sameRun(a: CharPaint | undefined, b: CharPaint | undefined): boolean {
  */
 export function buildHexMarkup(input: HexMarkupInput): HexMarkup {
   const { hexValue, cborData, focusPosition, errorLocation, extraErrorSpans, linkedSpans, pinnedSpans, annotationSpans } = input;
-  // Runs never straddle an annotation's edge (its id splits them), so a run is in a span or clear of all of them.
-  const dimOutside = !!input.spotlight && !!annotationSpans && annotationSpans.length > 0;
   const places = new Map<number, NodePlace>();
   if (!hexValue) return { html: "", places };
   if (!cborData && !errorLocation && !(extraErrorSpans && extraErrorSpans.length > 0) && !(linkedSpans && linkedSpans.length > 0) && !(pinnedSpans && pinnedSpans.length > 0) && !(annotationSpans && annotationSpans.length > 0)) {
@@ -598,12 +591,8 @@ export function buildHexMarkup(input: HexMarkupInput): HexMarkup {
       const odd = hasOddity(paint);
       if (paint) {
         const title = escapeAttr(odd ? oddityTitle(paint) : paint.label);
-        const classes = [odd ? "hex-oddity" : "", dimOutside ? DIM_RUN_CLASS : ""].filter(Boolean).join(" ");
-        const className = classes ? ` class="${classes}"` : "";
+        const className = odd ? ' class="hex-oddity"' : "";
         html += `<span${className} style="background-color:${CBOR_COLORS[paint.colorIndex]};border-radius:2px" title="${title}" data-pos="${i}">${segment}</span>`;
-      } else if (dimOutside) {
-        // Bytes no node claims become a run of their own so they can dim too.
-        html += `<span class="${DIM_RUN_CLASS}" data-pos="${i}">${segment}</span>`;
       } else {
         html += segment;
       }
@@ -630,7 +619,6 @@ export function buildHexMarkup(input: HexMarkupInput): HexMarkup {
     }
     // An annotation keeps its classes under a stronger region, so the hint card still finds it.
     if (region.annotationClass) className += ` ${region.annotationClass}`;
-    else if (dimOutside) className += ` ${DIM_CLASS}`;
     const titleText = region.isError
       ? region.errorMessage ?? "CBOR parse error"
       : region.isLinked
@@ -825,7 +813,6 @@ export default function EditableHexView({
   pinnedSpans,
   pinnedOtherSpans,
   annotationSpans,
-  spotlight = false,
   onHoverPath,
   onHoverByte,
   onKeyDown,
@@ -992,11 +979,11 @@ export default function EditableHexView({
   // Markup: rebuilt when its inputs change, never for a hover.
   const buildHighlightedHTML = useCallback((): string => {
     const markup = buildHexMarkup({
-      hexValue, cborData, focusPosition, errorLocation, extraErrorSpans, linkedSpans, pinnedSpans, annotationSpans, spotlight,
+      hexValue, cborData, focusPosition, errorLocation, extraErrorSpans, linkedSpans, pinnedSpans, annotationSpans,
     });
     positionPathsRef.current = markup.places;
     return markup.html;
-  }, [cborData, hexValue, focusPosition, errorLocation, extraErrorSpans, linkedSpans, pinnedSpans, annotationSpans, spotlight]);
+  }, [cborData, hexValue, focusPosition, errorLocation, extraErrorSpans, linkedSpans, pinnedSpans, annotationSpans]);
 
   const hoverOccluders = useMemo<HexOccluder[]>(
     () => hoverOccludersFor({ pinnedSpans, errorLocation, extraErrorSpans, focusPosition }),

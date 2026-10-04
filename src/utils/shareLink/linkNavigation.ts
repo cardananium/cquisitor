@@ -22,3 +22,16 @@ export function opensNewLink(appliedHash: string | null, nextHash: string): bool
   const next = linkHashOf(nextHash);
   return next !== null && next !== appliedHash;
 }
+
+let openedFromLink: boolean | null = null;
+
+/**
+ * Whether this page load came from a link. Read once and kept for the life of the page, so later
+ * tab switches (bare `#tab` hashes) do not change it.
+ */
+export function pageOpenedFromLink(): boolean {
+  if (openedFromLink === null) {
+    openedFromLink = typeof window !== "undefined" && linkHashOf(window.location.hash) !== null;
+  }
+  return openedFromLink;
+}

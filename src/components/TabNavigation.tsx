@@ -30,7 +30,7 @@ export const TABS: readonly TabDefinition[] = [
     id: "general-cbor",
     name: "General CBOR",
     description:
-      "Parse and visualize any CBOR data with an interactive hex view. Click on tree nodes to highlight corresponding bytes.",
+      "Any CBOR as an editable hex view linked to a tree: click a node to light its bytes, see non-canonical encodings and where malformed input breaks.",
     accent: "#8b5cf6",
     visible: true,
   },
@@ -38,7 +38,7 @@ export const TABS: readonly TabDefinition[] = [
     id: "cardano-cbor",
     name: "Cardano CBOR",
     description:
-      "Decode Cardano-specific CBOR structures like transactions, blocks, witnesses, and protocol params with full type awareness.",
+      "Decode CBOR as a ledger type — transaction, block, witness set, datum, address, script and more. The possible types are detected for you.",
     accent: "#3b82f6",
     visible: true,
   },
@@ -46,7 +46,7 @@ export const TABS: readonly TabDefinition[] = [
     id: "cddl-validator",
     name: "CDDL Tool",
     description:
-      "Check CBOR against a CDDL schema — your own, or any Cardano ledger era. Pin a node to highlight it across schema, hex, decoded JSON and tree at once.",
+      "Check CBOR against a CDDL schema — your own or any ledger era. Each mismatch points at the bytes and the schema rule; pin a node to light it in every panel.",
     accent: "#f59e0b",
     visible: true,
   },
@@ -54,7 +54,7 @@ export const TABS: readonly TabDefinition[] = [
     id: "transaction-validator",
     name: "Transaction Validator",
     description:
-      "Validate Cardano transactions with Phase 1 & 2 checks. See execution units and detect errors in real-time.",
+      "Phase-1 and Phase-2 validation against live chain data. Load a tx by hash, see each script's budget, jump from an error to its field, debug scripts in de-uplc.",
     accent: "#22c55e",
     visible: true,
   },

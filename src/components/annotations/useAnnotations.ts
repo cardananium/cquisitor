@@ -8,7 +8,7 @@ import {
   type AnnotationTab,
   type TabAnnotations,
 } from "@/utils/annotations/store";
-import { spotlightStore, type SpotlightStore } from "@/utils/annotations/spotlight";
+import { spotlightStore, type SpotlightStore } from "@/utils/annotations/scrim";
 
 const serverSnapshot = (): TabAnnotations | null => null;
 const spotlightServerSnapshot = () => true;
@@ -21,7 +21,7 @@ export function useTabAnnotations(
   return useSyncExternalStore(store.subscribe, () => store.get(tab), serverSnapshot);
 }
 
-/** Whether views dim what is not annotated (the navigator's toggle). */
+/** Whether the scrim darkens the page around the focused target (the navigator's toggle). */
 export function useSpotlightEnabled(store: SpotlightStore = spotlightStore): boolean {
   return useSyncExternalStore(store.subscribe, store.enabled, spotlightServerSnapshot);
 }
