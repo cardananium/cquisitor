@@ -41,6 +41,7 @@ import {
 import { useSpotlightEnabled, useTabAnnotations } from "./useAnnotations";
 import AnnotationScrim from "./AnnotationScrim";
 import {
+  anchorOf,
   boxIsEmpty,
   clampOffset,
   dragKey,
@@ -48,6 +49,7 @@ import {
   offsetFor,
   placeCard,
   type Box,
+  type CardAnchor,
   type CardDrag,
   type CardOffset,
   type CardPlacement,
@@ -388,6 +390,14 @@ interface Layout {
   offscreen: boolean;
 }
 
+/** The side the card took in the last frame, and the focus request and viewport it was placed for. */
+interface Kept {
+  focusSeq: number;
+  width: number;
+  height: number;
+  anchor: CardAnchor | null;
+}
+
 /** The placement measured in the last frame, which a drag moves the card from. */
 interface Base {
   placement: CardPlacement;
@@ -448,6 +458,7 @@ export default function AnnotationLayer({
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<CardDrag | null>(null);
   const baseRef = useRef<Base | null>(null);
+  const keptRef = useRef<Kept | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
   const revealRef = useRef(onReveal);
   const findRef = useRef(findAnchor);
@@ -519,9 +530,10 @@ export default function AnnotationLayer({
       const anchor = resolved ? anchorFor(focus) : null;
       const marked = anchor ? container.querySelectorAll(`.${annotationAnchorClass(focus)}`) : null;
       const target = anchor && marked ? unionBox(anchor, marked, container) : null;
+      const parts = anchor && marked ? targetParts(focus, marked, anchor) : [];
       if (measureHoles && anchor && marked) {
         const viewport = viewportSize();
-        const holes = focusedHoles(targetParts(focus, marked, anchor), focus, viewport);
+        const holes = focusedHoles(parts, focus, viewport);
         const visible = scrimVisible({ active, enabled: spotlightOn, resolved, holes });
         setScrim((prev) =>
           visible
@@ -534,7 +546,14 @@ export default function AnnotationLayer({
       const clip = anchor ? visibleClip(anchor, container) : null;
       const size = { width: card.offsetWidth, height: card.offsetHeight };
       const viewport = viewportSize();
-      const placement = placeCard(target, clip, boxOf(container.getBoundingClientRect()), size, viewport);
+      // The card keeps its side while the focus request and the viewport stay the same.
+      const kept = keptRef.current;
+      const same = !!kept && kept.focusSeq === focusSeq && kept.width === viewport.width && kept.height === viewport.height;
+      const placement = placeCard(target, clip, boxOf(container.getBoundingClientRect()), size, viewport, {
+        parts: parts.map((p) => p.box),
+        keep: same ? kept.anchor : null,
+      });
+      keptRef.current = { focusSeq, ...viewport, anchor: anchorOf(placement) };
       const key = dragKey(focusSeq, placement.mode);
       if (dragRef.current && dragRef.current.key !== key) dragRef.current = null;
       baseRef.current = { placement, key, card: size };

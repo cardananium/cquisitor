@@ -2,7 +2,20 @@ import { describe, expect, test } from "bun:test";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AnnotationCard, statusTag, type AnnotationCardProps } from "./AnnotationLayer";
-import { clampOffset, dragKey, NO_OFFSET, offsetFor, placeCard, TALL_TARGET } from "./cardPlacement";
+import {
+  anchorOf,
+  CARD_CLEARANCE,
+  clampOffset,
+  dragKey,
+  intersectBoxes,
+  NO_OFFSET,
+  offsetFor,
+  overlapArea,
+  placeCard,
+  TALL_TARGET,
+  type Box,
+  type CardPlacement,
+} from "./cardPlacement";
 import { createAnnotationStore, type TabAnnotations } from "@/utils/annotations/store";
 import { scrimVisible } from "@/utils/annotations/scrim";
 
@@ -157,8 +170,10 @@ describe("drag offset", () => {
 
   test("applies only to the placement it was made against", () => {
     const drag = { key: dragKey(3, "below"), offset: { x: 40, y: -20 } };
-    // below and above are the same anchored placement
+    // every side of the target is the same anchored placement
     expect(offsetFor(drag, dragKey(3, "above"))).toEqual({ x: 40, y: -20 });
+    expect(offsetFor(drag, dragKey(3, "left"))).toEqual({ x: 40, y: -20 });
+    expect(offsetFor(drag, dragKey(3, "over"))).toEqual({ x: 40, y: -20 });
     // previous, next or a pick from the list is a new focus request
     expect(offsetFor(drag, dragKey(4, "below"))).toBe(NO_OFFSET);
     // docking or undocking
@@ -184,33 +199,130 @@ describe("placeCard", () => {
   const viewport = { width: 1200, height: 800 };
   const size = { width: 340, height: 160 };
   const dock = { top: 50, left: 0, bottom: 800, right: 1200 };
-  const clip = { top: 50, left: 600, bottom: 800, right: 1200 };
+  const screen = { top: 0, left: 0, bottom: 800, right: 1200 };
 
-  test("below the target when there is room", () => {
-    const p = placeCard({ top: 100, left: 640, bottom: 120, right: 900 }, clip, dock, size, viewport);
-    expect(p).toEqual({ mode: "below", top: 126, left: 640 });
+  function cardAt(p: CardPlacement): Box {
+    return { top: p.top, left: p.left, bottom: p.top + size.height, right: p.left + size.width };
+  }
+
+  function padded(b: Box): Box {
+    return { top: b.top - CARD_CLEARANCE, left: b.left - CARD_CLEARANCE, bottom: b.bottom + CARD_CLEARANCE, right: b.right + CARD_CLEARANCE };
+  }
+
+  /** Inside the viewport's margin and clear of the target. */
+  function expectBeside(p: CardPlacement, target: Box) {
+    const box = cardAt(p);
+    expect(box.left).toBeGreaterThanOrEqual(8);
+    expect(box.top).toBeGreaterThanOrEqual(8);
+    expect(box.right).toBeLessThanOrEqual(1200 - 8);
+    expect(box.bottom).toBeLessThanOrEqual(800 - 8);
+    expect(overlapArea(box, padded(intersectBoxes(target, screen)))).toBe(0);
+  }
+
+  test("below a row in the middle, lined up with its start", () => {
+    const row = { top: 390, left: 300, bottom: 410, right: 900 };
+    const p = placeCard(row, screen, dock, size, viewport);
+    expect(p).toEqual({ mode: "below", align: "start", top: 420, left: 300 });
+    expectBeside(p, row);
   });
 
-  test("above it near the bottom of its panel", () => {
-    const p = placeCard({ top: 700, left: 640, bottom: 720, right: 900 }, clip, dock, size, viewport);
+  test("above a target at the bottom of the viewport", () => {
+    const row = { top: 740, left: 100, bottom: 770, right: 700 };
+    const p = placeCard(row, screen, dock, size, viewport);
     expect(p.mode).toBe("above");
-    expect(p.top).toBe(700 - 6 - 160);
+    expect(p.top).toBe(740 - 10 - 160);
+    expectBeside(p, row);
   });
 
-  test("kept inside the viewport horizontally", () => {
-    const p = placeCard({ top: 100, left: 1100, bottom: 120, right: 1190 }, clip, dock, size, viewport);
+  test("a card at the right edge: kept inside the viewport above it, or left of a tall one", () => {
+    const low = { top: 560, left: 880, bottom: 780, right: 1190 };
+    const above = placeCard(low, screen, dock, size, viewport);
+    expect(above.mode).toBe("above");
+    expect(above.left).toBe(1200 - 340 - 8);
+    expectBeside(above, low);
+    const tall = { top: 60, left: 880, bottom: 780, right: 1190 };
+    const left = placeCard(tall, screen, dock, size, viewport);
+    expect(left).toEqual({ mode: "left", align: "start", top: 60, left: 880 - 10 - 340 });
+    expectBeside(left, tall);
+  });
+
+  test("right or left of a tall narrow target, on the side with more room", () => {
+    const column = { top: 100, left: 200, bottom: 700, right: 260 };
+    const right = placeCard(column, screen, dock, size, viewport);
+    expect(right.mode).toBe("right");
+    expect(right.left).toBe(270);
+    expectBeside(right, column);
+    const onRight = { top: 100, left: 900, bottom: 700, right: 960 };
+    const left = placeCard(onRight, screen, dock, size, viewport);
+    expect(left.mode).toBe("left");
+    expectBeside(left, onRight);
+    // A short token is not a column: the card goes below it.
+    const token = { top: 100, left: 20, bottom: 100 + TALL_TARGET, right: 40 };
+    expect(placeCard(token, screen, dock, size, viewport).mode).toBe("below");
+  });
+
+  test("uses the card's measured size", () => {
+    const row = { top: 300, left: 300, bottom: 320, right: 900 };
+    // A long hint does not fit below or above; the card goes beside the row.
+    const p = placeCard(row, screen, dock, { width: 280, height: 480 }, viewport);
+    expect(p.mode).toBe("right");
+    expect(p.left).toBe(910);
+  });
+
+  test("over a target larger than any free side, covering as little of it as it can", () => {
+    const wide = { top: 0, left: 0, bottom: 800, right: 1000 };
+    const p = placeCard(wide, screen, dock, size, viewport);
+    expect(p.mode).toBe("over");
     expect(p.left).toBe(1200 - 340 - 8);
+    expect(overlapArea(cardAt(p), padded(wide))).toBe((1008 - 852) * 160);
+    const huge = { top: -400, left: -400, bottom: 2000, right: 2000 };
+    const q = placeCard(huge, screen, dock, size, viewport);
+    expect(q.mode).toBe("over");
+    expect(cardAt(q).right).toBeLessThanOrEqual(1192);
+    expect(cardAt(q).bottom).toBeLessThanOrEqual(792);
+    expect(q.top).toBeGreaterThanOrEqual(8);
+    expect(q.left).toBeGreaterThanOrEqual(8);
   });
 
-  test("in the top corner of a tall target", () => {
-    const p = placeCard({ top: 100, left: 640, bottom: 100 + TALL_TARGET + 50, right: 1100 }, clip, dock, size, viewport);
-    expect(p).toEqual({ mode: "inside", top: 106, left: 1100 - 340 - 8 });
+  test("keeps its side while it still fits, then moves", () => {
+    const row = { top: 300, left: 300, bottom: 320, right: 900 };
+    expect(placeCard(row, screen, dock, size, viewport).mode).toBe("below");
+    const above = placeCard(row, screen, dock, size, viewport, { keep: { mode: "above", align: "start" } });
+    expect(above).toEqual({ mode: "above", align: "start", top: 300 - 10 - 160, left: 300 });
+    // Scrolled up: no room above any more.
+    const scrolled = { top: 120, left: 300, bottom: 140, right: 900 };
+    const moved = placeCard(scrolled, screen, dock, size, viewport, { keep: anchorOf(above) });
+    expect(moved.mode).toBe("below");
+    expectBeside(moved, scrolled);
+    // And it stays below on the way back down, though above has more room there.
+    const back = { top: 600, left: 300, bottom: 620, right: 900 };
+    expect(placeCard(back, screen, dock, size, viewport).mode).toBe("above");
+    expect(placeCard(back, screen, dock, size, viewport, { keep: anchorOf(moved) }).mode).toBe("below");
+  });
+
+  test("avoids the target's other parts when it can", () => {
+    const row = { top: 390, left: 300, bottom: 410, right: 900 };
+    const other = { top: 430, left: 300, bottom: 470, right: 700 };
+    const p = placeCard(row, screen, dock, size, viewport, { parts: [row, other] });
+    expect(p.mode).toBe("above");
+    expectBeside(p, row);
+    expect(overlapArea(cardAt(p), padded(other))).toBe(0);
+    // A kept side that would cover a part gives way.
+    const kept = placeCard(row, screen, dock, size, viewport, { parts: [row, other], keep: { mode: "below", align: "start" } });
+    expect(overlapArea(cardAt(kept), padded(other))).toBe(0);
+  });
+
+  test("only the part its scroll containers show counts", () => {
+    const clip = { top: 50, left: 600, bottom: 800, right: 1200 };
+    const p = placeCard({ top: 100, left: 300, bottom: 120, right: 900 }, clip, dock, size, viewport);
+    expect(p).toEqual({ mode: "below", align: "start", top: 130, left: 600 });
   });
 
   test("docked at the top of the tab when the target is scrolled away or missing", () => {
-    const away = placeCard({ top: 900, left: 640, bottom: 920, right: 900 }, clip, dock, size, viewport);
+    const away = placeCard({ top: 900, left: 640, bottom: 920, right: 900 }, screen, dock, size, viewport);
     expect(away.mode).toBe("docked");
     expect(away.top).toBe(58);
     expect(placeCard(null, null, dock, size, viewport).mode).toBe("docked");
+    expect(anchorOf(away)).toBeNull();
   });
 });
