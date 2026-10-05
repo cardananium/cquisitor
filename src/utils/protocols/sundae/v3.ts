@@ -76,7 +76,7 @@ export type StrategyAuthorization =
 
 // --- Parsers --------------------------------------------------------------
 
-function parseMultisig(d: PD): MultisigScript {
+export function parseMultisig(d: PD): MultisigScript {
   const c = asConstr(d);
   switch (c.tag) {
     case 0: // Signature { keyHash }

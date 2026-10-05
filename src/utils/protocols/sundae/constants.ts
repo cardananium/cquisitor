@@ -1,12 +1,24 @@
 // Known SundaeSwap protocol script hashes by network and protocol version.
 // Covers V3 mainnet, Stableswap mainnet, preview, and the V1 mainnet escrow.
 //
-// A future enhancement is to refresh these from https://api.sundae.fi/graphql
-// at runtime so we stay in sync with redeploys.
+// V1, V3 and Stableswap have fixed deployments, so their hashes are listed
+// here. V4 does not: it is deployed per environment with far more validators,
+// and its order datums are only readable against the deployment they belong to.
+// Those hashes live in `v4Registry.ts`, which reads them from the
+// environment-specific GraphQL API and falls back to a bundled snapshot.
+// `lookupSundaeScript` consults it after the tables below.
 
-export type SundaeProtocol = "V1" | "V3" | "Stableswap";
+import { lookupV4Script } from "./v4Registry";
 
-export type SundaeRole = "order" | "pool";
+export type SundaeProtocol = "V1" | "V3" | "Stableswap" | "V4";
+
+/**
+ * What a UTxO at a Sundae script address is. V1/V3/Stableswap only ever have
+ * orders and pools; V4 adds the settings nodes and the constraint/invariant
+ * modules, which are withdraw validators rather than places a UTxO sits — a
+ * module role appears on a withdrawal, not on an output.
+ */
+export type SundaeRole = "order" | "pool" | "settings" | "module";
 
 export interface SundaeScriptEntry {
   protocol: SundaeProtocol;
@@ -60,5 +72,21 @@ export function lookupSundaeScript(
     const match = table.find((e) => e.hash === lower);
     if (match) return match;
   }
+  // V4 is deployed per environment and its hashes come from the API rather than
+  // the table above, so it resolves through its own registry.
+  const v4 = lookupV4Script(lower, network);
+  if (v4) return { protocol: "V4", role: v4RoleFor(v4.title), hash: lower };
   return null;
+}
+
+/**
+ * Map a V4 validator title to a role. `pool.mint` and `pool.spend` are often
+ * one script, and the spend endpoint is the one a UTxO sits at, so the pool and
+ * settings prefixes win over the endpoint suffix.
+ */
+function v4RoleFor(title: string): SundaeRole {
+  if (title.startsWith("order.")) return "order";
+  if (title.startsWith("pool.")) return "pool";
+  if (title.startsWith("settings.")) return "settings";
+  return "module";
 }

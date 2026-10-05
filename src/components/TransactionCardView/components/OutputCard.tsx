@@ -7,6 +7,7 @@ import { CopyButton } from "./CopyButton";
 import { DiagnosticBadge } from "./DiagnosticBadge";
 import { HashWithTooltip } from "./HashWithTooltip";
 import { SundaeOrderPanel } from "./SundaeOrderPanel";
+import { SundaeV4OrderPanel } from "./SundaeV4OrderPanel";
 import { DexOrderPanel } from "./DexOrderPanel";
 import { AddressWithTooltip } from "../../AddressWithTooltip";
 import { getPathDiagnostics, getAddressLink, formatAda } from "../utils";
@@ -22,7 +23,12 @@ import {
   type DataOption,
   type InlineScriptInfo,
 } from "@cardananium/cquisitor-lib";
-import { detectSundaeOutput } from "@/utils/protocols/sundae";
+import {
+  detectSundaeOutput,
+  getV4Deployment,
+  lookupV4Script,
+  type SundaeRole,
+} from "@/utils/protocols/sundae";
 import { detectDexOutput, formatDexRole, dexThemeKey } from "@/utils/protocols/dex";
 import { useDecodedAddressVersion } from "@/lib/useDecodedAddress";
 import "@/utils/protocols/dex/adapters";
@@ -153,6 +159,14 @@ function formatScriptType(info: InlineScriptInfo | ExtendedScriptInfo | null | u
   return null;
 }
 
+/**
+ * Role name for the output tag. V1/V3 only ever have orders and pools; V4 adds
+ * settings nodes, so the role is rendered rather than branched on.
+ */
+function sundaeRoleLabel(role: SundaeRole): string {
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
 export function OutputCard({ 
   output, 
   index, 
@@ -216,6 +230,14 @@ export function OutputCard({
     void addressVersion;
     return detectSundaeOutput(output, network, effectiveDatums);
   }, [output, network, effectiveDatums, addressVersion]);
+
+  // A V4 pool's LP token and NFT are derived from the deployment's pool mint
+  // policy plus the pool ident, so the panel needs the policy to name them.
+  const v4PoolMintPolicy = useMemo(() => {
+    if (sundaeDetection?.match.protocol !== "V4") return null;
+    const match = lookupV4Script(sundaeDetection.match.hash, network);
+    return match ? getV4Deployment(match.network).byTitle["pool.mint"] ?? null : null;
+  }, [sundaeDetection, network]);
 
   // Generic DEX detection (Minswap, WingRiders, Splash, …) — matches the output
   // address against every registered adapter. Disjoint from Sundae's own table.
@@ -289,7 +311,7 @@ export function OutputCard({
             {sundaeDetection && (
               <span className="tcv-tag tcv-tag-sundae">
                 Sundae {sundaeDetection.match.protocol}{" "}
-                {sundaeDetection.match.role === "order" ? "Order" : "Pool"}
+                {sundaeRoleLabel(sundaeDetection.match.role)}
               </span>
             )}
             {dexDetection && (
@@ -397,7 +419,15 @@ export function OutputCard({
         </div>
       )}
       
-      {sundaeDetection && <SundaeOrderPanel detection={sundaeDetection} />}
+      {sundaeDetection &&
+        (sundaeDetection.match.protocol === "V4" ? (
+          <SundaeV4OrderPanel
+            detection={sundaeDetection}
+            poolMintPolicy={v4PoolMintPolicy}
+          />
+        ) : (
+          <SundaeOrderPanel detection={sundaeDetection} />
+        ))}
       {dexDetection && <DexOrderPanel detection={dexDetection} />}
 
       <div className="tcv-item-row tcv-ada-row">

@@ -28,6 +28,8 @@ import {
   type V3OrderDatum,
   type SignedStrategyExecution,
 } from "./v3";
+import { parseV4OrderDatum, parseV4OrderSpendRedeemer, type V4OrderDatum } from "./v4";
+import { buildV4Scoop, type V4ScoopInfo } from "./v4Scoop";
 
 export type V3OrderRedeemer =
   | { kind: "Scoop" }
@@ -36,10 +38,13 @@ export type V3OrderRedeemer =
 export interface SundaeInputDetection {
   match: SundaeScriptEntry;
   // The redeemer for this input, if we could resolve one and recognize its
-  // shape. V3 orders only — V1 / Stableswap have their own redeemer shapes.
+  // shape. V3 orders and V4 orders both reduce to Scoop / Cancel, which is all
+  // the input badge needs — V1 / Stableswap have their own redeemer shapes.
   redeemer?: V3OrderRedeemer;
   // The order's parsed datum, when both utxoInfo + inline datum are available.
   v3Order?: V3OrderDatum;
+  // The V4 order datum, for a V4 order input.
+  v4Order?: V4OrderDatum;
 }
 
 // One entry of the PoolScoop redeemer's `inputOrder` list.
@@ -75,6 +80,9 @@ export interface SundaeTxContext {
   sortedToBody: number[];
   // When the tx has a pool input being scooped, the parsed PoolScoop redeemer.
   scoop?: SundaeScoopInfo;
+  // V4's equivalent, which is a different shape entirely: a batch of orders
+  // against one or more pools, each pool spend carrying a transcript.
+  v4Scoop?: V4ScoopInfo;
 }
 
 function compareInputs(a: TransactionInput, b: TransactionInput): number {
@@ -230,6 +238,36 @@ export function buildSundaeTxContext(
       }
     }
 
+    // Parse a V4 order datum, which has its own shape.
+    if (utxoInfo && match.role === "order" && match.protocol === "V4") {
+      const out = utxoInfoToOutput(utxoInfo);
+      if (out.plutus_data && "Data" in out.plutus_data) {
+        const pd = decodePlutusJson(out.plutus_data.Data);
+        if (pd) {
+          try {
+            detection.v4Order = parseV4OrderDatum(pd);
+          } catch {
+            // Leave undefined; UI will show the script-hash-only state.
+          }
+        }
+      }
+    }
+
+    // Resolve a V4 order's spend redeemer. `Scoop` carries its own sorted input
+    // index, which the badge does not need, so both protocols collapse to the
+    // same Scoop / Cancel pair here.
+    if (match.protocol === "V4" && match.role === "order") {
+      const sortedIdx = bodyToSorted.get(i);
+      if (sortedIdx !== undefined) {
+        const r = spendRedeemers.get(sortedIdx);
+        if (r) {
+          const pd = decodePlutusJson(r.data);
+          const parsed = pd ? parseV4OrderSpendRedeemer(pd) : null;
+          if (parsed) detection.redeemer = { kind: parsed.kind };
+        }
+      }
+    }
+
     // Resolve redeemer (V3 + Stableswap share the same OrderRedeemer shape).
     if ((match.protocol === "V3" || match.protocol === "Stableswap") && match.role === "order") {
       const sortedIdx = bodyToSorted.get(i);
@@ -294,6 +332,12 @@ export function buildSundaeTxContext(
     }
     break;
   }
+
+  // V4's scoop is a separate reconstruction: a batch manifest, one or more pool
+  // transcripts, and per-order payouts. It needs resolved input UTxOs to read
+  // the order and pool datums, and returns null when the tx holds no V4 UTxO.
+  const v4 = buildV4Scoop(body, redeemers, network, inputUtxoInfoMap);
+  if (v4) ctx.v4Scoop = v4;
 
   return ctx;
 }

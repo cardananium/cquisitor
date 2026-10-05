@@ -21,7 +21,7 @@ const datumJson = JSONBig({
   constructorAction: "preserve",
   protoAction: "preserve",
 });
-import { SectionCard, InputCard, OutputCard, VKeyCard, RedeemerCard, MintSection, DiagnosticBadge, CertificateCard, WithdrawalCard, AuxiliaryDataSection, BootstrapWitnessCard, NativeScriptCard, TransactionDetailsSection, RequiredSignersCard, VotingProcedureCard, VotingProposalCard, PlutusScriptCard, PlutusDataCard, SundaeScoopBanner } from "./components";
+import { SectionCard, InputCard, OutputCard, VKeyCard, RedeemerCard, MintSection, DiagnosticBadge, CertificateCard, WithdrawalCard, AuxiliaryDataSection, BootstrapWitnessCard, NativeScriptCard, TransactionDetailsSection, RequiredSignersCard, VotingProcedureCard, VotingProposalCard, PlutusScriptCard, PlutusDataCard, SundaeScoopBanner, SundaeV4ScoopBanner } from "./components";
 import { AssetInfoProvider } from "./AssetInfoContext";
 import { PoolInfoProvider } from "./PoolInfoContext";
 import { UtxoInfoProvider } from "./UtxoInfoContext";
@@ -530,6 +530,7 @@ export default function TransactionCardView({
         </div>
         
         {sundaeCtx?.scoop && <SundaeScoopBanner scoop={sundaeCtx.scoop} />}
+        {sundaeCtx?.v4Scoop && <SundaeV4ScoopBanner scoop={sundaeCtx.v4Scoop} />}
 
         {/* Transaction Body Section */}
         <TopLevelSection
