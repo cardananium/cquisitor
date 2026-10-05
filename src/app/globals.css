@@ -9593,6 +9593,11 @@ a.tcv-hash-truncate:hover {
   border-radius: 8px;
   background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
   overflow: hidden;
+  /* .tcv-container is a flex column, so its children shrink by default. The
+     banner is tall, and the sections below it are taller still once expanded,
+     which squeezed it to almost nothing — it only appeared when everything
+     else was collapsed. It keeps its height instead. */
+  flex-shrink: 0;
 }
 
 .tcv-sundae-scoop-banner-header {
@@ -9934,6 +9939,323 @@ a.tcv-hash-truncate:hover {
 .tcv-sundae-issue-icon {
   font-weight: 700;
   flex-shrink: 0;
+}
+
+/* --- SundaeSwap V4: constraints, scoop graph, transcripts ---------------- */
+/* Shares the V4 panels' amber palette with the V3 panel above; only the pieces
+   V4 adds (constraint cards, the flow graph, module chips) are defined here. */
+
+.tcv-sundae-v4-constraint {
+  border: 1px solid #fcd9b6;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.55);
+  padding: 6px 8px;
+  margin-bottom: 6px;
+}
+.tcv-sundae-v4-constraint:last-child {
+  margin-bottom: 0;
+}
+
+.tcv-sundae-v4-constraint-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.tcv-sundae-v4-constraint-name {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #9a3412;
+  background: #fed7aa;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.tcv-sundae-v4-constraint-hash {
+  margin-left: auto;
+  font-family: monospace;
+  font-size: 10px;
+  color: #a8a29e;
+}
+
+/* A hash sits inside a flex row, and a flex item defaults to min-width:auto —
+   it refuses to shrink below its content, so the row overflows instead of the
+   hash ellipsizing. Letting these shrink is what makes .tcv-hash-truncate's
+   text-overflow actually apply. */
+.tcv-sundae-panel .tcv-sundae-row,
+.tcv-sundae-banner,
+.tcv-sundae-v4-constraint-head {
+  min-width: 0;
+}
+
+/* The banner's trailing script hash is pushed right by margin-left:auto; it
+   needs to shrink too, or it runs past the panel edge. */
+.tcv-sundae-script-hash {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tcv-sundae-panel .tcv-sundae-row > .tcv-sundae-mono,
+.tcv-sundae-v4-constraint-hash {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* An ADA figure reads as one token; let the note beside it wrap instead. */
+.tcv-sundae-panel .tcv-ada-amount {
+  white-space: nowrap;
+}
+
+.tcv-sundae-v4-modules {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tcv-sundae-v4-module {
+  font-size: 10px;
+  font-family: monospace;
+  color: #78350f;
+  background: #fef3c7;
+  border: 1px solid #fcd9b6;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.tcv-sundae-v4-details {
+  border-top: 1px dashed #fcd9b6;
+}
+.tcv-sundae-v4-details > summary {
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #92400e;
+}
+
+.tcv-sundae-v4-order-kind {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #9a3412;
+  background: #fed7aa;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 6px;
+}
+
+.tcv-sundae-v4-flow-inline {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.tcv-sundae-v4-order-flow-row > td {
+  padding-top: 0 !important;
+  padding-bottom: 6px !important;
+  border-top: none !important;
+}
+
+.tcv-sundae-v4-pool-block {
+  padding: 6px 12px;
+  border-bottom: 1px dashed #fcd9b6;
+}
+.tcv-sundae-v4-pool-block:last-child {
+  border-bottom: none;
+}
+
+.tcv-sundae-v4-legend-muted {
+  color: #a16207;
+}
+
+.tcv-sundae-v4-legend-warn {
+  color: #b45309;
+  font-weight: 600;
+}
+
+/* The legend's items carry a title attribute, so mark them as explainable. */
+.tcv-sundae-v4-legend-item[title] {
+  cursor: help;
+}
+
+.tcv-sundae-v4-maximize {
+  margin-left: 8px;
+  flex-shrink: 0;
+  border: 1px solid #a5b4fc;
+  background: rgba(255, 255, 255, 0.7);
+  color: #4338ca;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 7px;
+}
+
+.tcv-sundae-v4-maximize:hover {
+  background: #fff;
+  border-color: #6366f1;
+}
+
+/* Maximized: the banner takes the viewport, so a wide graph has room to be
+   read instead of scrolled a column at a time. */
+.tcv-sundae-scoop-banner.tcv-sundae-v4-maximized {
+  position: fixed;
+  inset: 16px;
+  z-index: 1001;
+  margin: 0;
+  overflow: auto;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.35);
+}
+
+.tcv-sundae-v4-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+/* --- The scoop flow graph --- */
+/* Flexbox lays the columns out; the edges are an absolutely positioned SVG
+   traced over the nodes' measured boxes, so a node can be any width. */
+
+.tcv-sundae-v4-graph {
+  border-bottom: 1px dashed #fcd9b6;
+}
+
+.tcv-sundae-v4-graph-scroll {
+  overflow-x: auto;
+  padding: 12px;
+}
+
+.tcv-sundae-v4-graph-canvas {
+  position: relative;
+  /* A grid rather than a row of flex columns: rows are shared across columns,
+     so a node sits level with the nodes it connects to. */
+  display: grid;
+  grid-auto-flow: column;
+  justify-content: space-between;
+  align-items: center;
+  column-gap: 36px;
+  row-gap: 10px;
+  min-width: fit-content;
+}
+
+.tcv-sundae-v4-graph-cell {
+  display: flex;
+  align-items: center;
+}
+
+.tcv-sundae-v4-graph-edges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.tcv-sundae-v4-graph-edges path {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.tcv-sundae-v4-edge-declared {
+  stroke: #ea580c;
+}
+/* A step naming its order is nearly as firm as a route constraint, so it is
+   solid too, one shade softer. */
+.tcv-sundae-v4-edge-transcript {
+  stroke: #f97316;
+}
+.tcv-sundae-v4-edge-deduced {
+  stroke: #f59e0b;
+  stroke-dasharray: 6 4;
+}
+.tcv-sundae-v4-edge-observed {
+  stroke: #a8a29e;
+  stroke-dasharray: 2 4;
+}
+
+.tcv-sundae-v4-graph-cell > .tcv-sundae-v4-node {
+  position: relative;
+  z-index: 1;
+}
+
+.tcv-sundae-v4-node {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  border: 1px solid #fcd9b6;
+  background: #fffbeb;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.tcv-sundae-v4-node-order {
+  border-color: #fdba74;
+  background: linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%);
+}
+
+.tcv-sundae-v4-node-step {
+  border-color: #fcd34d;
+  background: linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%);
+}
+
+.tcv-sundae-v4-node-asset {
+  border-style: dashed;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.tcv-sundae-v4-node-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  font-size: 11px;
+  color: #9a3412;
+}
+
+.tcv-sundae-v4-node-tag {
+  font-family: monospace;
+  font-size: 9px;
+  font-weight: 500;
+  color: #92400e;
+  background: #fde68a;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.tcv-sundae-v4-node-sub {
+  font-size: 10px;
+  color: #a16207;
+  font-family: monospace;
+}
+
+.tcv-sundae-v4-graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px 10px;
+  font-size: 11px;
+  color: #78350f;
+}
+
+.tcv-sundae-v4-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tcv-sundae-v4-legend-item svg path {
+  fill: none;
+  stroke-linecap: round;
 }
 
 /* --- Generic DEX tag + order/pool panel (Minswap, WingRiders, Splash, …) --- */

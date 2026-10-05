@@ -22,4 +22,7 @@ export { PlutusScriptCard } from "./PlutusScriptCard";
 export { PlutusDataCard } from "./PlutusDataCard";
 export { SundaeOrderPanel } from "./SundaeOrderPanel";
 export { SundaeScoopBanner } from "./SundaeScoopBanner";
+export { SundaeV4OrderPanel } from "./SundaeV4OrderPanel";
+export { SundaeV4ScoopBanner } from "./SundaeV4ScoopBanner";
+export { SundaeV4ScoopGraph, SundaeV4ScoopBalance } from "./SundaeV4ScoopGraph";
 
