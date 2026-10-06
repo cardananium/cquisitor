@@ -30,22 +30,25 @@ export type ValidatorResolution =
   | { kind: "other"; status: AnnotationStatus };
 
 /**
- * A validator location as the decoded-transaction views spell it: plutus data
- * sits under `elems` there (`witness_set.plutus_data.0` → `witness_set.plutus_data.elems.0`).
+ * A validator location as the decoded-transaction views spell it: plutus data sits under `elems`
+ * (`witness_set.plutus_data.0` → `witness_set.plutus_data.elems.0`), the votes of a voter under `votes`
+ * (`body.voting_procedures.0.1` → `body.voting_procedures.0.votes.1`), and input lists under `body`
+ * (the validator's `transaction.inputs.0` → `transaction.body.inputs.0`).
  */
 export function txViewPath(path: string): string {
-  const prefix = "transaction.witness_set.plutus_data.";
-  if (path.startsWith(prefix)) {
-    const suffix = path.slice(prefix.length);
-    if (/^\d+/.test(suffix)) return `${prefix}elems.${suffix}`;
-  }
-  return path;
+  path = path.replace(/^transaction\.(inputs|reference_inputs)\./, "transaction.body.$1.");
+  path = path.replace(/^(transaction\.body\.voting_procedures\.\d+)\.(\d+)(?=\.|$)/, "$1.votes.$2");
+  return path.replace(/^(transaction\.witness_set\.plutus_data)\.(\d+)(?=\.|$)/, "$1.elems.$2");
 }
+
+/** The decoded transaction keeps withdrawals in an object keyed by reward account; the views and the validator number them. */
+const WITHDRAWALS_PATH = "transaction.body.withdrawals";
 
 /** Whether a dotted path names a value inside `root`. */
 export function txPathExists(root: unknown, path: string): boolean {
   if (!path) return false;
   let at: unknown = root;
+  let walked = "";
   for (const segment of path.split(".")) {
     if (at === null || typeof at !== "object") return false;
     if (Array.isArray(at)) {
@@ -53,10 +56,15 @@ export function txPathExists(root: unknown, path: string): boolean {
       const i = Number(segment);
       if (i >= at.length) return false;
       at = at[i];
+    } else if (walked === WITHDRAWALS_PATH && /^\d+$/.test(segment)) {
+      const keys = Object.keys(at);
+      if (Number(segment) >= keys.length) return false;
+      at = (at as Record<string, unknown>)[keys[Number(segment)]];
     } else {
       if (!Object.prototype.hasOwnProperty.call(at, segment)) return false;
       at = (at as Record<string, unknown>)[segment];
     }
+    walked = walked ? `${walked}.${segment}` : segment;
   }
   return true;
 }

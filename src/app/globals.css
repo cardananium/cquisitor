@@ -7436,6 +7436,42 @@ input, textarea, select, button {
   font-weight: 500;
 }
 
+.gov-action-formatter {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.gov-bech32 {
+  flex-basis: 100%;
+  color: #0d9488;
+  font-weight: 600;
+  word-break: break-all;
+  text-decoration: none;
+}
+
+a.gov-bech32:hover {
+  color: #14b8a6;
+  text-decoration: underline;
+}
+
+.disallowed-voters-formatter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.disallowed-voter-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.disallowed-voter {
+  font-weight: 600;
+  word-break: break-all;
+}
+
 .gov-separator {
   color: #64748b;
   font-weight: 700;

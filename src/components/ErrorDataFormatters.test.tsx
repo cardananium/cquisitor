@@ -212,3 +212,37 @@ describe("render failures stay inside the value that failed", () => {
     await act(async () => root.unmount());
   });
 });
+
+describe("DisallowedVoters", () => {
+  const TX_HASH = "39b20e86e99b84e032e15e5006c483bdd13e457e96ba6f0302339c59046f9c6e";
+  const ACTION_ID = "gov_action18xeqaphfnwzwqvhptegqd3yrhhgnu3t7j6ax7qczxww9jpr0n3hqqfer9wd";
+  const errorData = {
+    disallowed_pairs: [
+      [
+        { stakingPoolKeyHash: "47114b23b4a237806f6cf1d2291c53dc26f1c1d16ced00db06736dc4" },
+        { txHash: Array.from(Buffer.from(TX_HASH, "hex")), index: 0 },
+      ],
+    ],
+  };
+
+  test("the header names the voter; no byte list", () => {
+    const message = getCleanedErrorMessage("Voters not allowed: [(StakingPoolKeyHash(\"47\"), GovernanceActionId { tx_hash: [57, 178], index: 0 })]", "DisallowedVoters", errorData);
+    expect(message).toStartWith("Stake pool pool1");
+    expect(message).toEndWith("may not vote on this governance action");
+    expect(message).not.toContain("tx_hash");
+  });
+
+  test("the details show the action as CIP-129, linked to Cardanoscan of the network", () => {
+    const html = renderToStaticMarkup(<ErrorDataDetails error={errorData} network="preview" />);
+    expect(html).toContain(`href="https://preview.cardanoscan.io/govAction/${ACTION_ID}"`);
+    expect(textOf(html)).toContain(ACTION_ID);
+    expect(textOf(html)).toContain(TX_HASH);
+  });
+
+  test("without a network the id is shown, not linked", () => {
+    const html = renderToStaticMarkup(<ErrorDataDetails error={errorData} />);
+    expect(html).not.toContain("<a ");
+    expect(textOf(html)).toContain(ACTION_ID);
+  });
+});
+

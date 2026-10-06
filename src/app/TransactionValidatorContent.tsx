@@ -405,8 +405,10 @@ function AddWitnessPanel({ txHex, missingKeyHash, onWitnessAdded }: AddWitnessPa
 const NO_MARKS: ReadonlyMap<number, AnnotationMark> = new Map();
 const NO_ANNOTATIONS: readonly CquisitorAnnotation[] = [];
 
-function DiagnosticsList({ items, onLocationClick, txHex, onWitnessAdded, annotationMarks = NO_MARKS, focusedItem = null, focusSeq = 0 }: {
+function DiagnosticsList({ items, onLocationClick, txHex, onWitnessAdded, network, annotationMarks = NO_MARKS, focusedItem = null, focusSeq = 0 }: {
   items: DiagnosticItem[];
+  /** Governance ids in the details link to this network's explorer. */
+  network?: NetworkType;
   onLocationClick?: (locations: string[]) => void;
   txHex?: string | null;
   onWitnessAdded?: (newHex: string) => void;
@@ -484,7 +486,7 @@ function DiagnosticsList({ items, onLocationClick, txHex, onWitnessAdded, annota
                 <Accordion.Content className="diagnostic-accordion-content">
                   <div className="diagnostic-details">
                     {item.errorData && (
-                      <ErrorDataDetails error={item.errorData} hint={item.hint} />
+                      <ErrorDataDetails error={item.errorData} hint={item.hint} network={network} />
                     )}
                     {item.errorType === "MissingVKeyWitnesses" && txHex && onWitnessAdded && (
                       <AddWitnessPanel
@@ -1132,19 +1134,8 @@ export default function TransactionValidatorContent() {
   const hasUsableUrlContext =
     contextSource === "url" && !!fetchedContext && useUrlContext && !ctxIncompatibleWarning;
 
-  // Transform validation paths to actual JSON paths
-  // Specific transformations for known path differences
-  const transformPathForJson = useCallback((path: string): string => {
-    // transaction.witness_set.plutus_data.X -> transaction.witness_set.plutus_data.elems.X
-    if (path.startsWith('transaction.witness_set.plutus_data.')) {
-      const suffix = path.slice('transaction.witness_set.plutus_data.'.length);
-      // Check if suffix starts with a number
-      if (/^\d+/.test(suffix)) {
-        return `transaction.witness_set.plutus_data.elems.${suffix}`;
-      }
-    }
-    return path;
-  }, []);
+  // Validator locations → the paths of the decoded transaction the views and the JSON viewer use
+  const transformPathForJson = txViewPath;
 
   // Handle clicking on a location in diagnostics
   const handleLocationClick = useCallback((locations: string[]) => {
@@ -1895,6 +1886,7 @@ export default function TransactionValidatorContent() {
                   onLocationClick={handleLocationClick}
                   txHex={txCborHex}
                   onWitnessAdded={handleWitnessAdded}
+                  network={network}
                   annotationMarks={annotationMarks.diagnostics}
                   focusedItem={focusedDiagnostic}
                   focusSeq={annotationState?.focusSeq ?? 0}

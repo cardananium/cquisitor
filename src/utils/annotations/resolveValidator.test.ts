@@ -49,6 +49,31 @@ describe("tx paths", () => {
     expect(txViewPath("transaction.body.fee")).toBe("transaction.body.fee");
   });
 
+  test("the validator's other spellings: votes under their voter, input lists under `body`", () => {
+    expect(txViewPath("transaction.body.voting_procedures.1.2")).toBe("transaction.body.voting_procedures.1.votes.2");
+    expect(txViewPath("transaction.body.voting_procedures.1")).toBe("transaction.body.voting_procedures.1");
+    expect(txViewPath("transaction.body.voting_procedures.1.votes.2")).toBe("transaction.body.voting_procedures.1.votes.2");
+    expect(txViewPath("transaction.inputs.3")).toBe("transaction.body.inputs.3");
+    expect(txViewPath("transaction.reference_inputs.0")).toBe("transaction.body.reference_inputs.0");
+    expect(txViewPath("transaction.body.inputs.3")).toBe("transaction.body.inputs.3");
+  });
+
+  test("a vote and a withdrawal are found where the decoded transaction keeps them", () => {
+    const decoded = {
+      transaction: {
+        body: {
+          voting_procedures: [{ voter: { DRep: {} }, votes: [{ action_id: {} }, { action_id: {} }] }],
+          withdrawals: { stake_a: "1", stake_b: "2" },
+        },
+      },
+    };
+    expect(txPathExists(decoded, txViewPath("transaction.body.voting_procedures.0.1"))).toBe(true);
+    expect(txPathExists(decoded, txViewPath("transaction.body.voting_procedures.0.2"))).toBe(false);
+    expect(txPathExists(decoded, "transaction.body.withdrawals.1")).toBe(true);
+    expect(txPathExists(decoded, "transaction.body.withdrawals.2")).toBe(false);
+    expect(txPathExists(decoded, "transaction.body.withdrawals.stake_a")).toBe(true);
+  });
+
   test("existence walks objects by key and arrays by index", () => {
     expect(txPathExists(DECODED, "transaction.body.outputs.1")).toBe(true);
     expect(txPathExists(DECODED, "transaction.body.outputs.1.amount.coin")).toBe(true);

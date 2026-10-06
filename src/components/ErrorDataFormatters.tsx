@@ -11,7 +11,10 @@ import {
   formatDurationSeconds,
   encodeDRepId,
   encodeCCHotId,
+  encodeGovernanceActionId,
+  getGovActionLink,
   poolIdHexToBech32,
+  type CardanoNetwork,
   type Value,
   type FeeDecomposition,
   type TxInput,
@@ -192,6 +195,21 @@ function formatVoterCip129(voter: unknown): string | null {
   }
 }
 
+/** The `[voter, governance action id]` pairs of a `DisallowedVoters` payload. */
+function disallowedPairs(data?: Record<string, unknown>): Array<{ voter: unknown; action: GovernanceActionId }> {
+  const raw = data?.disallowed_pairs ?? data?.disallowedPairs;
+  if (!Array.isArray(raw)) return [];
+  const pairs: Array<{ voter: unknown; action: GovernanceActionId }> = [];
+  for (const entry of raw) {
+    if (Array.isArray(entry) && entry.length === 2 && isGovernanceActionId(entry[1])) pairs.push({ voter: entry[0], action: entry[1] });
+  }
+  return pairs;
+}
+
+function isGovernanceActionId(value: unknown): value is GovernanceActionId {
+  return !!value && typeof value === "object" && Array.isArray((value as GovernanceActionId).txHash) && "index" in value;
+}
+
 const ERROR_TYPE_MESSAGES: Record<string, (data?: Record<string, unknown>) => string> = {
   // Phase 1 errors
   ValueNotConservedUTxO: () => "Value not conserved — inputs don't match outputs + fee",
@@ -242,6 +260,13 @@ const ERROR_TYPE_MESSAGES: Record<string, (data?: Record<string, unknown>) => st
     return formatted
       ? `${formatted} is not a registered voter`
       : "Voter is not registered in the ledger state";
+  },
+  DisallowedVoters: (data) => {
+    const pairs = disallowedPairs(data);
+    if (pairs.length === 0) return "A voter is not allowed to vote on the governance action";
+    const who = formatVoterCip129(pairs[0].voter) ?? "A voter";
+    const more = pairs.length > 1 ? ` (and ${pairs.length - 1} more)` : "";
+    return `${who} may not vote on this governance action${more}`;
   },
   InvalidConstitutionPolicyHash: (data) => {
     const supplied = data?.supplied_hash ?? data?.suppliedHash;
@@ -473,16 +498,49 @@ export function ExUnitsFormatter({ units }: { units: ExUnits }) {
   );
 }
 
+/** The network the diagnostics belong to: governance ids link to its Cardanoscan. */
+const GovNetworkContext = createContext<CardanoNetwork | undefined>(undefined);
+
 /**
- * Formats a Governance Action ID
+ * Formats a Governance Action ID: the CIP-129 bech32 id (a Cardanoscan link when the network is known),
+ * then the transaction hash and index it is made of.
  */
 export function GovActionIdFormatter({ actionId }: { actionId: GovernanceActionId }) {
+  const network = useContext(GovNetworkContext);
   const txHash = bytesToHex(actionId.txHash);
+  let bech32: string | null = null;
+  try {
+    bech32 = encodeGovernanceActionId({ txHash, index: Number(actionId.index) });
+  } catch {
+    bech32 = null;
+  }
   return (
     <div className="error-formatter gov-action-formatter">
+      {bech32 &&
+        (network ? (
+          <a className="gov-bech32" href={getGovActionLink(network, bech32)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+            {bech32}
+          </a>
+        ) : (
+          <span className="gov-bech32">{bech32}</span>
+        ))}
       <span className="gov-hash">{txHash}</span>
       <span className="gov-separator">#</span>
       <span className="gov-index">{String(actionId.index)}</span>
+    </div>
+  );
+}
+
+/** The voter / action pairs of a `DisallowedVoters` error, one row each. */
+function DisallowedVotersFormatter({ pairs }: { pairs: Array<{ voter: unknown; action: GovernanceActionId }> }) {
+  return (
+    <div className="error-formatter disallowed-voters-formatter">
+      {pairs.map(({ voter, action }, i) => (
+        <div key={i} className="disallowed-voter-row">
+          <span className="disallowed-voter">{formatVoterCip129(voter) ?? "Voter"}</span>
+          <GovActionIdFormatter actionId={action} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -872,6 +930,12 @@ function detectAndFormat(key: string, value: unknown): FormattedStructure | null
     };
   }
   
+  // The voter / action pairs of DisallowedVoters
+  if ((key === "disallowed_pairs" || key === "disallowedPairs") && Array.isArray(value)) {
+    const pairs = disallowedPairs({ disallowed_pairs: value });
+    if (pairs.length > 0) return { type: "DisallowedVoters", component: <DisallowedVotersFormatter pairs={pairs} /> };
+  }
+
   // Check for GovernanceActionId (txHash as array)
   if (typeof value === "object" && "txHash" in value && Array.isArray((value as GovernanceActionId).txHash) && "index" in value) {
     return {
@@ -1207,10 +1271,13 @@ export function ErrorFormatter({
  */
 export function ErrorDataDetails({ 
   error,
-  hint
+  hint,
+  network,
 }: { 
   error: Record<string, unknown>;
   hint?: string | null;
+  /** Governance ids link to this network's Cardanoscan. */
+  network?: CardanoNetwork;
 }) {
   const formattedParts = useMemo(() => {
     if (!error) return null;
@@ -1221,9 +1288,11 @@ export function ErrorDataDetails({
   if (!formattedParts) return null;
   
   return (
-    <div className="smart-message-formatter">
-      <FormattedPartsList parts={formattedParts} />
-    </div>
+    <GovNetworkContext.Provider value={network}>
+      <div className="smart-message-formatter">
+        <FormattedPartsList parts={formattedParts} />
+      </div>
+    </GovNetworkContext.Provider>
   );
 }
 
