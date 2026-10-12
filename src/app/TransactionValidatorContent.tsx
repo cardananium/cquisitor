@@ -1023,6 +1023,7 @@ export default function TransactionValidatorContent() {
     setCtxIncompatibleWarning,
     futureVersionWarning,
     setFutureVersionWarning,
+    txLinkFetch,
     handleApiKeyChange,
     clearAll,
   } = useTransactionValidator();
@@ -1543,6 +1544,7 @@ export default function TransactionValidatorContent() {
                 ctx: fetchedContext ?? undefined,
                 capturedAt: contextCapturedAt ?? undefined,
               },
+              txHash: decodedTx?.transaction_hash,
             };
           }}
         />
@@ -1821,6 +1823,27 @@ export default function TransactionValidatorContent() {
           <span>{isLoading ? "Validating..." : "Validate"}</span>
         </button>
       </div>
+
+      {/* A `tx=<hash>` link: the transaction is being fetched from the chain, or that failed. */}
+      {txLinkFetch?.status === "loading" && (
+        <div className="validator-info-banner">
+          <SpinnerIcon size={14} className="animate-spin" />
+          <span>
+            Loading transaction <code>{txLinkFetch.hash.slice(0, 16)}…</code> from{" "}
+            {txLinkFetch.provider === "blockfrost" ? "Blockfrost" : "Koios"} on {network}…
+          </span>
+        </div>
+      )}
+      {txLinkFetch?.status === "error" && (
+        <div className="validator-error-banner">
+          <DiagnosticIcon severity="error" />
+          <span>
+            Could not load transaction <code>{txLinkFetch.hash.slice(0, 16)}…</code> from{" "}
+            {txLinkFetch.provider === "blockfrost" ? "Blockfrost" : "Koios"} on {network}:{" "}
+            {txLinkFetch.message}
+          </span>
+        </div>
+      )}
 
       {/* Error banner */}
       {error && (

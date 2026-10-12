@@ -21,6 +21,7 @@ The app is a single page with four hash-routed tabs:
 2. Enter your [Koios API key](https://koios.rest/pricing/Pricing.html). The key is stored in `localStorage` and only ever sent to Koios.
 3. Pick the network (mainnet / preprod / preview) and click **Validate**. The tool fetches the necessary on-chain state and runs Phase 1 & 2 validation.
 4. Errors and warnings appear inline on the decoded JSON. Click any diagnostic to jump to the offending field; click the Share button to encode the current state into a URL.
+5. To link to a transaction that is already on-chain, use `/tx/<hash>` (add `?net=preprod` or `?net=preview` for a testnet). The page fetches the CBOR from Koios, or from Blockfrost when a Blockfrost key is stored. `#transaction-validator?tx=<hash>&net=<network>` is the same link in hash form, and the Share dialog offers it as **By transaction hash**.
 
 ### Cardano CBOR (`#cardano-cbor`)
 1. Paste any Cardano CBOR (hex or base64).
