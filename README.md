@@ -19,7 +19,7 @@ The app is a single page with four hash-routed tabs:
 ### Transaction Validator (`#transaction-validator`)
 1. Paste a transaction CBOR (hex or base64) into the left panel.
 2. Enter your [Koios API key](https://koios.rest/pricing/Pricing.html). The key is stored in `localStorage` and only ever sent to Koios.
-3. Pick the network (mainnet / preprod / preview) and click **Validate**. The tool fetches the necessary on-chain state and runs Phase 1 & 2 validation.
+3. Pick the network (mainnet / preprod / preview) and click **Validate**. The tool fetches the necessary on-chain state and runs Phase 1 & 2 validation. Tick **Validate automatically** to skip the button: with an API key set, every newly pasted or loaded transaction is validated at once. The choice is remembered in `localStorage`.
 4. Errors and warnings appear inline on the decoded JSON. Click any diagnostic to jump to the offending field; click the Share button to encode the current state into a URL.
 
 ### Cardano CBOR (`#cardano-cbor`)

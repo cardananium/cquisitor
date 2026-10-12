@@ -29,6 +29,7 @@ import { annotationStore } from "@/utils/annotations/store";
 const KOIOS_API_KEY_STORAGE_KEY = "cquisitor_koios_api_key";
 const BLOCKFROST_API_KEY_STORAGE_PREFIX = "cquisitor_blockfrost_api_key";
 const PROVIDER_STORAGE_KEY = "cquisitor_data_provider";
+const AUTO_VALIDATE_STORAGE_KEY = "cquisitor_auto_validate";
 
 const NETWORKS: ReadonlyArray<NetworkType> = ["mainnet", "preview", "preprod"];
 
@@ -95,6 +96,8 @@ interface TransactionValidatorState {
   ctxIncompatibleWarning: boolean;
   /** Warning: URL's format version is greater than this build supports */
   futureVersionWarning: boolean;
+  /** User preference: validate a newly pasted or loaded transaction without pressing Validate */
+  autoValidate: boolean;
 }
 
 interface TransactionValidatorContextType extends TransactionValidatorState {
@@ -117,6 +120,7 @@ interface TransactionValidatorContextType extends TransactionValidatorState {
   setUseUrlContext: (value: boolean) => void;
   setCtxIncompatibleWarning: (value: boolean) => void;
   setFutureVersionWarning: (value: boolean) => void;
+  setAutoValidate: (value: boolean) => void;
   handleApiKeyChange: (value: string) => void;
   clearAll: () => void;
 }
@@ -186,6 +190,17 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
   const [useUrlContext, setUseUrlContext] = useState(true);
   const [ctxIncompatibleWarning, setCtxIncompatibleWarning] = useState(false);
   const [futureVersionWarning, setFutureVersionWarning] = useState(false);
+  const [autoValidate, setAutoValidateState] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(AUTO_VALIDATE_STORAGE_KEY) === "true";
+  });
+  const setAutoValidate = useCallback((value: boolean) => {
+    setAutoValidateState(value);
+    if (typeof window !== "undefined") {
+      if (value) localStorage.setItem(AUTO_VALIDATE_STORAGE_KEY, "true");
+      else localStorage.removeItem(AUTO_VALIDATE_STORAGE_KEY);
+    }
+  }, []);
 
   // Save the API key for the currently active provider. Blockfrost is scoped
   // by network; Koios is a single shared key.
@@ -290,6 +305,7 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
         useUrlContext,
         ctxIncompatibleWarning,
         futureVersionWarning,
+        autoValidate,
         setTxInput,
         setNetwork,
         setProvider,
@@ -309,6 +325,7 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
         setUseUrlContext,
         setCtxIncompatibleWarning,
         setFutureVersionWarning,
+        setAutoValidate,
         handleApiKeyChange,
         clearAll,
       }}

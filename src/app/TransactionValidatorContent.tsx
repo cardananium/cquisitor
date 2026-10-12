@@ -1023,6 +1023,8 @@ export default function TransactionValidatorContent() {
     setCtxIncompatibleWarning,
     futureVersionWarning,
     setFutureVersionWarning,
+    autoValidate,
+    setAutoValidate,
     handleApiKeyChange,
     clearAll,
   } = useTransactionValidator();
@@ -1358,6 +1360,19 @@ export default function TransactionValidatorContent() {
     runValidation,
   ]);
 
+  // Auto-validate preference: run validation as soon as a transaction decodes, when an API key
+  // is set. Once per transaction hash, so clearing a result or editing the witness set (which
+  // keeps the hash) does not run it again. A link that carries context is handled above.
+  const autoValidatedTxRef = useRef<string | null>(null);
+  useEffect(() => {
+    const txHash = decodedTx?.transaction_hash;
+    if (!autoValidate || !txHash || !apiKey.trim() || hasUsableUrlContext) return;
+    if (result || isLoading) return;
+    if (autoValidatedTxRef.current === txHash) return;
+    autoValidatedTxRef.current = txHash;
+    void runValidation(false);
+  }, [autoValidate, decodedTx, apiKey, hasUsableUrlContext, result, isLoading, runValidation]);
+
   // Called after a witness is spliced into the transaction. Adding a signature
   // leaves the body bytes (and tx hash) unchanged, so the already-fetched
   // validation context is still valid — re-run validation against it locally,
@@ -1661,6 +1676,20 @@ export default function TransactionValidatorContent() {
             className={`validator-input ${!apiKey.trim() ? 'validator-input-required' : ''}`}
           />
         </div>
+
+        <label
+          className="control-group auto-validate-toggle"
+          title="Run validation as soon as a transaction is pasted or loaded, when an API key is set"
+        >
+          <span className="auto-validate-toggle-row">
+            <input
+              type="checkbox"
+              checked={autoValidate}
+              onChange={(e) => setAutoValidate(e.target.checked)}
+            />
+            <span>Validate automatically</span>
+          </span>
+        </label>
       </div>
 
       {/* Provider-specific coverage note: Blockfrost has narrower coverage
