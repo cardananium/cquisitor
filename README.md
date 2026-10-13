@@ -11,6 +11,7 @@ A browser-based investigator for [CBOR](https://cbor.io) and [Cardano](https://c
 - **You're poking at a non-Cardano CBOR.** General CBOR is a schema-agnostic explorer: a hex editor on one side, a structural tree on the other, no Cardano assumptions in the way.
 - **You're writing or debugging a CDDL schema.** The CDDL Tool lets you edit a schema next to a CBOR blob, mapping parse and match errors onto both at the same time. All six Cardano ledger era schemas are one pick away; the Conway one ships with the app, so it needs no download at all.
 - **You want to share a debugging session.** Most tabs have a Share button that bakes the current input into a URL.
+- **You need to know whose address a transaction pays.** The address book names the addresses you trust, and flags an address that only looks like one of them — see [Address book](#address-book).
 
 ## How to use it
 
@@ -39,7 +40,19 @@ The app is a single page with four hash-routed tabs:
 4. Hover a node in any panel to see it in the other three; right-click to pin it there.
 5. **Share** puts the schema, the root rule and the CBOR into the URL.
 
-All decoding, schema parsing, and validation runs entirely in the browser via the [`@cardananium/cquisitor-lib`](https://github.com/cardananium/cquisitor-lib) WASM bindings. The network is used for the Koios fetch in the Transaction Validator and for the CDDL Tool's era schemas, which come from `raw.githubusercontent.com` on a preset pick (Conway is bundled) — see [SECURITY.md](./SECURITY.md) for details.
+### Address book
+
+Every address a transaction shows carries a `+` button. Name an address once and it carries that name, and a green check, wherever it appears again.
+
+- **Green check** — an address you saved. A contract address matches on its payment script, so one entry covers every address that contract uses.
+- **Blue tag** — a script the [eternl Cardano registry](https://github.com/Tastenkunst/eternl-cardano-registry) names, e.g. `SundaeSwap · Liquidity Pool`. It is a third-party claim, not a check you made, and the badge says so. One click promotes it into your own book.
+- **Amber warning** — the address is in neither list, and its first or last characters agree with one that is. That is what address poisoning looks like: an attacker grinds a key until the two ends of the string read like an address you trust. The tooltip shows both strings with the matching characters marked.
+
+The **Addresses** button in the header opens the book: edit a label, delete an entry, export or import the list as JSON, and decide where the registry data comes from. The book lives in this browser's `localStorage` and goes nowhere else.
+
+The registry ships with the app as a generated snapshot (`src/utils/addressbook/eternlRegistry.generated.ts`, refreshed with `bun scripts/refresh-eternl-registry.ts`), so a first visit needs no network call. It is then refreshed from `raw.githubusercontent.com` once a day, which keeps a newly classified contract named without a release; turn that off in the panel to use the snapshot alone. A reply that does not parse, or that carries too few scripts, is dropped and the snapshot stands.
+
+All decoding, schema parsing, and validation runs entirely in the browser via the [`@cardananium/cquisitor-lib`](https://github.com/cardananium/cquisitor-lib) WASM bindings. The network is used for the Koios fetch in the Transaction Validator, for the CDDL Tool's era schemas, which come from `raw.githubusercontent.com` on a preset pick (Conway is bundled), and for the address book's daily registry refresh from the same host — see [SECURITY.md](./SECURITY.md) for details.
 
 ## Run locally
 

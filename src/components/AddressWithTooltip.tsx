@@ -3,12 +3,17 @@
 import React from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useDecodedAddress } from "@/lib/useDecodedAddress";
+import { useAddressMatch, useRegistryState } from "@/lib/useAddressBook";
+import { AddressBookMark, matchRowClass } from "./addressbook/AddressBookMark";
+import { describeRegistrySource } from "@/utils/addressbook/describe";
 import { CopyIcon, CheckIcon } from "./Icons";
 
 interface AddressWithTooltipProps {
   address: string;
   linkUrl?: string | null;
   showCopy?: boolean;
+  /** Set false where the row has no space for the address book badge. */
+  showAddressBook?: boolean;
 }
 
 function CopyButton({ text, className = "" }: { text: string; className?: string }) {
@@ -55,10 +60,23 @@ function getCredentialTypeIcon(type: string): string {
 export function AddressWithTooltip({ 
   address, 
   linkUrl, 
-  showCopy = true 
+  showCopy = true,
+  showAddressBook = true,
 }: AddressWithTooltipProps) {
   // Decode is async; render the address now and fill the tooltip when it lands.
   const decoded = useDecodedAddress(address);
+  // The address book answer: the viewer's own label, the registry's name for
+  // the script, or a warning that the string only looks like one of those.
+  const match = useAddressMatch(showAddressBook ? address : null);
+  const registry = useRegistryState();
+  const mark = showAddressBook ? (
+    <AddressBookMark
+      address={address}
+      match={match}
+      registryNote={describeRegistrySource(registry)}
+    />
+  ) : null;
+  const rowClass = showAddressBook ? matchRowClass(match) : "";
 
   const addressContent = linkUrl ? (
     <a 
@@ -76,8 +94,9 @@ export function AddressWithTooltip({
   if (!decoded) {
     // If decoding failed, just show the address without tooltip
     return (
-      <div className="address-with-tooltip-wrapper">
+      <div className={`address-with-tooltip-wrapper ${rowClass}`}>
         {addressContent}
+        {mark}
         {showCopy && <CopyButton text={address} />}
       </div>
     );
@@ -87,7 +106,7 @@ export function AddressWithTooltip({
 
   return (
     <Tooltip.Provider delayDuration={300}>
-      <div className="address-with-tooltip-wrapper">
+      <div className={`address-with-tooltip-wrapper ${rowClass}`}>
         <Tooltip.Root>
           <Tooltip.Trigger asChild>
             {addressContent}
@@ -175,6 +194,7 @@ export function AddressWithTooltip({
             </Tooltip.Content>
           </Tooltip.Portal>
         </Tooltip.Root>
+        {mark}
         {showCopy && <CopyButton text={address} />}
       </div>
     </Tooltip.Provider>
