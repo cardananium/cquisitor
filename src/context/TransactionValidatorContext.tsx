@@ -9,6 +9,7 @@ import {
   ReactNode,
 } from "react";
 import {
+  fetchTxCbor,
   parseHash,
   parseValidatorShare,
   type DataProvider,
@@ -20,6 +21,7 @@ import {
   type ValidationResult,
 } from "@cardananium/cquisitor-lib";
 import { annotationStore } from "@/utils/annotations/store";
+import { readTxLinkParams, type TxLinkTarget } from "@/utils/shareLink/txLink";
 
 // Blockfrost project_ids are strictly tied to a single network, so they are
 // stored per-network. Koios tokens are valid across networks per koios.rest's
@@ -69,6 +71,11 @@ export type InputUtxoInfoMap = Map<string, KoiosUtxoInfo>;
 
 export type ContextSource = "url" | "koios" | "blockfrost" | null;
 
+/** Progress of fetching the transaction a `tx=<hash>` link names. */
+export type TxLinkFetch =
+  | { status: "loading"; hash: string; provider: DataProvider }
+  | { status: "error"; hash: string; provider: DataProvider; message: string };
+
 interface TransactionValidatorState {
   txInput: string;
   network: NetworkType;
@@ -98,6 +105,8 @@ interface TransactionValidatorState {
   futureVersionWarning: boolean;
   /** User preference: validate a newly pasted or loaded transaction without pressing Validate */
   autoValidate: boolean;
+  /** The on-chain fetch a `tx=<hash>` link started; null once it has loaded or there was none */
+  txLinkFetch: TxLinkFetch | null;
 }
 
 interface TransactionValidatorContextType extends TransactionValidatorState {
@@ -130,21 +139,25 @@ const TransactionValidatorContext = createContext<TransactionValidatorContextTyp
 interface InitialValidatorState {
   txInput: string;
   network: NetworkType;
+  /** A `tx=<hash>` link: the transaction to fetch from the chain. Ignored when `cbor` is given. */
+  txLink: TxLinkTarget | null;
 }
 
 function readInitialValidatorState(): InitialValidatorState {
-  const defaults: InitialValidatorState = { txInput: "", network: "mainnet" };
+  const defaults: InitialValidatorState = { txInput: "", network: "mainnet", txLink: null };
   if (typeof window === "undefined") return defaults;
   const { tab, params } = parseHash(window.location.hash);
   if (tab !== "transaction-validator") return defaults;
   const cbor = params.get("cbor");
   const net = params.get("net");
+  const txLink = cbor ? null : readTxLinkParams(params);
   return {
     txInput: cbor ?? "",
     network:
       net === "mainnet" || net === "preview" || net === "preprod"
         ? (net as NetworkType)
-        : "mainnet",
+        : txLink?.net ?? "mainnet",
+    txLink,
   };
 }
 
@@ -202,6 +215,14 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
     }
   }, []);
 
+  // Blockfrost needs a key, so without one stored a `tx=<hash>` link is fetched from Koios,
+  // which works without a key.
+  const txLinkProvider: DataProvider =
+    provider === "blockfrost" && !apiKey.trim() ? "koios" : provider;
+  const [txLinkFetch, setTxLinkFetch] = useState<TxLinkFetch | null>(() =>
+    initial.txLink ? { status: "loading", hash: initial.txLink.hash, provider: txLinkProvider } : null,
+  );
+
   // Save the API key for the currently active provider. Blockfrost is scoped
   // by network; Koios is a single shared key.
   const handleApiKeyChange = useCallback(
@@ -244,6 +265,38 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
     setContextCapturedAt(null);
     setCtxIncompatibleWarning(false);
     setFutureVersionWarning(false);
+  }, []);
+
+  // `tx=<hash>` link: fetch the transaction's CBOR from the chain once on mount.
+  useEffect(() => {
+    const target = initial.txLink;
+    if (!target) return;
+    const fetchProvider = txLinkProvider;
+    let cancelled = false;
+    fetchTxCbor(target.hash, {
+      provider: fetchProvider,
+      network: target.net,
+      apiKey: apiKey.trim() || undefined,
+    })
+      .then((cbor) => {
+        if (cancelled) return;
+        setTxInput(cbor);
+        setTxLinkFetch(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setTxLinkFetch({
+          status: "error",
+          hash: target.hash,
+          provider: fetchProvider,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Runs once: the link is read at page load, with the provider and key stored at that time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Rich payload hydration (v=1 with optional ctx) — runs once on mount.
@@ -306,6 +359,7 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
         ctxIncompatibleWarning,
         futureVersionWarning,
         autoValidate,
+        txLinkFetch,
         setTxInput,
         setNetwork,
         setProvider,
