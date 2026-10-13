@@ -31,6 +31,7 @@ import { readTxLinkParams, type TxLinkTarget } from "@/utils/shareLink/txLink";
 const KOIOS_API_KEY_STORAGE_KEY = "cquisitor_koios_api_key";
 const BLOCKFROST_API_KEY_STORAGE_PREFIX = "cquisitor_blockfrost_api_key";
 const PROVIDER_STORAGE_KEY = "cquisitor_data_provider";
+const AUTO_VALIDATE_STORAGE_KEY = "cquisitor_auto_validate";
 
 const NETWORKS: ReadonlyArray<NetworkType> = ["mainnet", "preview", "preprod"];
 
@@ -102,6 +103,8 @@ interface TransactionValidatorState {
   ctxIncompatibleWarning: boolean;
   /** Warning: URL's format version is greater than this build supports */
   futureVersionWarning: boolean;
+  /** User preference: validate a newly pasted or loaded transaction without pressing Validate */
+  autoValidate: boolean;
   /** The on-chain fetch a `tx=<hash>` link started; null once it has loaded or there was none */
   txLinkFetch: TxLinkFetch | null;
 }
@@ -126,6 +129,7 @@ interface TransactionValidatorContextType extends TransactionValidatorState {
   setUseUrlContext: (value: boolean) => void;
   setCtxIncompatibleWarning: (value: boolean) => void;
   setFutureVersionWarning: (value: boolean) => void;
+  setAutoValidate: (value: boolean) => void;
   handleApiKeyChange: (value: string) => void;
   clearAll: () => void;
 }
@@ -199,6 +203,17 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
   const [useUrlContext, setUseUrlContext] = useState(true);
   const [ctxIncompatibleWarning, setCtxIncompatibleWarning] = useState(false);
   const [futureVersionWarning, setFutureVersionWarning] = useState(false);
+  const [autoValidate, setAutoValidateState] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(AUTO_VALIDATE_STORAGE_KEY) === "true";
+  });
+  const setAutoValidate = useCallback((value: boolean) => {
+    setAutoValidateState(value);
+    if (typeof window !== "undefined") {
+      if (value) localStorage.setItem(AUTO_VALIDATE_STORAGE_KEY, "true");
+      else localStorage.removeItem(AUTO_VALIDATE_STORAGE_KEY);
+    }
+  }, []);
   // Blockfrost needs a key, so without one stored a `tx=<hash>` link is fetched from Koios,
   // which works without a key.
   const txLinkProvider: DataProvider =
@@ -342,6 +357,7 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
         useUrlContext,
         ctxIncompatibleWarning,
         futureVersionWarning,
+        autoValidate,
         txLinkFetch,
         setTxInput,
         setNetwork,
@@ -362,6 +378,7 @@ export function TransactionValidatorProvider({ children }: { children: ReactNode
         setUseUrlContext,
         setCtxIncompatibleWarning,
         setFutureVersionWarning,
+        setAutoValidate,
         handleApiKeyChange,
         clearAll,
       }}
