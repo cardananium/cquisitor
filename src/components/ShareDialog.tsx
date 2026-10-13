@@ -15,13 +15,19 @@ import {
   type CddlShareInput,
 } from "@cardananium/cquisitor-lib";
 import { getBuildLinkOpts } from "@/utils/shareLink/buildLinkOpts";
+import { buildTxLink } from "@/utils/shareLink/txLink";
 import { useTabAnnotations } from "@/components/annotations/useAnnotations";
 import type { AnnotationTab } from "@/utils/annotations/store";
 
 const URL_WARN_THRESHOLD = 4096;
 
 export type ShareDialogTarget =
-  | { kind: "validator"; input: ValidatorShareInput }
+  | {
+      kind: "validator";
+      input: ValidatorShareInput;
+      /** The decoded transaction's hash: offers a link that names the transaction by hash. */
+      txHash?: string;
+    }
   | { kind: "cardano-cbor"; input: CardanoCborShareInput }
   | { kind: "general-cbor"; input: GeneralCborShareInput }
   | { kind: "cddl"; input: CddlShareInput };
@@ -35,7 +41,7 @@ interface ShareDialogProps {
   target: ShareDialogInput;
 }
 
-type ModeKind = "compressed" | "readable" | "minimal";
+type ModeKind = "compressed" | "readable" | "minimal" | "hash";
 
 const TAB_OF: Record<ShareDialogTarget["kind"], AnnotationTab> = {
   validator: "transaction-validator",
@@ -51,6 +57,7 @@ function formatByteCount(n: number): string {
 
 export default function ShareDialog({ open, onOpenChange, target }: ShareDialogProps) {
   const hasCtx = target.kind === "validator" && !!target.input.ctx;
+  const txHash = target.kind === "validator" ? target.txHash : undefined;
   const pageHasCompressibleState = target.kind !== "general-cbor" || target.input.cbor.length > 200;
 
   // CDDL era schemas are ~25 KB; default to compression even without validation context.
@@ -88,6 +95,9 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
     let cancelled = false;
     const opts = getBuildLinkOpts();
     const run = async (): Promise<string> => {
+      if (mode === "hash" && target.kind === "validator" && target.txHash) {
+        return buildTxLink(opts, { hash: target.txHash, net: target.input.net });
+      }
       switch (target.kind) {
         case "validator":
           return encodeValidatorLink(opts, { ...target.input, ...carried }, shareMode, includeCtx);
@@ -119,7 +129,7 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
     return () => {
       cancelled = true;
     };
-  }, [target, shareMode, includeCtx, carried]);
+  }, [target, mode, shareMode, includeCtx, carried]);
 
   const url = urlState.status === "ok" ? urlState.url : "";
   const encoding = urlState.status === "encoding";
@@ -141,6 +151,8 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
   const overThreshold = byteLen > URL_WARN_THRESHOLD;
 
   const compressionDisabled = target.kind === "validator" && !includeCtx;
+  // A by-hash link carries nothing but the hash, so the payload options do not apply to it.
+  const hashMode = mode === "hash";
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -230,9 +242,29 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
                   </div>
                 </div>
               </label>
+
+              {txHash && (
+                <label className="share-dialog-option">
+                  <input
+                    type="radio"
+                    name="share-mode"
+                    value="hash"
+                    checked={mode === "hash"}
+                    onChange={() => setMode("hash")}
+                  />
+                  <div className="share-dialog-option-body">
+                    <div className="share-dialog-option-title">By transaction hash</div>
+                    <div className="share-dialog-option-hint">
+                      <code>/tx/&lt;hash&gt;</code>. Shortest link; the opened page fetches the
+                      transaction from the chain, so it must already be on-chain. Carries no
+                      context or annotations.
+                    </div>
+                  </div>
+                </label>
+              )}
             </fieldset>
 
-            {target.kind === "validator" && hasCtx && (
+            {target.kind === "validator" && hasCtx && !hashMode && (
               <div className="share-dialog-section">
                 <label className="share-dialog-checkbox">
                   <input
@@ -251,7 +283,7 @@ export default function ShareDialog({ open, onOpenChange, target }: ShareDialogP
               </div>
             )}
 
-            {annotationCount > 0 && (
+            {annotationCount > 0 && !hashMode && (
               <div className="share-dialog-section">
                 <label className="share-dialog-checkbox">
                   <input
