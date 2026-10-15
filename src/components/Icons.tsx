@@ -177,3 +177,93 @@ export function CopyIcon({ size = 20, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function AddressBookIcon({ size = 16, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+        d="M6 4h11a2 2 0 012 2v12a2 2 0 01-2 2H6V4zm0 0a2 2 0 00-2 2v12a2 2 0 002 2M3 8h3M3 12h3M3 16h3"
+      />
+      <circle cx="12" cy="10" r="2" strokeWidth={1.8} />
+      <path strokeLinecap="round" strokeWidth={1.8} d="M9 16c.6-1.6 1.7-2.4 3-2.4s2.4.8 3 2.4" />
+    </svg>
+  );
+}
+
+export function TagIcon({ size = 12, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M11.5 3H5a2 2 0 00-2 2v6.5a2 2 0 00.6 1.4l7.5 7.5a2 2 0 002.8 0l6.6-6.6a2 2 0 000-2.8l-7.5-7.5A2 2 0 0011.5 3z"
+      />
+      <circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function AlertTriangleIcon({ size = 12, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M10.3 3.9L2.5 17.5A2 2 0 004.2 20.5h15.6a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"
+      />
+      <path strokeLinecap="round" strokeWidth={2} d="M12 9v4.5M12 17h.01" />
+    </svg>
+  );
+}
+
+export function PlusIcon({ size = 12, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <path strokeLinecap="round" strokeWidth={2.2} d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+export function PencilIcon({ size = 12, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M4 20h4l10.5-10.5a2 2 0 000-2.8l-1.2-1.2a2 2 0 00-2.8 0L4 16v4z"
+      />
+    </svg>
+  );
+}
+
+export function TrashIcon({ size = 12, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13M10 11v6M14 11v6"
+      />
+    </svg>
+  );
+}
+
+export function RefreshIcon({ size = 12, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M20 11a8 8 0 00-13.6-4.6L4 9m0-5v5h5m-5 2a8 8 0 0013.6 4.6L20 15m0 5v-5h-5"
+      />
+    </svg>
+  );
+}

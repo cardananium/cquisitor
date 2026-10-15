@@ -36,6 +36,17 @@ Out of scope (please report upstream instead):
 
 CQUISITOR is a client-side tool with no backend of its own — all CBOR / CDDL parsing, decoding, and schema validation happens locally in the browser. Some features additionally call public third-party APIs (e.g. on-chain context providers for transaction validation, DEX/protocol metadata lookups for richer transaction views); the exact set evolves over time. In every case the request carries only what that specific feature needs (an identifier, a hash, an offset — never raw transaction hex or arbitrary user input), and any keys you enter are kept in `localStorage` and sent only to the service you registered them with. If you'd rather avoid all third-party calls, run a local copy with `bun run dev` and don't trigger features that explicitly need external data. When testing on the public deployment, please avoid pasting sensitive data (e.g. mainnet keys).
 
+## The address book and the eternl registry
+
+The address book stores the labels you give an address in this browser's `localStorage`, and sends them nowhere.
+
+The labels it shows for contract scripts come from the [eternl Cardano registry](https://github.com/Tastenkunst/eternl-cardano-registry), a third-party list. Two decisions bound what that list is trusted with:
+
+- A registry name never becomes a green check. The check marks an address you saved; a registry name is a blue badge that says a third-party list names the script.
+- A snapshot of the registry ships with the app, so a first visit needs no request. The daily refresh from `raw.githubusercontent.com` can replace a label or add one; it cannot run code, and it cannot empty the list — a reply that does not parse, or that carries fewer than 200 scripts, is dropped and the snapshot stands. Every label is length-capped and stripped of control characters before it is shown. Turn the refresh off in the address book panel to use the snapshot alone.
+
+A wrong or hostile label is still a risk worth naming: a label that reads `SundaeSwap` is a claim about an address, not proof. Treat it the way you treat any other output of this tool — see the disclaimer below.
+
 ## Safe harbor
 
 We will not pursue legal action against, or ask law-enforcement to investigate, anyone conducting good-faith security research against CQUISITOR — provided that you:

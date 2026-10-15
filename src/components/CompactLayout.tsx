@@ -3,6 +3,7 @@
 import Image from "next/image";
 import TabNavigation, { TabId } from "./TabNavigation";
 import GitHubStarButton from "./GitHubStarButton";
+import AddressBookButton from "./addressbook/AddressBookButton";
 import SiteFooter from "./SiteFooter";
 import logo32 from "../../public/logo-32.png";
 
@@ -29,6 +30,7 @@ export default function CompactLayout({ children, activeTab, onTabChange }: Comp
           </div>
           <div className="flex items-center gap-4">
             <TabNavigation activeTab={activeTab} onTabChange={onTabChange} />
+            <AddressBookButton />
             <GitHubStarButton />
           </div>
         </div>
